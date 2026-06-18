@@ -121,6 +121,11 @@ Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTServer" "T
 $branchPlan = Read-Utf8Text $branchPlanPath
 Assert-Contains $branchPlan "| B14 |"
 Assert-Contains $branchPlan 'tauri-qqnt/src-tauri/tauri.conf.json'
+Assert-Contains $branchPlan 'externalBin: ["binaries/QQNTEngine", "binaries/QQNTServer"]'
+Assert-Contains $branchPlan 'tauri_qqnt_lib::run()'
+Assert-Contains $branchPlan 'shell/opener plugin'
+Assert-Contains $branchPlan 'sidecar'
+Assert-Contains $branchPlan 'tauri-qqnt/src-tauri/binaries/'
 Assert-Contains $branchPlan 'npm run tauri build'
 Assert-Contains $branchPlan "| BM6 | B14 |"
 Assert-Contains $branchPlan '`codex/qqnt-backend`'
@@ -128,6 +133,10 @@ Assert-Contains $branchPlan '`codex/qqnt-frontend`'
 Assert-Contains $branchPlan "tauri-qqnt/src-tauri/"
 Assert-Contains $branchPlan "tauri-qqnt/src/"
 Assert-NotContains $branchPlan '`tauri-qqnt/tauri.conf.json`'
+Assert-NotContains $branchPlan 'externalBin: ["QQNTEngine", "QQNTServer"]'
+Assert-NotContains $branchPlan 'shell plugin'
+Assert-NotContains $branchPlan 'empty module export'
+Assert-NotContains $branchPlan 'placeholder script'
 
 $coverage = Read-Utf8Text $coveragePath
 Assert-Contains $coverage "npm run tauri build"

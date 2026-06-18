@@ -29,11 +29,11 @@
 | `tauri-qqnt/src/App.tsx` | 空壳 |
 | `tauri-qqnt/src-tauri/` | Tauri v2 完整骨架 |
 | `tauri-qqnt/src-tauri/Cargo.toml` | 依赖已包含 `tauri`、`tauri-plugin-shell`、`tokio`、`serde_json` 等 |
-| `tauri-qqnt/src-tauri/tauri.conf.json` | `externalBin: ["QQNTEngine", "QQNTServer"]` 已注册；窗口 `decorations: false` |
-| `tauri-qqnt/src-tauri/src/main.rs` | 仅初始化 shell plugin，待后端填充 |
-| `tauri-qqnt/src-tauri/src/lib.rs` | 空模块导出 |
+| `tauri-qqnt/src-tauri/tauri.conf.json` | `externalBin: ["binaries/QQNTEngine", "binaries/QQNTServer"]` 已注册；窗口 `decorations: false` |
+| `tauri-qqnt/src-tauri/src/main.rs` | 调用 `tauri_qqnt_lib::run()` 进入 Rust 主进程 |
+| `tauri-qqnt/src-tauri/src/lib.rs` | 初始化 shell/opener plugin，启动 `QQNTServer` 与 `QQNTEngine` sidecar，并注册 Tauri commands |
 | `tauri-qqnt/src-tauri/capabilities/default.json` | 默认 capability |
-| `scripts/copy-sidecars.ps1` | 占位脚本 |
+| `scripts/copy-sidecars.ps1` | 将 `QQNTEngine` / `QQNTServer` 复制到 `tauri-qqnt/src-tauri/binaries/` 的 sidecar 同步脚本 |
 | `dev/redis-compose.yml` | Redis compose |
 | `docs/qqnt-ipcv1.md` | 协议 v1 文档框架 |
 
@@ -294,7 +294,7 @@ main
 1. **后端（GPT5.5）**：
    - `git checkout -b codex/qqnt-base`
    - 跑 `npm create tauri-app@latest tauri-qqnt -- --template react-ts`
-   - 配置 `externalBin`、空 Rust 模块、`scripts/copy-sidecars.ps1`、`dev/redis-compose.yml`、`docs/qqnt-ipcv1.md`
+   - 配置 `externalBin`、Rust 主进程入口、`scripts/copy-sidecars.ps1`、`dev/redis-compose.yml`、`docs/qqnt-ipcv1.md`
    - 基线验收 `npm run tauri dev` 能打开无边框窗口
    - push 后切 `codex/qqnt-backend` 开始 B 任务
 
