@@ -305,7 +305,7 @@ int main(int argc, char* argv[]) {
 | `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份 |
 | `e2e_rotation_request` | `{peerId, agreement}` | E2E 会话轮换请求 |
 | `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | E2E 会话轮换回应 |
-| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步；文件下载目录可影响 engine 接收文件保存位置 |
+| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步；`revision` 从 1 开始递增；文件下载目录可影响 engine 接收文件保存位置 |
 | `notification` | `{title, body}` | 需要前端通知 |
 | `error` | `{message, source}` | 通用错误 |
 
@@ -786,7 +786,7 @@ npm run tauri build
 | 7.2 | 个人资料编辑页 | Kimi | 昵称头像可修改 |
 | 7.3 | 8 个扩展页 mock 占位 | Kimi | 入口与 UI 完整 |
 
-> 后端已支持 `settings_sync` 校验、最近设置快照、`settings_synced` 事件，以及文件下载目录设置应用；前端可通过 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 影响 engine 接收文件保存位置，且任一已提供字段都必须保持类型合法，不会因其他下载目录字段存在而被跳过校验。
+> 后端已支持 `settings_sync` 校验、最近设置快照、`settings_synced` 事件，以及文件下载目录设置应用；设置同步 `revision` 从 1 开始递增；前端可通过 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 影响 engine 接收文件保存位置，且任一已提供字段都必须保持类型合法，不会因其他下载目录字段存在而被跳过校验。
 
 ### Phase 8：收尾
 

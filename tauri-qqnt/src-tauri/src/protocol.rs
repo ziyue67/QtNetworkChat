@@ -380,7 +380,7 @@ fn validate_group_member_updated_payload(payload: &Value) -> QQNTResult<()> {
 
 fn validate_settings_synced_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
     require_bool_field(payload, "accepted", contract_name)?;
-    require_unsigned_number_field(payload, "revision", contract_name)?;
+    require_positive_unsigned_number_field(payload, "revision", contract_name)?;
     require_object_field(payload, "settings", contract_name)?;
     require_optional_non_empty_string_field(payload, "appliedDownloadDir", contract_name)?;
 
@@ -435,6 +435,23 @@ fn require_unsigned_number_field(
     Err(QQNTError::rust(
         format!("invalid_{contract_name}_payload"),
         format!("QQNTEngine {contract_name} payload must include {field} unsigned number."),
+    ))
+}
+
+fn require_positive_unsigned_number_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    if matches!(payload.get(field).and_then(Value::as_u64), Some(value) if value > 0) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!(
+            "QQNTEngine {contract_name} payload must include {field} positive unsigned number."
+        ),
     ))
 }
 
@@ -1460,6 +1477,21 @@ mod tests {
     }
 
     #[test]
+    fn settings_synced_payload_rejects_zero_revision() {
+        let error = validate_event_payload(
+            "settings_synced",
+            &json!({
+                "accepted": true,
+                "revision": 0,
+                "settings": {}
+            }),
+        )
+        .expect_err("settings_synced with zero revision should fail");
+
+        assert_eq!(error.code, "invalid_settings_synced_payload");
+    }
+
+    #[test]
     fn settings_synced_payload_rejects_empty_applied_download_dir() {
         let error = validate_event_payload(
             "settings_synced",
@@ -1798,6 +1830,21 @@ mod tests {
             }),
         )
         .expect_err("settings_sync ack without revision should fail");
+
+        assert_eq!(error.code, "invalid_settings_sync_payload");
+    }
+
+    #[test]
+    fn settings_sync_ack_payload_rejects_zero_revision() {
+        let error = validate_command_ack_payload(
+            "settings_sync",
+            &json!({
+                "accepted": true,
+                "revision": 0,
+                "settings": {}
+            }),
+        )
+        .expect_err("settings_sync ack with zero revision should fail");
 
         assert_eq!(error.code, "invalid_settings_sync_payload");
     }

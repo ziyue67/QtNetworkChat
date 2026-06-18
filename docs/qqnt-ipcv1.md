@@ -160,7 +160,7 @@
 | `e2e_pin_identity` | `{accepted}` | 本地身份信任状态已更新 |
 | `e2e_request_rotation` | `{accepted}` | 命令已发送到服务端 |
 | `profile_update` | `{accepted, avatarSent, userName}` | 个人资料更新结果 |
-| `settings_sync` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步结果；下载目录实际应用时返回 `appliedDownloadDir` |
+| `settings_sync` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步结果；`revision` 从 1 开始递增；下载目录实际应用时返回 `appliedDownloadDir` |
 
 ## 6. 主动事件表
 
@@ -187,7 +187,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份状态 |
 | `e2e_rotation_request` | `{peerId, agreement}` | 收到 E2E 会话轮换请求 |
 | `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | 收到 E2E 会话轮换回应 |
-| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置已由 engine 接收；传 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 时同时应用接收文件下载目录 |
+| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置已由 engine 接收；`revision` 从 1 开始递增；传 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 时同时应用接收文件下载目录 |
 | `notification` | `{title, body}` | 前端通知 |
 | `error` | `{message, source}` | 通用错误 |
 
