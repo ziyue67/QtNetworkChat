@@ -581,8 +581,8 @@ async fn call_engine_payload(
     req_id: String,
     payload: Value,
 ) -> Result<Value, QQNTError> {
-    let packet = bridge::call_engine(state, command_packet(op, req_id, payload)).await?;
-    ack_payload(packet, op)
+    let packet = bridge::call_engine(state, command_packet(op, req_id.clone(), payload)).await?;
+    ack_payload(packet, op, &req_id)
 }
 
 fn command_packet(op: &str, req_id: String, payload: Value) -> Value {
@@ -600,7 +600,9 @@ fn compact_payload(mut payload: Value) -> Value {
     payload
 }
 
-fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
+fn ack_payload(packet: Value, op: &str, req_id: &str) -> Result<Value, QQNTError> {
+    validate_generic_ack_packet(&packet, op, req_id)?;
+
     if packet.get("status").and_then(Value::as_str) == Some("error") {
         let error = packet.get("error").cloned().unwrap_or_else(|| json!({}));
         return Err(QQNTError::new(
@@ -619,17 +621,7 @@ fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
         ));
     }
 
-    if packet.get("type").and_then(Value::as_str) != Some("ack")
-        || packet.get("op").and_then(Value::as_str) != Some(op)
-    {
-        return Err(QQNTError::rust(
-            "unexpected_ack",
-            format!("QQNTEngine returned an unexpected ack for {op}."),
-        ));
-    }
-
     let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
-    protocol::validate_command_ack_payload(op, &payload)?;
 
     Ok(payload)
 }
@@ -1082,6 +1074,7 @@ mod tests {
                 "payload": { "connected": true, "host": "127.0.0.1", "port": 8888 }
             }),
             "connect",
+            "req-1",
         )
         .expect("matching ack should return payload");
 
@@ -1100,11 +1093,68 @@ mod tests {
                 "error": { "code": "login_failed", "message": "bad password", "source": "engine" }
             }),
             "login",
+            "req-2",
         )
         .expect_err("engine error ack should map to QQNTError");
 
         assert_eq!(error.code, "login_failed");
         assert_eq!(error.source, "engine");
+    }
+
+    #[test]
+    fn ack_payload_rejects_mismatched_req_id() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "connect",
+                "reqId": "req-actual",
+                "status": "ok",
+                "payload": { "connected": true, "host": "127.0.0.1", "port": 8888 }
+            }),
+            "connect",
+            "req-expected",
+        )
+        .expect_err("typed ack reqId must match command reqId");
+
+        assert_eq!(error.code, "unexpected_ack");
+    }
+
+    #[test]
+    fn ack_payload_rejects_malformed_error_ack_before_mapping() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "send_file",
+                "reqId": "req-file",
+                "status": "error",
+                "error": { "code": "missing_target", "source": "engine" }
+            }),
+            "send_file",
+            "req-file",
+        )
+        .expect_err("typed error ack must keep the protocol error envelope");
+
+        assert_eq!(error.code, "invalid_ack_error");
+        assert_eq!(error.source, "rust");
+    }
+
+    #[test]
+    fn ack_payload_rejects_error_ack_mismatched_op_before_mapping() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "login",
+                "reqId": "req-login",
+                "status": "error",
+                "error": { "code": "login_failed", "message": "bad password", "source": "engine" }
+            }),
+            "connect",
+            "req-login",
+        )
+        .expect_err("typed error ack op must match before engine error mapping");
+
+        assert_eq!(error.code, "unexpected_ack");
+        assert_eq!(error.source, "rust");
     }
 
     #[test]
@@ -1118,6 +1168,7 @@ mod tests {
                 "payload": { "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION + 1 }
             }),
             "ready",
+            "req-ready",
         )
         .expect_err("ready ack protocol mismatch should fail");
 
@@ -1139,6 +1190,7 @@ mod tests {
                 }
             }),
             "get_group_list",
+            "req-groups",
         )
         .expect("get_group_list ack with contract fields should pass");
 
@@ -1156,6 +1208,7 @@ mod tests {
                 "payload": { "connected": true, "host": "127.0.0.1", "port": 70000 }
             }),
             "connect",
+            "req-connect",
         )
         .expect_err("connect ack with out-of-range port should fail");
 
@@ -1173,6 +1226,7 @@ mod tests {
                 "payload": { "accepted": true, "requiresConnect": true }
             }),
             "login",
+            "req-login",
         )
         .expect_err("login ack without mode should fail");
 
@@ -1190,6 +1244,7 @@ mod tests {
                 "payload": {}
             }),
             "send_file",
+            "req-file",
         )
         .expect_err("send_file ack without accepted should fail");
 
@@ -1207,6 +1262,7 @@ mod tests {
                 "payload": { "receiverId": "" }
             }),
             "send_private_message",
+            "req-message",
         )
         .expect_err("send_private_message ack without non-empty receiverId should fail");
 
@@ -1224,6 +1280,7 @@ mod tests {
                 "payload": { "cancelled": true }
             }),
             "cancel_transfer",
+            "req-cancel",
         )
         .expect_err("cancel_transfer ack without transferId should fail");
 
@@ -1253,6 +1310,7 @@ mod tests {
                 }
             }),
             "query_resume",
+            "req-resume",
         )
         .expect("query_resume ack with contract fields should pass");
 
@@ -1281,6 +1339,7 @@ mod tests {
                 }
             }),
             "query_resume",
+            "req-resume",
         )
         .expect_err("query_resume ack without receivedChunks should fail");
 
@@ -1298,6 +1357,7 @@ mod tests {
                 "payload": { "peerId": "10002", "session": {}, "identity": {} }
             }),
             "e2e_status",
+            "req-e2e",
         )
         .expect_err("e2e_status ack without localIdentity should fail");
 
@@ -1315,6 +1375,7 @@ mod tests {
                 "payload": { "accepted": true, "avatarSent": true }
             }),
             "profile_update",
+            "req-profile",
         )
         .expect_err("profile_update ack without userName should fail");
 
@@ -1334,6 +1395,7 @@ mod tests {
                 }
             }),
             "get_user_list",
+            "req-users",
         )
         .expect("get_user_list ack with contract fields should pass");
 
@@ -1353,6 +1415,7 @@ mod tests {
                 }
             }),
             "get_friend_list",
+            "req-friends",
         )
         .expect_err("get_friend_list ack without friends should fail");
 
@@ -1373,6 +1436,7 @@ mod tests {
                 }
             }),
             "get_group_list",
+            "req-groups",
         )
         .expect_err("get_group_list ack without removedGroups should fail");
 
@@ -1390,6 +1454,7 @@ mod tests {
                 "payload": { "accepted": true, "settings": {} }
             }),
             "settings_sync",
+            "req-settings",
         )
         .expect_err("settings_sync ack without revision should fail");
 
@@ -1407,6 +1472,7 @@ mod tests {
                 "payload": {}
             }),
             "connect",
+            "req-3",
         )
         .expect_err("mismatched ack op should fail");
 
