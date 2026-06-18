@@ -107,6 +107,11 @@ bool expectSameMap(const QMap<QString, QString>& actual, const QMap<QString, QSt
     return ok;
 }
 
+bool expectContains(const QString& actual, const QString& needle, const QString& label) {
+    return expect(actual.contains(needle),
+                  QStringLiteral("%1 should contain '%2'").arg(label, needle));
+}
+
 QStringList splitMarkdownTableRow(const QString& line) {
     QString trimmed = line.trimmed();
     if (trimmed.startsWith(QLatin1Char('|'))) {
@@ -228,6 +233,67 @@ QMap<QString, QString> extractMarkdownPayloads(const QString& markdown, const QS
     return payloads;
 }
 
+QMap<QString, QString> extractMarkdownColumnByKey(const QString& markdown,
+                                                  const QString& heading,
+                                                  const QString& keyColumnName,
+                                                  const QString& valueColumnName) {
+    const int headingIndex = markdown.indexOf(heading);
+    if (headingIndex < 0) {
+        return {};
+    }
+
+    const int nextHeadingIndex = markdown.indexOf(QStringLiteral("\n## "), headingIndex + heading.size());
+    const QString section = nextHeadingIndex < 0 ? markdown.mid(headingIndex) : markdown.mid(headingIndex, nextHeadingIndex - headingIndex);
+    const QStringList lines = section.split(QLatin1Char('\n'));
+    QMap<QString, QString> values;
+    int keyColumn = -1;
+    int valueColumn = -1;
+    bool inTable = false;
+
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (!inTable) {
+            if (line.startsWith(QLatin1Char('|'))
+                && line.contains(keyColumnName)
+                && line.contains(valueColumnName)) {
+                const QStringList headers = splitMarkdownTableRow(line);
+                for (int index = 0; index < headers.size(); ++index) {
+                    const QString header = untickCell(headers.at(index));
+                    if (header == keyColumnName) {
+                        keyColumn = index;
+                    } else if (header == valueColumnName) {
+                        valueColumn = index;
+                    }
+                }
+                inTable = keyColumn >= 0 && valueColumn >= 0;
+            }
+            continue;
+        }
+
+        if (!line.startsWith(QLatin1Char('|'))) {
+            if (!values.isEmpty()) {
+                break;
+            }
+            continue;
+        }
+        if (line.contains(QStringLiteral("---"))) {
+            continue;
+        }
+
+        const QStringList cells = splitMarkdownTableRow(line);
+        if (keyColumn >= cells.size() || valueColumn >= cells.size()) {
+            continue;
+        }
+        const QString key = untickCell(cells.at(keyColumn));
+        const QString value = cells.at(valueColumn).trimmed();
+        if (!key.isEmpty() && !value.isEmpty()) {
+            values.insert(key, value);
+        }
+    }
+
+    return values;
+}
+
 QStringList extractRegexCaptures(const QString& source, const QRegularExpression& pattern) {
     QStringList values;
     QRegularExpressionMatchIterator iterator = pattern.globalMatch(source);
@@ -318,6 +384,8 @@ int main(int argc, char* argv[]) {
         extractMarkdownPayloads(markdown, QStringLiteral("### 成功 ack payload 表"), QStringLiteral("op"));
     const QMap<QString, QString> documentedEventPayloads =
         extractMarkdownPayloads(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("event"));
+    const QMap<QString, QString> documentedCommandDescriptions =
+        extractMarkdownColumnByKey(markdown, QStringLiteral("## 5. 命令表"), QStringLiteral("op"), QStringLiteral("说明"));
     const QStringList expectedCommands = jsonStringArray(contractFixture, QStringLiteral("commands"));
     const QStringList expectedEvents = jsonStringArray(contractFixture, QStringLiteral("events"));
     const QMap<QString, QString> expectedCommandPayloads = jsonStringObject(contractFixture, QStringLiteral("commandPayloads"));
@@ -344,6 +412,12 @@ int main(int argc, char* argv[]) {
     ok = expectSameMap(documentedEventPayloads, expectedEventPayloads, QStringLiteral("documented event payloads")) && ok;
     ok = expectSameSet(routedCppCommands, expectedCommands, QStringLiteral("C++ routed commands")) && ok;
     ok = expectSameSet(emittedCppEvents, expectedEvents, QStringLiteral("C++ emitted events")) && ok;
+    ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("query_resume")),
+                        QStringLiteral("仅在提供 `filePath` 的恢复模式下有效"),
+                        QStringLiteral("query_resume command description")) && ok;
+    ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("settings_sync")),
+                        QStringLiteral("其他已提供字段仍需保持合法"),
+                        QStringLiteral("settings_sync command description")) && ok;
     if (!implementationPlan.isEmpty()) {
         ok = expect(implementationCommandPayloads.value(QStringLiteral("create_group"))
                         == expectedCommandPayloads.value(QStringLiteral("create_group")),
