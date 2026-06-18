@@ -415,6 +415,8 @@ int main(int argc, char* argv[]) {
                 "missing field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-accepted\",\"payload\":{\"senderId\":\"10001\"}}\n"),
                 "respond_friend_request missing accepted command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing\",\"payload\":{\"groupId\":\"public\"}}\n"),
+                "update_group_announcement missing announcement command should be written") && ok;
 
     QSet<QString> contractAckReqIds;
     for (const QString& command : contractCommands) {
@@ -443,7 +445,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field"),
-        QStringLiteral("smoke-friend-response-missing-accepted")
+        QStringLiteral("smoke-friend-response-missing-accepted"),
+        QStringLiteral("smoke-group-announcement-missing")
     };
     expectedAckReqIds.unite(contractAckReqIds);
 
@@ -601,6 +604,11 @@ int main(int argc, char* argv[]) {
                         "respond_friend_request missing accepted should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "respond_friend_request missing accepted should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-announcement-missing")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_announcement missing announcement should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_announcement missing announcement should use missing_field code") && ok;
         }
 
         if (contractAckReqIds.contains(reqId)) {

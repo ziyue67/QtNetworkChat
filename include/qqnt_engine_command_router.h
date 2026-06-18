@@ -52,6 +52,11 @@ private:
                        QString* value,
                        const QString& op,
                        const QString& reqId) const;
+    bool requireStringField(const QJsonObject& payload,
+                            const QString& field,
+                            QString* value,
+                            const QString& op,
+                            const QString& reqId) const;
     bool requireBool(const QJsonObject& payload,
                      const QString& field,
                      bool* value,

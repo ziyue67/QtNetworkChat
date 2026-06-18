@@ -389,12 +389,14 @@ void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString
 
 void QQNTEngineCommandRouter::handleUpdateGroupAnnouncement(const QString& op, const QString& reqId, const QJsonObject& payload) {
     QString groupId;
-    if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)) {
+    QString announcement;
+    if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
+        || !requireStringField(payload, QStringLiteral("announcement"), &announcement, op, reqId)) {
         return;
     }
     sendBoolAck(op,
                 reqId,
-                m_bridge->client()->sendServerGroupAnnouncementUpdate(groupId, payload.value(QStringLiteral("announcement")).toString()),
+                m_bridge->client()->sendServerGroupAnnouncementUpdate(groupId, announcement),
                 QStringLiteral("group_announcement_failed"),
                 QStringLiteral("Group announcement update requires an active server connection."));
 }
@@ -708,6 +710,23 @@ bool QQNTEngineCommandRouter::requireString(const QJsonObject& payload,
         return false;
     }
     *value = text;
+    return true;
+}
+
+bool QQNTEngineCommandRouter::requireStringField(const QJsonObject& payload,
+                                                 const QString& field,
+                                                 QString* value,
+                                                 const QString& op,
+                                                 const QString& reqId) const {
+    const QJsonValue fieldValue = payload.value(field);
+    if (!fieldValue.isString()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("missing_field"),
+                               QStringLiteral("payload.%1 is required.").arg(field));
+        return false;
+    }
+    *value = fieldValue.toString();
     return true;
 }
 
