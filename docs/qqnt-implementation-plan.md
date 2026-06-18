@@ -378,29 +378,30 @@ signals:
 
 ### 6.1 crate 模块
 
-- `main.rs`：应用入口；注册 command；启动引擎 sidecar。
-- `lib.rs`：导出各模块。
+- `main.rs`：应用入口；调用 `tauri_qqnt_lib::run()`。
+- `lib.rs`：注册 plugin/command，初始化 `AppState`，启动 `QQNTServer` 与 `QQNTEngine` sidecar。
 - `commands.rs`：`qqnt_command` 通用命令 + 类型化 wrapper。
 - `bridge.rs`：NDJSON 读写；请求-响应关联；事件广播。
-- `sidecar.rs`：spawn/monitor `QQNTEngine` 与可选 `QQNTServer`。
-- `state.rs`：`AppState` 与 `EngineState`。
+- `sidecar.rs`：spawn/monitor `QQNTEngine` 与 `QQNTServer`。
+- `state.rs`：`AppState`、`EngineState` 与 `ServerState`。
 - `error.rs`：统一错误类型。
 
 ### 6.2 sidecar 启动与 Redis 预检
 
-`sidecar.rs` 在托管模式下启动 `QQNTServer` 前，先 ping Redis：
+`sidecar.rs` 启动 `QQNTServer` 前，先 ping Redis；Redis 不可用时写入 server last error 并 emit `qqnt://server/fatal`：
 
 ```rust
-pub async fn start_server(state: &AppState, app: &AppHandle) -> Result<(), String> {
+async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
     let host = env::var("QTNETWORKCHAT_REDIS_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let port = env::var("QTNETWORKCHAT_REDIS_PORT").unwrap_or_else(|_| "6379".into()).parse::<u16>().unwrap_or(6379);
 
     if tokio::net::TcpStream::connect((host.as_str(), port)).await.is_err() {
-        app.emit("qqnt://server/fatal", json!({"reason":"redis_unavailable"})).ok();
-        return Err("Redis 未就绪".into());
+        return Err(QQNTError::rust("redis_unavailable", "Redis is unavailable for QQNTServer."));
     }
 
-    let (mut rx, child) = tauri::api::process::Command::new_sidecar("QQNTServer")
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("binaries/QQNTServer")
         .map_err(|e| e.to_string())?
         .spawn()
         .map_err(|e| e.to_string())?;
@@ -408,7 +409,7 @@ pub async fn start_server(state: &AppState, app: &AppHandle) -> Result<(), Strin
 }
 ```
 
-`QQNTEngine` 启动统一用 `Command::new_sidecar("QQNTEngine")`，Tauri 自动处理 dev/build 路径差异。
+`QQNTEngine` 启动统一用 `app.shell().sidecar("binaries/QQNTEngine")`，路径与 `tauri.conf.json` 的 `externalBin` 保持一致。
 
 ### 6.3 环境变量透传
 
@@ -699,7 +700,7 @@ npm run tauri build
 | 风险 | 缓解措施 | 对应任务 |
 |---|---|---|
 | `QQNTClientCore` 依赖 Widgets 导致无头启动失败 | 先不链 Widgets；必要时加 `QQNT_HEADLESS` 宏排除 GUI 代码；smoke test 验证无窗口 | Phase 1 任务 1.3、1.4 |
-| Sidecar 路径 dev/build 不一致 | `tauri.conf.json` 注册 `externalBin`；CMake POST_BUILD 执行 `scripts/copy-sidecars.ps1`；Rust 用 `Command::new_sidecar` | Phase 1 任务 1.2、1.2a |
+| Sidecar 路径 dev/build 不一致 | `tauri.conf.json` 注册 `externalBin`；CMake POST_BUILD 执行 `scripts/copy-sidecars.ps1`；Rust 用 `app.shell().sidecar("binaries/...")` | Phase 1 任务 1.2、1.2a |
 | Redis 未启动时 `QQNTServer` 拒绝启动 | `dev/redis-compose.yml`；Rust ping Redis 失败 emit `qqnt://server/fatal`；前端提示 | Phase 1 任务 1.1、1.2；Phase 3 任务 3.3 |
 | Engine stdout 被日志污染 | `qInstallMessageHandler` 重定向到 `stderr`；bridge 只写 NDJSON 到 `stdout` | Phase 1 任务 1.4 |
 | 前端 TS 类型与 C++/Rust 不同步 | `protocolVersion` 协商；单一 `docs/qqnt-ipcv1.md`；共享 fixture 三端漂移测试 | Phase 1 任务 1.4、1.5a；Phase 8 任务 8.1 |
