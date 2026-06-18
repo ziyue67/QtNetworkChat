@@ -251,16 +251,16 @@ int main(int argc, char* argv[]) {
 
 | op | payload | 说明 |
 |---|---|---|
-| `ready` | — | 返回协议版本、Qt 版本、E2E 状态 |
+| `ready` | `{}` | 返回协议版本、Qt 版本、E2E 状态 |
 | `connect` | `{host, port}` | TCP 连接服务端 |
-| `disconnect` | — | 断开 |
+| `disconnect` | `{}` | 断开 |
 | `login` | `{account, password}` | 账号密码登录 |
 | `register` | `{account, password, userName}` | 注册 |
-| `logout` | — | 清空状态并断开 |
+| `logout` | `{}` | 清空状态并断开 |
 | `set_user_info` | `{userId, userName}` | 设置当前用户信息 |
-| `get_user_list` | — | 在线用户 |
-| `get_friend_list` | — | 好友列表 |
-| `get_group_list` | — | 群组列表 |
+| `get_user_list` | `{}` | 在线用户 |
+| `get_friend_list` | `{}` | 好友列表 |
+| `get_group_list` | `{}` | 群组列表 |
 | `search_friend` | `{account}` | 搜 QQ 号 |
 | `send_friend_request` | `{receiverId}` | 加好友 |
 | `respond_friend_request` | `{senderId, accepted}` | 接受/拒绝 |
@@ -268,7 +268,7 @@ int main(int argc, char* argv[]) {
 | `send_group_message` | `{groupId, content}` | 群聊 |
 | `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 建私有群；`members` 可为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId` |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
-| `update_group_member` | `{groupId, memberId, action}` | 成员管理 |
+| `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 成员管理 |
 | `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
 | `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
@@ -287,16 +287,17 @@ int main(int argc, char* argv[]) {
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 状态 |
 | `login_result` | `{success, userId?, userName?, registered?, error?}` | 登录结果 |
-| `user_list` | `{users[]}` | 在线列表 |
-| `user_joined` / `user_left` | `{userId, userName}` | 上下线 |
-| `friend_list` | `{friends[]}` | 好友列表快照 |
-| `friend_event` | `{type, senderId, senderName, accepted?}` | 好友申请/回应 |
+| `user_list` | `{users}` | 在线列表 |
+| `user_joined` | `{userId, userName}` | 上线 |
+| `user_left` | `{userId, userName}` | 下线 |
+| `friend_list` | `{friends}` | 好友列表快照 |
+| `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请/回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
-| `group_snapshot` | `{groups[], removedGroups[], hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
-| `group_member_updated` | `{groupId, memberId, action}` | 群成员变更 |
-| `file_progress` | `{transferId, fileName, bytes, total, direction}` | 文件进度 |
-| `file_done` | `{transferId, fileName, filePath, direction}` | 文件完成 |
+| `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
+| `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更 |
+| `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件进度 |
+| `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件完成 |
 | `file_error` | `{transferId, reason}` | 文件失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话 |
 | `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份 |

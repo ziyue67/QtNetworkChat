@@ -396,6 +396,9 @@ int main(int argc, char* argv[]) {
     const QMap<QString, QString> implementationCommandPayloads = implementationPlan.isEmpty()
         ? QMap<QString, QString>()
         : extractMarkdownPayloads(implementationPlan, QStringLiteral("### 5.4 命令路由表 V1"), QStringLiteral("op"));
+    const QMap<QString, QString> implementationEventPayloads = implementationPlan.isEmpty()
+        ? QMap<QString, QString>()
+        : extractMarkdownPayloads(implementationPlan, QStringLiteral("### 5.5 主动事件表 V1"), QStringLiteral("event"));
 
     ok = validateReadyFixture(readyFixture) && ok;
     ok = expect(contractFixture.value(QStringLiteral("protocolVersion")).toInt() == 1,
@@ -419,9 +422,12 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("其他已提供字段仍需保持合法"),
                         QStringLiteral("settings_sync command description")) && ok;
     if (!implementationPlan.isEmpty()) {
-        ok = expect(implementationCommandPayloads.value(QStringLiteral("create_group"))
-                        == expectedCommandPayloads.value(QStringLiteral("create_group")),
-                    QStringLiteral("implementation plan create_group payload should match protocol contract")) && ok;
+        ok = expectSameMap(implementationCommandPayloads,
+                           expectedCommandPayloads,
+                           QStringLiteral("implementation plan command payloads")) && ok;
+        ok = expectSameMap(implementationEventPayloads,
+                           expectedEventPayloads,
+                           QStringLiteral("implementation plan event payloads")) && ok;
     }
     ok = expect(!routerSource.contains(QStringLiteral("QStringLiteral(\"messageType\")")),
                 QStringLiteral("C++ IPC router should use documented contentType instead of legacy messageType")) && ok;
