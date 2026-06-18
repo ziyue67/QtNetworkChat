@@ -314,17 +314,9 @@ pub async fn update_group_member(
     member_id: String,
     action: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "update_group_member",
-        req_id,
-        json!({
-            "groupId": group_id,
-            "memberId": member_id,
-            "action": action
-        }),
-    )
-    .await
+    let payload = update_group_member_payload(group_id, member_id, action)?;
+
+    call_engine_payload(state.inner(), "update_group_member", req_id, payload).await
 }
 
 #[tauri::command]
@@ -575,6 +567,20 @@ fn query_resume_payload(
     })
 }
 
+fn update_group_member_payload(
+    group_id: String,
+    member_id: String,
+    action: String,
+) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "groupId": group_id,
+        "memberId": member_id,
+        "action": action
+    });
+    validate_update_group_member_command_payload(&payload)?;
+    Ok(payload)
+}
+
 async fn call_engine_payload(
     state: &Arc<AppState>,
     op: &str,
@@ -662,7 +668,51 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
         ));
     }
 
+    let op = command_object
+        .get("op")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if let Some(payload) = command_object.get("payload") {
+        validate_command_payload(op, payload)?;
+    } else {
+        validate_command_payload(op, &json!({}))?;
+    }
+
     Ok(())
+}
+
+fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
+    match op.trim() {
+        "update_group_member" => validate_update_group_member_command_payload(payload),
+        _ => Ok(()),
+    }
+}
+
+fn validate_update_group_member_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "groupId")?;
+    require_non_empty_command_string_field(payload, "memberId")?;
+    let action = require_non_empty_command_string_field(payload, "action")?;
+    if matches!(action, "add" | "remove" | "promote_admin" | "demote_admin") {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        "invalid_action",
+        "update_group_member action must be add, remove, promote_admin, or demote_admin.",
+    ))
+}
+
+fn require_non_empty_command_string_field<'a>(
+    payload: &'a Value,
+    field: &str,
+) -> Result<&'a str, QQNTError> {
+    match payload.get(field).and_then(Value::as_str) {
+        Some(value) if !value.trim().is_empty() => Ok(value),
+        _ => Err(QQNTError::rust(
+            "missing_field",
+            format!("payload.{field} is required."),
+        )),
+    }
 }
 
 fn validate_generic_ack_packet(
@@ -929,6 +979,51 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_accepts_update_group_member_supported_action() {
+        validate_generic_command(&json!({
+            "op": "update_group_member",
+            "reqId": "req-group-member",
+            "payload": {
+                "groupId": "group-1",
+                "memberId": "10002",
+                "action": "promote_admin"
+            }
+        }))
+        .expect("generic update_group_member with supported action should pass");
+    }
+
+    #[test]
+    fn generic_command_rejects_update_group_member_missing_action() {
+        let error = validate_generic_command(&json!({
+            "op": "update_group_member",
+            "reqId": "req-group-member",
+            "payload": {
+                "groupId": "group-1",
+                "memberId": "10002"
+            }
+        }))
+        .expect_err("generic update_group_member without action should fail");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_update_group_member_unknown_action() {
+        let error = validate_generic_command(&json!({
+            "op": "update_group_member",
+            "reqId": "req-group-member",
+            "payload": {
+                "groupId": "group-1",
+                "memberId": "10002",
+                "action": "ban"
+            }
+        }))
+        .expect_err("generic update_group_member with unknown action should fail");
+
+        assert_eq!(error.code, "invalid_action");
+    }
+
+    #[test]
     fn generic_ack_packet_accepts_matching_ok_ack() {
         validate_generic_ack_packet(
             &json!({
@@ -1061,6 +1156,34 @@ mod tests {
         assert_eq!(packet["payload"]["groupId"], "group-1");
         assert_eq!(packet["payload"]["contentType"], "image");
         assert!(packet["payload"].get("receiverId").is_none());
+    }
+
+    #[test]
+    fn update_group_member_payload_accepts_supported_actions() {
+        for action in ["add", "remove", "promote_admin", "demote_admin"] {
+            let payload = update_group_member_payload(
+                "group-1".to_string(),
+                "10002".to_string(),
+                action.to_string(),
+            )
+            .expect("supported update_group_member action should pass");
+
+            assert_eq!(payload["groupId"], "group-1");
+            assert_eq!(payload["memberId"], "10002");
+            assert_eq!(payload["action"], action);
+        }
+    }
+
+    #[test]
+    fn update_group_member_payload_rejects_unknown_action() {
+        let error = update_group_member_payload(
+            "group-1".to_string(),
+            "10002".to_string(),
+            "ban".to_string(),
+        )
+        .expect_err("typed update_group_member should reject unknown actions before engine call");
+
+        assert_eq!(error.code, "invalid_action");
     }
 
     #[test]
