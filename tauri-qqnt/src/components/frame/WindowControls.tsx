@@ -1,5 +1,6 @@
 import { Minus, Square, X, Maximize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 interface WindowControlsProps {
   variant?: 'full' | 'close-only'
@@ -15,7 +16,6 @@ export function WindowControls({ variant = 'full' }: WindowControlsProps) {
 
     async function bind() {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window')
         const win = getCurrentWindow()
         const cleanup = await win.listen('tauri://resize', async () => {
           if (!mounted) return
@@ -37,7 +37,6 @@ export function WindowControls({ variant = 'full' }: WindowControlsProps) {
 
   async function minimize() {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
       await getCurrentWindow().minimize()
     } catch {
       // ignore
@@ -46,7 +45,6 @@ export function WindowControls({ variant = 'full' }: WindowControlsProps) {
 
   async function toggleMaximize() {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
       await getCurrentWindow().toggleMaximize()
     } catch {
       // ignore
@@ -55,7 +53,6 @@ export function WindowControls({ variant = 'full' }: WindowControlsProps) {
 
   async function close() {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
       await getCurrentWindow().close()
     } catch {
       // ignore

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { startWindowDrag } from '@/lib/window'
 
 type AuthMode = 'login' | 'register'
 
@@ -56,7 +57,10 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
   const displayError = localError || error
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] px-4 pb-5 pt-3">
+    <div
+      className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] px-4 pb-5 pt-3"
+      onMouseDown={startWindowDrag}
+    >
       <form
         onSubmit={handleSubmit}
         className="flex h-full w-full flex-col rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] px-5 pb-4 pt-5 shadow-[var(--qq-shadow)]"

@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/authStore'
+import { startWindowDrag } from '@/lib/window'
 import { WindowControls } from './WindowControls'
 
 interface TitleBarProps {
@@ -9,20 +10,10 @@ export function TitleBar({ variant = 'full' }: TitleBarProps) {
   const currentUser = useAuthStore((state) => state.currentUser)
   const showUserInfo = variant === 'full'
 
-  async function startDragging(event: React.MouseEvent<HTMLElement>) {
-    if (event.button !== 0) return
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
-      await getCurrentWindow().startDragging()
-    } catch {
-      // Not running inside Tauri (e.g. browser preview).
-    }
-  }
-
   return (
     <header
       className="flex h-[var(--qq-titlebar-height)] shrink-0 items-center justify-between border-b border-[var(--qq-border)] bg-[var(--qq-bg-secondary)] select-none"
-      onMouseDown={startDragging}
+      onMouseDown={startWindowDrag}
       data-tauri-drag-region
     >
       <div className="flex flex-1 items-center gap-3 px-4" data-tauri-drag-region>

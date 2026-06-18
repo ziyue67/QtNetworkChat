@@ -1,5 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { LogicalSize } from '@tauri-apps/api/dpi'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAuthStore } from '@/stores/authStore'
 import { useTheme } from '@/hooks/useTheme'
 import { useEngine } from '@/hooks/useEngine'
@@ -32,10 +34,6 @@ function useResizeForAuth(isAuthenticated: boolean) {
 
     async function resize() {
       try {
-        const [{ getCurrentWindow }, { LogicalSize }] = await Promise.all([
-          import('@tauri-apps/api/window'),
-          import('@tauri-apps/api/dpi')
-        ])
         const win = getCurrentWindow()
         const size = isAuthenticated ? MAIN_SIZE : LOGIN_SIZE
         const minSize = isAuthenticated ? MAIN_MIN_SIZE : LOGIN_MIN_SIZE
