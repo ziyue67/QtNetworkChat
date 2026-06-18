@@ -580,10 +580,14 @@ void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& 
 }
 
 void QQNTEngineCommandRouter::handleE2EAnnounceIdentity(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString peerId;
+    if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
+        return;
+    }
     QString rejectReason;
     sendBoolAck(op,
                 reqId,
-                m_bridge->client()->announceE2EIdentity(payload.value(QStringLiteral("peerId")).toString(), &rejectReason),
+                m_bridge->client()->announceE2EIdentity(peerId, &rejectReason),
                 QStringLiteral("e2e_announce_failed"),
                 rejectReason.isEmpty() ? QStringLiteral("E2E identity announce failed.") : rejectReason);
 }

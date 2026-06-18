@@ -389,6 +389,8 @@ int main(int argc, char* argv[]) {
                 "get_group_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
                 "e2e_status command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
+                "e2e_announce_identity missing peer command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-missing\",\"payload\":{}}\n"),
                 "cancel_transfer missing field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
@@ -427,6 +429,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-friends"),
         QStringLiteral("smoke-groups"),
         QStringLiteral("smoke-e2e"),
+        QStringLiteral("smoke-e2e-announce-missing"),
         QStringLiteral("smoke-cancel-missing"),
         QStringLiteral("smoke-cancel-inactive"),
         QStringLiteral("smoke-file-missing-target"),
@@ -526,6 +529,11 @@ int main(int argc, char* argv[]) {
                         "e2e_status should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("localIdentity")).isObject(),
                         "e2e_status payload should include local identity object") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-announce-missing")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_announce_identity missing peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_announce_identity missing peerId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-cancel-missing")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "cancel_transfer missing transferId should return error ack") && ok;
