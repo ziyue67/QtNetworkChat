@@ -40,18 +40,23 @@ QJsonObject makeResumeStatePayload(const QString& transferId,
     return response;
 }
 
-MessageType resumeMessageTypeFromPayload(const QJsonObject& payload) {
+MessageType resumeMessageTypeFromPayload(const QJsonObject& payload, const QString& contentType) {
+    const QString textType = contentType.trimmed().toLower();
+    if (textType == QLatin1String("image")) {
+        return MessageType::Image;
+    }
+    if (!textType.isEmpty()) {
+        return MessageType::File;
+    }
+
     const QJsonValue messageTypeValue = payload.value(QStringLiteral("messageType"));
     if (messageTypeValue.isDouble()
         && messageTypeValue.toInt() == static_cast<int>(MessageType::Image)) {
         return MessageType::Image;
     }
 
-    const QString textType = payload.value(QStringLiteral("contentType"))
-        .toString(messageTypeValue.toString())
-        .trimmed()
-        .toLower();
-    if (textType == QLatin1String("image")) {
+    const QString legacyTextType = messageTypeValue.toString().trimmed().toLower();
+    if (legacyTextType == QLatin1String("image")) {
         return MessageType::Image;
     }
     return MessageType::File;
@@ -514,7 +519,23 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
     QString fileHash;
     QVector<qint64> receivedChunks;
     QString rejectReason;
-    const QString filePath = payload.value(QStringLiteral("filePath")).toString().trimmed();
+    QString filePath;
+    QString contentType;
+    if (!optionalStringField(payload,
+                             QStringLiteral("filePath"),
+                             &filePath,
+                             QStringLiteral("invalid_file_path"),
+                             op,
+                             reqId)
+        || !optionalStringField(payload,
+                                QStringLiteral("contentType"),
+                                &contentType,
+                                QStringLiteral("invalid_content_type"),
+                                op,
+                                reqId)) {
+        return;
+    }
+    filePath = filePath.trimmed();
     QString groupId;
     QString receiverId;
     if (!optionalTargetString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
@@ -568,7 +589,7 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
     }
 
     QString resumeRejectReason;
-    const MessageType messageType = resumeMessageTypeFromPayload(payload);
+    const MessageType messageType = resumeMessageTypeFromPayload(payload, contentType);
     if (!m_bridge->client()->queryAndResumeFileTransfer(filePath,
                                                         transferId,
                                                         receiverId,

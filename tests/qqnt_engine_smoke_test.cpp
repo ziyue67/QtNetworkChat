@@ -413,6 +413,10 @@ int main(int argc, char* argv[]) {
                 "query_resume ambiguous target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"groupId\":1}}\n"),
                 "query_resume invalid target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-file-path\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":42}}\n"),
+                "query_resume invalid filePath command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":1}}\n"),
+                "query_resume invalid contentType command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-field\",\"payload\":{\"avatarBase64\":42}}\n"),
@@ -461,6 +465,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-resume-missing-target"),
         QStringLiteral("smoke-resume-ambiguous-target"),
         QStringLiteral("smoke-resume-invalid-target"),
+        QStringLiteral("smoke-resume-invalid-file-path"),
+        QStringLiteral("smoke-resume-invalid-content-type"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-profile-invalid-field"),
         QStringLiteral("smoke-settings"),
@@ -619,6 +625,16 @@ int main(int argc, char* argv[]) {
                         "query_resume with non-string target should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "query_resume with non-string target should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-invalid-file-path")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with non-string filePath should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_file_path"),
+                        "query_resume with non-string filePath should use invalid_file_path code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-invalid-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with non-string contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with non-string contentType should use invalid_content_type code") && ok;
         } else if (reqId == QLatin1String("smoke-profile")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "profile_update should return ok ack") && ok;
