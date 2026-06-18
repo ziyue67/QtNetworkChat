@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
   sendCommand,
@@ -33,6 +33,8 @@ import type {
   UserPresencePayload
 } from '@/types/qqnt'
 import { EXPECTED_PROTOCOL_VERSION } from '@/types/qqnt'
+
+export const ENGINE_UNAVAILABLE_MESSAGE = '未检测到本地 QQ NT 引擎，请从 Tauri 客户端启动并确认本地引擎运行。'
 
 export interface UseEngineReturn {
   engine: EngineState
@@ -217,22 +219,6 @@ export function useEngine(): UseEngineReturn {
   const serverHost = useAuthStore((state) => state.serverHost)
   const serverPort = useAuthStore((state) => state.serverPort)
 
-  const timersRef = useRef<number[]>([])
-  const mockRef = useRef(false)
-
-  const setMockIfNeeded = useCallback(
-    (mock: boolean) => {
-      mockRef.current = mock
-      setMockStore(mock)
-    },
-    [setMockStore]
-  )
-
-  const clearTimers = useCallback(() => {
-    timersRef.current.forEach((timer) => window.clearTimeout(timer))
-    timersRef.current = []
-  }, [])
-
   const setError = useCallback((message?: string) => {
     setEngine((prev) => ({ ...prev, error: message, loggingIn: false, connecting: false }))
   }, [])
@@ -245,8 +231,7 @@ export function useEngine(): UseEngineReturn {
       const handlers: Array<[QQNTEventType | string, (payload: unknown) => void]> = [
         ['qqnt://engine/ready', (payload) => {
           const readyPayload = payload as EngineReadyPayload
-          clearTimers()
-          setMockIfNeeded(false)
+          setMockStore(false)
           setEngine((prev) => ({
             ...prev,
             ready: true,
@@ -311,53 +296,28 @@ export function useEngine(): UseEngineReturn {
         }
       }
 
-      timersRef.current.push(
-        window.setTimeout(() => {
-          setEngine((prev) => {
-            if (prev.ready) return prev
-            setMockIfNeeded(true)
-            return {
-              ...prev,
-              ready: true,
-              connecting: false,
-              mock: true,
-              error: '未检测到本地 QQ NT 引擎，已临时进入离线预览。'
-            }
-          })
-        }, 4000)
-      )
-
       try {
         await sendCommand('ready', {})
       } catch {
-        // 引擎未就绪，等 fallback 计时器进入预览状态
+        if (!cancelled) {
+          setMockStore(false)
+          setEngine((prev) => ({ ...prev, ready: false, connecting: false, mock: false, error: ENGINE_UNAVAILABLE_MESSAGE }))
+        }
       }
     }
 
     bind()
     return () => {
       cancelled = true
-      clearTimers()
       unlisteners.forEach((unlisten) => unlisten())
     }
-  }, [clearTimers, loginStore, setError, setMockIfNeeded])
+  }, [loginStore, setError, setMockStore])
 
   const connect = useCallback(
     async (host?: string, port?: number) => {
       const connectHost = host ?? serverHost
       const connectPort = port ?? serverPort
       setEngine((prev) => ({ ...prev, connecting: true, error: undefined }))
-
-      if (mockRef.current) {
-        return new Promise<boolean>((resolve) => {
-          timersRef.current.push(
-            window.setTimeout(() => {
-              setEngine((prev) => ({ ...prev, connected: true, connecting: false }))
-              resolve(true)
-            }, 600)
-          )
-        })
-      }
 
       try {
         const ack = await connectServer(connectHost, connectPort)
@@ -367,9 +327,8 @@ export function useEngine(): UseEngineReturn {
         }
         setEngine((prev) => ({ ...prev, connected: ack.payload?.connected ?? true, connecting: false }))
         return true
-      } catch (err) {
-        const message = err instanceof Error ? err.message : '连接失败，请检查本地引擎是否已启动'
-        setError(message)
+      } catch {
+        setError(ENGINE_UNAVAILABLE_MESSAGE)
         return false
       }
     },
@@ -379,17 +338,6 @@ export function useEngine(): UseEngineReturn {
   const login = useCallback(
     async (account: string, password: string) => {
       setEngine((prev) => ({ ...prev, loggingIn: true, error: undefined }))
-
-      if (mockRef.current) {
-        timersRef.current.push(
-          window.setTimeout(() => {
-            setEngine((prev) => ({ ...prev, loggingIn: false }))
-            setMockIfNeeded(true)
-            loginStore({ id: account, nickname: account || 'QQ 用户', status: 'online' })
-          }, 600)
-        )
-        return
-      }
 
       try {
         const ack = await apiLogin(account, password)
@@ -401,23 +349,12 @@ export function useEngine(): UseEngineReturn {
         setError(message)
       }
     },
-    [loginStore, setError, setMockIfNeeded]
+    [setError]
   )
 
   const register = useCallback(
     async (account: string, password: string, userName: string): Promise<boolean> => {
       setEngine((prev) => ({ ...prev, loggingIn: true, error: undefined }))
-
-      if (mockRef.current) {
-        return new Promise((resolve) => {
-          timersRef.current.push(
-            window.setTimeout(() => {
-              setEngine((prev) => ({ ...prev, loggingIn: false }))
-              resolve(true)
-            }, 600)
-          )
-        })
-      }
 
       try {
         const ack = await apiRegister(account, password, userName)
@@ -437,7 +374,6 @@ export function useEngine(): UseEngineReturn {
   )
 
   const logout = useCallback(() => {
-    clearTimers()
     logoutStore()
     setEngine((prev) => ({
       ...prev,
@@ -445,10 +381,8 @@ export function useEngine(): UseEngineReturn {
       loggingIn: false,
       error: undefined
     }))
-    if (!mockRef.current) {
-      sendCommand('logout').catch(() => undefined)
-    }
-  }, [clearTimers, logoutStore])
+    sendCommand('logout').catch(() => undefined)
+  }, [logoutStore])
 
   return {
     engine,

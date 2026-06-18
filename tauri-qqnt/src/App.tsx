@@ -121,6 +121,8 @@ function LoginScreen({ engine }: { engine: UseEngineReturn }) {
           await engine.login(account, password)
         }}
         onRegister={async (account, password) => {
+          const ok = await engine.connect()
+          if (!ok) return false
           return engine.register(account, password, account)
         }}
       />
