@@ -289,10 +289,10 @@ int main(int argc, char* argv[]) {
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 状态 |
 | `login_result` | `{success, userId?, userName?, registered?, error?}` | 登录结果 |
-| `user_list` | `{users}` | 在线列表 |
+| `user_list` | `{users: UserSummary[]}` | 在线列表 |
 | `user_joined` | `{userId, userName}` | 上线 |
 | `user_left` | `{userId, userName}` | 下线 |
-| `friend_list` | `{friends}` | 好友列表快照 |
+| `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
 | `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请/回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |

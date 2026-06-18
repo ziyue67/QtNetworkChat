@@ -237,13 +237,45 @@ fn validate_friend_search_result_payload(payload: &Value) -> QQNTResult<()> {
 }
 
 fn validate_user_list_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
-    require_array_field(payload, "users", contract_name)?;
+    require_user_array_field(payload, "users", contract_name)?;
 
     Ok(())
 }
 
 fn validate_friend_list_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
-    require_array_field(payload, "friends", contract_name)?;
+    require_user_array_field(payload, "friends", contract_name)?;
+
+    Ok(())
+}
+
+fn require_user_array_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
+    let Some(items) = payload.get(field).and_then(Value::as_array) else {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload must include {field} array."),
+        ));
+    };
+
+    for item in items {
+        validate_user_item_payload(item, contract_name)?;
+    }
+
+    Ok(())
+}
+
+fn validate_user_item_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    if !payload.is_object() {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload user entries must be objects."),
+        ));
+    }
+
+    require_non_empty_string_field(payload, "id", contract_name)?;
+    require_string_field(payload, "name", contract_name)?;
+    require_string_field(payload, "avatar", contract_name)?;
+    require_bool_field(payload, "online", contract_name)?;
+    require_string_field(payload, "lastActive", contract_name)?;
 
     Ok(())
 }
@@ -786,6 +818,16 @@ mod tests {
             .collect()
     }
 
+    fn user_contract_item() -> Value {
+        json!({
+            "id": "10002",
+            "name": "Bob",
+            "avatar": "",
+            "online": true,
+            "lastActive": ""
+        })
+    }
+
     fn contract_command_ack_payload(op: &str) -> Value {
         match op {
             "ready" => json!({
@@ -810,8 +852,24 @@ mod tests {
                 "requiresConnect": true,
                 "mode": "register"
             }),
-            "get_user_list" => json!({ "users": [] }),
-            "get_friend_list" => json!({ "friends": [] }),
+            "get_user_list" => json!({
+                "users": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }]
+            }),
+            "get_friend_list" => json!({
+                "friends": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }]
+            }),
             "get_group_list" => json!({
                 "groups": [],
                 "removedGroups": [],
@@ -881,12 +939,28 @@ mod tests {
                 "userName": "Alice",
                 "registered": false
             }),
-            "user_list" => json!({ "users": [] }),
+            "user_list" => json!({
+                "users": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }]
+            }),
             "user_joined" | "user_left" => json!({
                 "userId": "10002",
                 "userName": "Bob"
             }),
-            "friend_list" => json!({ "friends": [] }),
+            "friend_list" => json!({
+                "friends": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }]
+            }),
             "friend_event" => json!({
                 "type": "request_received",
                 "senderId": "10002",
@@ -1183,10 +1257,10 @@ mod tests {
         validate_event_payload(
             "user_list",
             &json!({
-                "users": []
+                "users": [user_contract_item()]
             }),
         )
-        .expect("user_list with users array should pass");
+        .expect("user_list with user contract item should pass");
     }
 
     #[test]
@@ -1194,10 +1268,71 @@ mod tests {
         validate_event_payload(
             "friend_list",
             &json!({
-                "friends": []
+                "friends": [user_contract_item()]
             }),
         )
-        .expect("friend_list with friends array should pass");
+        .expect("friend_list with user contract item should pass");
+    }
+
+    #[test]
+    fn user_list_payload_accepts_empty_users_array() {
+        validate_event_payload(
+            "user_list",
+            &json!({
+                "users": []
+            }),
+        )
+        .expect("user_list with empty users array should pass");
+    }
+
+    #[test]
+    fn user_list_payload_rejects_non_object_user() {
+        let error = validate_event_payload(
+            "user_list",
+            &json!({
+                "users": ["10002"]
+            }),
+        )
+        .expect_err("user_list with non-object entry should fail");
+
+        assert_eq!(error.code, "invalid_user_list_payload");
+    }
+
+    #[test]
+    fn user_list_payload_rejects_empty_user_id() {
+        let error = validate_event_payload(
+            "user_list",
+            &json!({
+                "users": [{
+                    "id": " ",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }]
+            }),
+        )
+        .expect_err("user_list with empty user id should fail");
+
+        assert_eq!(error.code, "invalid_user_list_payload");
+    }
+
+    #[test]
+    fn friend_list_payload_rejects_missing_online() {
+        let error = validate_event_payload(
+            "friend_list",
+            &json!({
+                "friends": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "lastActive": ""
+                }]
+            }),
+        )
+        .expect_err("friend_list without online should fail");
+
+        assert_eq!(error.code, "invalid_friend_list_payload");
     }
 
     #[test]
@@ -1921,10 +2056,10 @@ mod tests {
         validate_command_ack_payload(
             "get_user_list",
             &json!({
-                "users": []
+                "users": [user_contract_item()]
             }),
         )
-        .expect("get_user_list ack with users array should pass");
+        .expect("get_user_list ack with user contract item should pass");
     }
 
     #[test]
@@ -1936,6 +2071,25 @@ mod tests {
             }),
         )
         .expect_err("get_friend_list ack without friends array should fail");
+
+        assert_eq!(error.code, "invalid_get_friend_list_payload");
+    }
+
+    #[test]
+    fn get_friend_list_ack_payload_rejects_bad_friend_item() {
+        let error = validate_command_ack_payload(
+            "get_friend_list",
+            &json!({
+                "friends": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": "yes",
+                    "lastActive": ""
+                }]
+            }),
+        )
+        .expect_err("get_friend_list ack with bad friend item should fail");
 
         assert_eq!(error.code, "invalid_get_friend_list_payload");
     }

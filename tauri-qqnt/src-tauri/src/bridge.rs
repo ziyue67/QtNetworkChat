@@ -310,11 +310,23 @@ mod tests {
                 "contractProbe": true
             }),
             "user_list" => json!({
-                "users": [],
+                "users": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }],
                 "contractProbe": true
             }),
             "friend_list" => json!({
-                "friends": [],
+                "friends": [{
+                    "id": "10002",
+                    "name": "Bob",
+                    "avatar": "",
+                    "online": true,
+                    "lastActive": ""
+                }],
                 "contractProbe": true
             }),
             "user_joined" => json!({
@@ -595,6 +607,21 @@ mod tests {
     fn dispatches_invalid_user_list_payload_as_error() {
         let dispatch =
             dispatch_stdout_line(br#"{"type":"event","event":"user_list","payload":{}}"#);
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_user_list_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_user_list_item_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"user_list","payload":{"users":[{"id":"10002","name":"Bob","avatar":"","online":"yes","lastActive":""}]}}"#,
+        );
 
         match dispatch {
             EngineDispatch::Error(error) => {

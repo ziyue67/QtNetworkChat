@@ -140,8 +140,8 @@
 | `register` | `{accepted, requiresConnect, mode=register}` | 注册凭据已接收 |
 | `logout` | `{}` | 空成功回包 |
 | `set_user_info` | `{}` | 空成功回包 |
-| `get_user_list` | `{users}` | 在线用户列表快照 |
-| `get_friend_list` | `{friends}` | 好友列表快照 |
+| `get_user_list` | `{users: UserSummary[]}` | 在线用户列表快照 |
+| `get_friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
 | `get_group_list` | `{groups, removedGroups, hasSnapshot}` | 群组列表快照 |
 | `search_friend` | `{accepted}` | 命令已发送到服务端 |
 | `send_friend_request` | `{accepted}` | 命令已发送到服务端 |
@@ -171,10 +171,10 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 引擎初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 连接状态变化 |
 | `login_result` | `{success, userId?, userName?, registered?, error?}` | 登录结果 |
-| `user_list` | `{users}` | 在线用户列表 |
+| `user_list` | `{users: UserSummary[]}` | 在线用户列表 |
 | `user_joined` | `{userId, userName}` | 用户上线 |
 | `user_left` | `{userId, userName}` | 用户下线 |
-| `friend_list` | `{friends}` | 好友列表快照 |
+| `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
 | `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请发送、收到或回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
@@ -191,7 +191,29 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `notification` | `{title, body}` | 前端通知 |
 | `error` | `{message, source}` | 通用错误 |
 
-## 7. 消息模型最小字段
+## 7. 用户模型最小字段
+
+`user_list.users`、`friend_list.friends`、`get_user_list` ack、`get_friend_list` ack 中的列表项都使用同一个用户摘要对象：
+
+```json
+{
+  "id": "10002",
+  "name": "Bob",
+  "avatar": "",
+  "online": true,
+  "lastActive": ""
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | non-empty string | 用户账号/ID |
+| `name` | string | 显示名，可为空字符串 |
+| `avatar` | string | 头像路径或标识，可为空字符串 |
+| `online` | boolean | 当前在线状态 |
+| `lastActive` | string | ISO 时间字符串；未知时可为空字符串 |
+
+## 8. 消息模型最小字段
 
 ```json
 {
@@ -215,7 +237,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `contentType` | `text` \| `image` \| `file` \| `system` | 消息类型 |
 | `status` | `sending` \| `sent` \| `failed` \| `received` | 消息状态 |
 
-## 8. Tauri 事件与命令约定
+## 9. Tauri 事件与命令约定
 
 - 前端命令入口固定为 `invoke('qqnt_command', { payload })`。
 - Engine 事件固定为 `listen('qqnt://engine/<event>', handler)`。
