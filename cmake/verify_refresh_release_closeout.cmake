@@ -114,6 +114,7 @@ execute_process(
         -ArchivePublishingStatus "pending-environment-publication"
         -ArchivePublishingChannel "team-share"
         -RunDeliveryDrill
+        -NoDeploy
     WORKING_DIRECTORY "${REPO_DIR}"
     RESULT_VARIABLE refresh_result
     OUTPUT_VARIABLE refresh_output
