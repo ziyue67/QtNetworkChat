@@ -56,6 +56,7 @@ pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()>
     match op {
         "ready" => validate_ready_payload(payload),
         "connect" => validate_connect_ack_payload(payload),
+        "disconnect" | "logout" | "set_user_info" => validate_empty_object_ack_payload(payload, op),
         "login" => validate_login_ack_payload(payload, "login", "login"),
         "register" => validate_login_ack_payload(payload, "register", "register"),
         "get_user_list" => validate_user_list_payload(payload, "get_user_list"),
@@ -107,6 +108,17 @@ fn validate_bool_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult
     require_true_bool_field(payload, "accepted", contract_name)?;
 
     Ok(())
+}
+
+fn validate_empty_object_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    if matches!(payload, Value::Object(map) if map.is_empty()) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must be an empty object."),
+    ))
 }
 
 fn validate_send_private_message_ack_payload(payload: &Value) -> QQNTResult<()> {
@@ -619,6 +631,166 @@ fn require_string_or_number_field(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    const VALIDATED_COMMAND_ACK_OPS: &[&str] = &[
+        "ready",
+        "connect",
+        "disconnect",
+        "login",
+        "register",
+        "logout",
+        "set_user_info",
+        "get_user_list",
+        "get_friend_list",
+        "get_group_list",
+        "search_friend",
+        "send_friend_request",
+        "respond_friend_request",
+        "send_private_message",
+        "send_group_message",
+        "create_group",
+        "update_group_announcement",
+        "update_group_member",
+        "send_file",
+        "send_image",
+        "cancel_transfer",
+        "query_resume",
+        "e2e_status",
+        "e2e_announce_identity",
+        "e2e_pin_identity",
+        "e2e_request_rotation",
+        "profile_update",
+        "settings_sync",
+    ];
+
+    fn protocol_contract() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../tests/fixtures/protocol_contract.json"
+        ))
+        .expect("protocol contract fixture should parse")
+    }
+
+    fn string_array<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_array()
+            .expect("protocol contract key should be an array")
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .expect("protocol contract value should be a string")
+            })
+            .collect()
+    }
+
+    fn object_keys<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_object()
+            .expect("protocol contract key should be an object")
+            .keys()
+            .map(|item| item.as_str())
+            .collect()
+    }
+
+    fn contract_command_ack_payload(op: &str) -> Value {
+        match op {
+            "ready" => json!({
+                "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+                "version": "test",
+                "qtVersion": "6.8.0",
+                "e2eStatus": {}
+            }),
+            "connect" => json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 8888
+            }),
+            "disconnect" | "logout" | "set_user_info" => json!({}),
+            "login" => json!({
+                "accepted": true,
+                "requiresConnect": false,
+                "mode": "login"
+            }),
+            "register" => json!({
+                "accepted": true,
+                "requiresConnect": true,
+                "mode": "register"
+            }),
+            "get_user_list" => json!({ "users": [] }),
+            "get_friend_list" => json!({ "friends": [] }),
+            "get_group_list" => json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": false
+            }),
+            "search_friend"
+            | "send_friend_request"
+            | "respond_friend_request"
+            | "send_group_message"
+            | "create_group"
+            | "update_group_announcement"
+            | "update_group_member"
+            | "send_file"
+            | "send_image"
+            | "e2e_announce_identity"
+            | "e2e_pin_identity"
+            | "e2e_request_rotation" => json!({ "accepted": true }),
+            "send_private_message" => json!({ "receiverId": "10001" }),
+            "cancel_transfer" => json!({
+                "cancelled": true,
+                "transferId": "transfer-1"
+            }),
+            "query_resume" => json!({
+                "canResume": true,
+                "transferId": "transfer-1",
+                "confirmedBytes": "128",
+                "nextChunkIndex": "2",
+                "fileSize": "1024",
+                "chunkSize": "64",
+                "chunkCount": "16",
+                "fileHash": "abc123",
+                "receivedChunks": ["0", "1"],
+                "resumed": false,
+                "mode": "query"
+            }),
+            "e2e_status" => json!({ "localIdentity": {} }),
+            "profile_update" => json!({
+                "accepted": true,
+                "avatarSent": false,
+                "userName": "Alice"
+            }),
+            "settings_sync" => json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": {}
+            }),
+            _ => panic!("missing command ack contract sample for {op}"),
+        }
+    }
+
+    #[test]
+    fn command_ack_contract_covers_protocol_commands() {
+        let contract = protocol_contract();
+        let mut commands = string_array(&contract, "commands");
+        let mut ack_payloads = object_keys(&contract, "ackPayloads");
+        let mut validated = VALIDATED_COMMAND_ACK_OPS.to_vec();
+
+        commands.sort_unstable();
+        ack_payloads.sort_unstable();
+        validated.sort_unstable();
+
+        assert_eq!(ack_payloads, commands);
+        assert_eq!(validated, commands);
+    }
+
+    #[test]
+    fn command_ack_contract_payload_samples_pass_validator() {
+        let contract = protocol_contract();
+        for op in string_array(&contract, "commands") {
+            let payload = contract_command_ack_payload(op);
+            validate_command_ack_payload(op, &payload)
+                .unwrap_or_else(|error| panic!("{op} ack sample should pass: {error:?}"));
+        }
+    }
 
     #[test]
     fn ready_payload_accepts_expected_protocol_version() {
