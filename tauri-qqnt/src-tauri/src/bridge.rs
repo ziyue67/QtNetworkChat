@@ -202,6 +202,32 @@ mod tests {
                 "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION,
                 "contractProbe": true
             }),
+            "connection_state" => json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 12345,
+                "contractProbe": true
+            }),
+            "login_result" => json!({
+                "success": true,
+                "userId": "10001",
+                "userName": "Alice",
+                "registered": false,
+                "contractProbe": true
+            }),
+            "friend_search_result" => json!({
+                "found": true,
+                "userId": "10002",
+                "userName": "Bob",
+                "online": true,
+                "reason": "",
+                "contractProbe": true
+            }),
+            "message" => json!({
+                "sessionId": "10001",
+                "message": {},
+                "contractProbe": true
+            }),
             "group_snapshot" => json!({
                 "groups": [],
                 "removedGroups": [],
@@ -228,6 +254,30 @@ mod tests {
                 "reason": "cancelled",
                 "contractProbe": true
             }),
+            "e2e_session_state" => json!({
+                "peerId": "10002",
+                "rotationRequired": false,
+                "contractProbe": true
+            }),
+            "e2e_identity_state" => json!({
+                "peerId": "10002",
+                "configured": true,
+                "trusted": true,
+                "publicKeyFingerprintSha256": "abcdef",
+                "contractProbe": true
+            }),
+            "e2e_rotation_request" => json!({
+                "peerId": "10002",
+                "agreement": {},
+                "contractProbe": true
+            }),
+            "e2e_rotation_response" => json!({
+                "peerId": "10002",
+                "agreement": {},
+                "accepted": true,
+                "reason": "",
+                "contractProbe": true
+            }),
             "settings_synced" => json!({
                 "accepted": true,
                 "revision": 1,
@@ -237,6 +287,11 @@ mod tests {
             "notification" => json!({
                 "title": "QQ NT",
                 "body": "Contract notification",
+                "contractProbe": true
+            }),
+            "error" => json!({
+                "message": "contract error",
+                "source": "client",
                 "contractProbe": true
             }),
             _ => json!({ "contractProbe": true }),
@@ -261,14 +316,14 @@ mod tests {
     #[test]
     fn dispatches_event_to_engine_topic() {
         let dispatch = dispatch_stdout_line(
-            br#"{"type":"event","event":"message","payload":{"sessionId":"10001"}}"#,
+            br#"{"type":"event","event":"message","payload":{"sessionId":"10001","message":{}}}"#,
         );
 
         assert_eq!(
             dispatch,
             EngineDispatch::Event {
                 topic: "qqnt://engine/message".to_string(),
-                payload: json!({ "sessionId": "10001" }),
+                payload: json!({ "sessionId": "10001", "message": {} }),
             }
         );
     }
@@ -319,6 +374,66 @@ mod tests {
         match dispatch {
             EngineDispatch::Error(error) => {
                 assert_eq!(error["code"], "invalid_group_snapshot_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_connection_state_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"connection_state","payload":{"host":"127.0.0.1","port":12345}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_connection_state_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_login_result_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"login_result","payload":{"success":false}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_login_result_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_message_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"message","payload":{"sessionId":"10001"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_message_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_e2e_rotation_request_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"e2e_rotation_request","payload":{"peerId":"10002"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_e2e_rotation_request_payload");
                 assert_eq!(error["source"], "rust");
             }
             other => panic!("expected error dispatch, got {other:?}"),

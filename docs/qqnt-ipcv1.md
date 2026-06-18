@@ -133,13 +133,13 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 |---|---|---|
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 引擎初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 连接状态变化 |
-| `login_result` | `{success, userId, userName, error?}` | 登录结果 |
+| `login_result` | `{success, userId?, userName?, registered?, error?}` | 登录结果 |
 | `user_list` | `{users}` | 在线用户列表 |
 | `user_joined` | `{userId, userName}` | 用户上线 |
 | `user_left` | `{userId, userName}` | 用户下线 |
 | `friend_list` | `{friends}` | 好友列表快照 |
 | `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请发送、收到或回应 |
-| `friend_search_result` | `{found, userId, userName, online}` | 搜索好友结果 |
+| `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action}` | 群成员变化 |
@@ -147,7 +147,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `file_done` | `{transferId, fileName, filePath, direction}` | 文件传输完成 |
 | `file_error` | `{transferId, reason}` | 文件传输失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话状态 |
-| `e2e_identity_state` | `{peerId, trusted, fingerprint}` | E2E 身份状态 |
+| `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份状态 |
 | `e2e_rotation_request` | `{peerId, agreement}` | 收到 E2E 会话轮换请求 |
 | `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | 收到 E2E 会话轮换回应 |
 | `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置已由 engine 接收；传 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 时同时应用接收文件下载目录 |

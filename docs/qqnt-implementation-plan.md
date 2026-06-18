@@ -286,12 +286,12 @@ int main(int argc, char* argv[]) {
 |---|---|---|
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 状态 |
-| `login_result` | `{success, userId, userName, error?}` | 登录结果 |
+| `login_result` | `{success, userId?, userName?, registered?, error?}` | 登录结果 |
 | `user_list` | `{users[]}` | 在线列表 |
 | `user_joined` / `user_left` | `{userId, userName}` | 上下线 |
 | `friend_list` | `{friends[]}` | 好友列表快照 |
 | `friend_event` | `{type, senderId, senderName, accepted?}` | 好友申请/回应 |
-| `friend_search_result` | `{found, userId, userName, online}` | 搜索结果 |
+| `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups[], removedGroups[], hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action}` | 群成员变更 |
@@ -299,7 +299,9 @@ int main(int argc, char* argv[]) {
 | `file_done` | `{transferId, fileName, filePath, direction}` | 文件完成 |
 | `file_error` | `{transferId, reason}` | 文件失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话 |
-| `e2e_identity_state` | `{peerId, trusted, fingerprint}` | E2E 身份 |
+| `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份 |
+| `e2e_rotation_request` | `{peerId, agreement}` | E2E 会话轮换请求 |
+| `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | E2E 会话轮换回应 |
 | `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步；文件下载目录可影响 engine 接收文件保存位置 |
 | `notification` | `{title, body}` | 需要前端通知 |
 | `error` | `{message, source}` | 通用错误 |
