@@ -386,6 +386,8 @@ int main(int argc, char* argv[]) {
         extractMarkdownPayloads(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("event"));
     const QMap<QString, QString> documentedCommandDescriptions =
         extractMarkdownColumnByKey(markdown, QStringLiteral("## 5. 命令表"), QStringLiteral("op"), QStringLiteral("说明"));
+    const QMap<QString, QString> documentedEventDescriptions =
+        extractMarkdownColumnByKey(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("event"), QStringLiteral("说明"));
     const QStringList expectedCommands = jsonStringArray(contractFixture, QStringLiteral("commands"));
     const QStringList expectedEvents = jsonStringArray(contractFixture, QStringLiteral("events"));
     const QMap<QString, QString> expectedCommandPayloads = jsonStringObject(contractFixture, QStringLiteral("commandPayloads"));
@@ -421,6 +423,12 @@ int main(int argc, char* argv[]) {
     ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("settings_sync")),
                         QStringLiteral("其他已提供字段仍需保持合法"),
                         QStringLiteral("settings_sync command description")) && ok;
+    ok = expectContains(documentedEventDescriptions.value(QStringLiteral("file_progress")),
+                        QStringLiteral("无符号整数字符串"),
+                        QStringLiteral("file_progress event description")) && ok;
+    ok = expectContains(documentedEventDescriptions.value(QStringLiteral("file_error")),
+                        QStringLiteral("无符号整数字符串"),
+                        QStringLiteral("file_error event description")) && ok;
     if (!implementationPlan.isEmpty()) {
         ok = expectSameMap(implementationCommandPayloads,
                            expectedCommandPayloads,

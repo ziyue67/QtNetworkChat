@@ -580,8 +580,8 @@ fn validate_file_progress_payload(payload: &Value) -> QQNTResult<()> {
         &["incoming", "outgoing"],
         "file_progress",
     )?;
-    require_string_or_number_field(payload, "bytes", "file_progress")?;
-    require_string_or_number_field(payload, "total", "file_progress")?;
+    require_unsigned_integer_string_field(payload, "bytes", "file_progress")?;
+    require_unsigned_integer_string_field(payload, "total", "file_progress")?;
 
     Ok(())
 }
@@ -605,8 +605,8 @@ fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
         &["incoming", "outgoing"],
         "file_error",
     )?;
-    require_string_or_number_field(payload, "bytes", "file_error")?;
-    require_string_or_number_field(payload, "total", "file_error")?;
+    require_unsigned_integer_string_field(payload, "bytes", "file_error")?;
+    require_unsigned_integer_string_field(payload, "total", "file_error")?;
 
     Ok(())
 }
@@ -1946,7 +1946,7 @@ mod tests {
                 "transferId": "transfer-1",
                 "fileName": "report.zip",
                 "bytes": "128",
-                "total": 256,
+                "total": "256",
                 "direction": "outgoing"
             }),
         )
@@ -1998,6 +1998,23 @@ mod tests {
             }),
         )
         .expect_err("file_progress with unknown direction should fail");
+
+        assert_eq!(error.code, "invalid_file_progress_payload");
+    }
+
+    #[test]
+    fn file_progress_payload_rejects_numeric_counters() {
+        let error = validate_event_payload(
+            "file_progress",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "bytes": 128,
+                "total": "256",
+                "direction": "outgoing"
+            }),
+        )
+        .expect_err("file_progress with numeric counters should fail");
 
         assert_eq!(error.code, "invalid_file_progress_payload");
     }
@@ -2089,6 +2106,24 @@ mod tests {
             }),
         )
         .expect_err("file_error without direction should fail");
+
+        assert_eq!(error.code, "invalid_file_error_payload");
+    }
+
+    #[test]
+    fn file_error_payload_rejects_numeric_counters() {
+        let error = validate_event_payload(
+            "file_error",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "reason": "cancelled",
+                "direction": "outgoing",
+                "bytes": "128",
+                "total": 256
+            }),
+        )
+        .expect_err("file_error with numeric counters should fail");
 
         assert_eq!(error.code, "invalid_file_error_payload");
     }
