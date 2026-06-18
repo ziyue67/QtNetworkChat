@@ -1503,17 +1503,37 @@ mod tests {
 
     #[test]
     fn generic_command_rejects_login_missing_credentials() {
-        let error = validate_generic_command(&json!({
-            "op": "login",
-            "reqId": "req-login",
-            "payload": {
-                "account": "10001",
-                "password": " "
-            }
-        }))
-        .expect_err("generic login should require non-empty credentials");
+        for payload in [
+            json!({ "password": "secret" }),
+            json!({ "account": "10001" }),
+            json!({ "account": "10001", "password": " " }),
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": "login",
+                "reqId": "req-login",
+                "payload": payload
+            }))
+            .expect_err("generic login should require non-empty credentials");
 
-        assert_eq!(error.code, "missing_field");
+            assert_eq!(error.code, "missing_field");
+        }
+    }
+
+    #[test]
+    fn generic_command_rejects_register_missing_credentials() {
+        for payload in [
+            json!({ "password": "secret", "userName": "Alice" }),
+            json!({ "account": "10001", "userName": "Alice" }),
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": "register",
+                "reqId": "req-register",
+                "payload": payload
+            }))
+            .expect_err("generic register should require non-empty credentials");
+
+            assert_eq!(error.code, "missing_field");
+        }
     }
 
     #[test]
@@ -1527,6 +1547,38 @@ mod tests {
             }
         }))
         .expect_err("generic register should require userName");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_set_user_info_missing_fields() {
+        for payload in [
+            json!({ "userName": "Alice" }),
+            json!({ "userId": "10001" }),
+            json!({ "userId": " ", "userName": "Alice" }),
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": "set_user_info",
+                "reqId": "req-user-info",
+                "payload": payload
+            }))
+            .expect_err("generic set_user_info should require userId and userName");
+
+            assert_eq!(error.code, "missing_field");
+        }
+    }
+
+    #[test]
+    fn generic_command_rejects_search_friend_blank_account() {
+        let error = validate_generic_command(&json!({
+            "op": "search_friend",
+            "reqId": "req-search",
+            "payload": {
+                "account": " "
+            }
+        }))
+        .expect_err("generic search_friend should require account");
 
         assert_eq!(error.code, "missing_field");
     }
@@ -2124,10 +2176,20 @@ mod tests {
 
     #[test]
     fn login_like_payload_rejects_empty_password() {
-        let error = login_like_payload("10001".to_string(), "".to_string(), None)
-            .expect_err("typed login payload should require password");
+        for (account, password, user_name) in [
+            ("", "secret", None),
+            ("10001", "", None),
+            ("10001", "secret", Some("")),
+        ] {
+            let error = login_like_payload(
+                account.to_string(),
+                password.to_string(),
+                user_name.map(str::to_string),
+            )
+            .expect_err("typed login/register payload should require non-empty fields");
 
-        assert_eq!(error.code, "missing_field");
+            assert_eq!(error.code, "missing_field");
+        }
     }
 
     #[test]
@@ -2150,10 +2212,12 @@ mod tests {
 
     #[test]
     fn set_user_info_payload_rejects_empty_user_name() {
-        let error = set_user_info_payload("10001".to_string(), " ".to_string())
-            .expect_err("typed set_user_info payload should require userName");
+        for (user_id, user_name) in [("", "Alice"), ("10001", " ")] {
+            let error = set_user_info_payload(user_id.to_string(), user_name.to_string())
+                .expect_err("typed set_user_info payload should require userId and userName");
 
-        assert_eq!(error.code, "missing_field");
+            assert_eq!(error.code, "missing_field");
+        }
     }
 
     #[test]
