@@ -8,7 +8,7 @@ use tokio::sync::oneshot;
 
 use crate::error::{QQNTError, QQNTResult};
 use crate::protocol;
-use crate::state::AppState;
+use crate::state::{AppState, PendingEngineRequest};
 
 const ENGINE_TIMEOUT_SECONDS: u64 = 30;
 
@@ -27,6 +27,12 @@ pub async fn call_engine(state: &Arc<AppState>, command: Value) -> QQNTResult<Va
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| QQNTError::rust("missing_req_id", "Command reqId is required."))?
         .to_string();
+    let op = command
+        .get("op")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| QQNTError::rust("missing_op", "Command op is required."))?
+        .to_string();
 
     let mut line = serde_json::to_vec(&command)
         .map_err(|error| QQNTError::rust("invalid_command", error.to_string()))?;
@@ -38,7 +44,7 @@ pub async fn call_engine(state: &Arc<AppState>, command: Value) -> QQNTResult<Va
         .pending
         .lock()
         .await
-        .insert(req_id.clone(), sender);
+        .insert(req_id.clone(), PendingEngineRequest { op, sender });
 
     let write_result = {
         let mut child_guard = state.engine.child.lock().await;
@@ -198,8 +204,8 @@ fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
 }
 
 async fn handle_ack(state: &Arc<AppState>, req_id: &str, packet: Value) {
-    if let Some(sender) = state.engine.pending.lock().await.remove(req_id) {
-        let _ = sender.send(packet);
+    if let Some(request) = state.engine.pending.lock().await.remove(req_id) {
+        let _ = request.sender.send(packet);
     }
 }
 
@@ -209,9 +215,10 @@ pub(crate) async fn fail_pending_engine_requests(state: &Arc<AppState>, code: &s
         pending.drain().collect::<Vec<_>>()
     };
 
-    for (req_id, sender) in pending {
-        let _ = sender.send(json!({
+    for (req_id, request) in pending {
+        let _ = request.sender.send(json!({
             "type": "ack",
+            "op": request.op,
             "reqId": req_id,
             "status": "error",
             "error": {
@@ -657,12 +664,13 @@ mod tests {
     async fn handle_ack_resolves_matching_pending_request() {
         let state = Arc::new(AppState::new());
         let (sender, receiver) = oneshot::channel();
-        state
-            .engine
-            .pending
-            .lock()
-            .await
-            .insert("req-42".to_string(), sender);
+        state.engine.pending.lock().await.insert(
+            "req-42".to_string(),
+            PendingEngineRequest {
+                op: "login".to_string(),
+                sender,
+            },
+        );
 
         handle_ack(
             &state,
@@ -686,12 +694,13 @@ mod tests {
     async fn wait_for_engine_ack_clears_pending_on_timeout() {
         let state = Arc::new(AppState::new());
         let (sender, receiver) = oneshot::channel();
-        state
-            .engine
-            .pending
-            .lock()
-            .await
-            .insert("req-timeout".to_string(), sender);
+        state.engine.pending.lock().await.insert(
+            "req-timeout".to_string(),
+            PendingEngineRequest {
+                op: "ready".to_string(),
+                sender,
+            },
+        );
 
         let error = wait_for_engine_ack(&state, "req-timeout", receiver, Duration::from_millis(1))
             .await
@@ -705,12 +714,13 @@ mod tests {
     async fn wait_for_engine_ack_clears_pending_on_closed_channel() {
         let state = Arc::new(AppState::new());
         let (sender, receiver) = oneshot::channel();
-        state
-            .engine
-            .pending
-            .lock()
-            .await
-            .insert("req-closed".to_string(), sender);
+        state.engine.pending.lock().await.insert(
+            "req-closed".to_string(),
+            PendingEngineRequest {
+                op: "ready".to_string(),
+                sender,
+            },
+        );
         state.engine.pending.lock().await.remove("req-closed");
 
         let error = wait_for_engine_ack(&state, "req-closed", receiver, Duration::from_secs(1))
@@ -728,8 +738,20 @@ mod tests {
         let (second_sender, second_receiver) = oneshot::channel();
         {
             let mut pending = state.engine.pending.lock().await;
-            pending.insert("req-first".to_string(), first_sender);
-            pending.insert("req-second".to_string(), second_sender);
+            pending.insert(
+                "req-first".to_string(),
+                PendingEngineRequest {
+                    op: "ready".to_string(),
+                    sender: first_sender,
+                },
+            );
+            pending.insert(
+                "req-second".to_string(),
+                PendingEngineRequest {
+                    op: "send_file".to_string(),
+                    sender: second_sender,
+                },
+            );
         }
 
         fail_pending_engine_requests(
@@ -748,10 +770,12 @@ mod tests {
             .expect("second pending request should receive failure ack");
 
         assert_eq!(first_packet["type"], "ack");
+        assert_eq!(first_packet["op"], "ready");
         assert_eq!(first_packet["reqId"], "req-first");
         assert_eq!(first_packet["status"], "error");
         assert_eq!(first_packet["error"]["code"], "engine_terminated");
         assert_eq!(first_packet["error"]["source"], "rust");
+        assert_eq!(second_packet["op"], "send_file");
         assert_eq!(second_packet["reqId"], "req-second");
         assert_eq!(
             second_packet["error"]["message"],

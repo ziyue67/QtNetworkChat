@@ -13,8 +13,13 @@ pub struct AppState {
 
 pub struct EngineState {
     pub child: Mutex<Option<CommandChild>>,
-    pub pending: Mutex<HashMap<String, oneshot::Sender<Value>>>,
+    pub pending: Mutex<HashMap<String, PendingEngineRequest>>,
     pub last_error: Mutex<Option<QQNTError>>,
+}
+
+pub struct PendingEngineRequest {
+    pub op: String,
+    pub sender: oneshot::Sender<Value>,
 }
 
 pub struct ServerState {
