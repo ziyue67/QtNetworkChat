@@ -773,7 +773,16 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
 }
 
 void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& reqId, const QJsonObject& payload) {
-    const QString peerId = payload.value(QStringLiteral("peerId")).toString().trimmed();
+    QString peerId;
+    if (!optionalStringField(payload,
+                             QStringLiteral("peerId"),
+                             &peerId,
+                             QStringLiteral("invalid_peer_id"),
+                             op,
+                             reqId)) {
+        return;
+    }
+    peerId = peerId.trimmed();
     QJsonObject response;
     response[QStringLiteral("localIdentity")] = m_bridge->client()->e2eLocalIdentityStatus();
     if (!peerId.isEmpty()) {

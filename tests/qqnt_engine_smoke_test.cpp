@@ -395,6 +395,8 @@ int main(int argc, char* argv[]) {
                 "register missing userName command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
                 "e2e_status command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e-invalid-peer\",\"payload\":{\"peerId\":10001}}\n"),
+                "e2e_status invalid peerId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
                 "e2e_announce_identity missing peer command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-invalid-fingerprint\",\"payload\":{\"peerId\":\"10001\",\"fingerprint\":false}}\n"),
@@ -466,6 +468,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-connect-invalid-port"),
         QStringLiteral("smoke-register-missing-user-name"),
         QStringLiteral("smoke-e2e"),
+        QStringLiteral("smoke-e2e-invalid-peer"),
         QStringLiteral("smoke-e2e-announce-missing"),
         QStringLiteral("smoke-e2e-pin-invalid-fingerprint"),
         QStringLiteral("smoke-cancel-missing"),
@@ -595,6 +598,11 @@ int main(int argc, char* argv[]) {
                         "e2e_status should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("localIdentity")).isObject(),
                         "e2e_status payload should include local identity object") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-invalid-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_status with non-string peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_peer_id"),
+                        "e2e_status with non-string peerId should use invalid_peer_id code") && ok;
         } else if (reqId == QLatin1String("smoke-e2e-announce-missing")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "e2e_announce_identity missing peerId should return error ack") && ok;
