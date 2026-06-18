@@ -178,8 +178,8 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action}` | 群成员变化 |
-| `file_progress` | `{transferId, fileName, bytes, total, direction}` | 文件传输进度 |
-| `file_done` | `{transferId, fileName, filePath, direction}` | 文件传输完成 |
+| `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件传输进度 |
+| `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件传输完成 |
 | `file_error` | `{transferId, reason}` | 文件传输失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话状态 |
 | `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份状态 |

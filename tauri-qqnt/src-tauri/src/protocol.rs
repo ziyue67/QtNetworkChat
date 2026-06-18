@@ -331,7 +331,12 @@ fn validate_e2e_rotation_response_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_file_progress_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "transferId", "file_progress")?;
     require_non_empty_string_field(payload, "fileName", "file_progress")?;
-    require_non_empty_string_field(payload, "direction", "file_progress")?;
+    require_one_of_string_field(
+        payload,
+        "direction",
+        &["incoming", "outgoing"],
+        "file_progress",
+    )?;
     require_string_or_number_field(payload, "bytes", "file_progress")?;
     require_string_or_number_field(payload, "total", "file_progress")?;
 
@@ -341,7 +346,7 @@ fn validate_file_progress_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_file_done_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "transferId", "file_done")?;
     require_non_empty_string_field(payload, "fileName", "file_done")?;
-    require_non_empty_string_field(payload, "direction", "file_done")?;
+    require_one_of_string_field(payload, "direction", &["incoming", "outgoing"], "file_done")?;
     require_string_field(payload, "filePath", "file_done")?;
 
     Ok(())
@@ -1278,6 +1283,23 @@ mod tests {
     }
 
     #[test]
+    fn file_progress_payload_rejects_unknown_direction() {
+        let error = validate_event_payload(
+            "file_progress",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "bytes": "128",
+                "total": "256",
+                "direction": "sideways"
+            }),
+        )
+        .expect_err("file_progress with unknown direction should fail");
+
+        assert_eq!(error.code, "invalid_file_progress_payload");
+    }
+
+    #[test]
     fn file_done_payload_accepts_contract_fields() {
         validate_event_payload(
             "file_done",
@@ -1302,6 +1324,22 @@ mod tests {
             }),
         )
         .expect_err("file_done without filePath should fail");
+
+        assert_eq!(error.code, "invalid_file_done_payload");
+    }
+
+    #[test]
+    fn file_done_payload_rejects_unknown_direction() {
+        let error = validate_event_payload(
+            "file_done",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "filePath": "C:/tmp/report.zip",
+                "direction": "sideways"
+            }),
+        )
+        .expect_err("file_done with unknown direction should fail");
 
         assert_eq!(error.code, "invalid_file_done_payload");
     }
