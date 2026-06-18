@@ -254,16 +254,9 @@ pub async fn send_group_message(
     group_id: String,
     content: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "send_group_message",
-        req_id,
-        json!({
-            "groupId": group_id,
-            "content": content
-        }),
-    )
-    .await
+    let payload = send_group_message_payload(group_id, content)?;
+
+    call_engine_payload(state.inner(), "send_group_message", req_id, payload).await
 }
 
 #[tauri::command]
@@ -274,17 +267,9 @@ pub async fn create_group(
     members: Option<Vec<String>>,
     announcement: Option<String>,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "create_group",
-        req_id,
-        json!({
-            "groupName": group_name,
-            "members": members,
-            "announcement": announcement
-        }),
-    )
-    .await
+    let payload = create_group_payload(group_name, members, announcement)?;
+
+    call_engine_payload(state.inner(), "create_group", req_id, payload).await
 }
 
 #[tauri::command]
@@ -294,16 +279,9 @@ pub async fn update_group_announcement(
     group_id: String,
     announcement: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "update_group_announcement",
-        req_id,
-        json!({
-            "groupId": group_id,
-            "announcement": announcement
-        }),
-    )
-    .await
+    let payload = update_group_announcement_payload(group_id, announcement)?;
+
+    call_engine_payload(state.inner(), "update_group_announcement", req_id, payload).await
 }
 
 #[tauri::command]
@@ -557,6 +535,41 @@ fn cancel_transfer_payload(transfer_id: String) -> Value {
     json!({ "transferId": transfer_id })
 }
 
+fn send_group_message_payload(group_id: String, content: String) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "groupId": group_id,
+        "content": content
+    });
+    validate_send_group_message_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn create_group_payload(
+    group_name: String,
+    members: Option<Vec<String>>,
+    announcement: Option<String>,
+) -> Result<Value, QQNTError> {
+    let payload = compact_payload(json!({
+        "groupName": group_name,
+        "members": members,
+        "announcement": announcement
+    }));
+    validate_create_group_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn update_group_announcement_payload(
+    group_id: String,
+    announcement: String,
+) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "groupId": group_id,
+        "announcement": announcement
+    });
+    validate_update_group_announcement_command_payload(&payload)?;
+    Ok(payload)
+}
+
 fn query_resume_payload(
     transfer_id: String,
     file_path: Option<String>,
@@ -691,11 +704,95 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
 
 fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
     match op.trim() {
+        "send_group_message" => validate_send_group_message_command_payload(payload),
+        "create_group" => validate_create_group_command_payload(payload),
+        "update_group_announcement" => validate_update_group_announcement_command_payload(payload),
         "send_file" | "send_image" => validate_file_transfer_command_payload(payload),
         "query_resume" => validate_query_resume_command_payload(payload),
         "update_group_member" => validate_update_group_member_command_payload(payload),
         _ => Ok(()),
     }
+}
+
+fn validate_send_group_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "groupId")?;
+    require_non_empty_command_string_field(payload, "content")?;
+    Ok(())
+}
+
+fn validate_create_group_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "groupName")?;
+    optional_command_string_field(payload, "announcement", "invalid_announcement")?;
+    validate_create_group_members(payload)
+}
+
+fn validate_update_group_announcement_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "groupId")?;
+    require_command_string_field(payload, "announcement")?;
+    Ok(())
+}
+
+fn validate_create_group_members(payload: &Value) -> Result<(), QQNTError> {
+    let Some(members_value) = payload.get("members") else {
+        return Ok(());
+    };
+    if members_value.is_null() {
+        return Err(QQNTError::rust(
+            "invalid_members",
+            "create_group members must be an array when provided.",
+        ));
+    }
+    let Some(members) = members_value.as_array() else {
+        return Err(QQNTError::rust(
+            "invalid_members",
+            "create_group members must be an array when provided.",
+        ));
+    };
+
+    for member in members {
+        if let Some(member_id) = member.as_str() {
+            validate_create_group_member_id(member_id)?;
+            continue;
+        }
+
+        let Some(member_object) = member.as_object() else {
+            return Err(QQNTError::rust(
+                "invalid_members",
+                "create_group members entries must be strings.",
+            ));
+        };
+        let mut candidate = None;
+        for field in ["userId", "account", "id"] {
+            let Some(value) = member_object.get(field) else {
+                continue;
+            };
+            if value.is_null() {
+                continue;
+            }
+            let Some(member_id) = value.as_str() else {
+                return Err(QQNTError::rust(
+                    "invalid_members",
+                    format!("create_group member.{field} must be a string when provided."),
+                ));
+            };
+            candidate = Some(member_id);
+            break;
+        }
+        validate_create_group_member_id(candidate.unwrap_or_default())?;
+    }
+
+    Ok(())
+}
+
+fn validate_create_group_member_id(member_id: &str) -> Result<(), QQNTError> {
+    if !member_id.trim().is_empty() {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        "invalid_members",
+        "create_group members entries must not be empty.",
+    ))
 }
 
 fn validate_file_transfer_command_payload(payload: &Value) -> Result<(), QQNTError> {
@@ -789,6 +886,16 @@ fn optional_command_string_field<'a>(
         _ => Err(QQNTError::rust(
             error_code,
             format!("payload.{field} must be a string when provided."),
+        )),
+    }
+}
+
+fn require_command_string_field<'a>(payload: &'a Value, field: &str) -> Result<&'a str, QQNTError> {
+    match payload.get(field) {
+        Some(Value::String(value)) => Ok(value.as_str()),
+        _ => Err(QQNTError::rust(
+            "missing_field",
+            format!("payload.{field} is required."),
         )),
     }
 }
@@ -1115,6 +1222,112 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_accepts_create_group_member_objects() {
+        validate_generic_command(&json!({
+            "op": "create_group",
+            "reqId": "req-create-group",
+            "payload": {
+                "groupName": "team",
+                "members": [
+                    "10001",
+                    { "account": "10002" },
+                    { "id": "10003" }
+                ],
+                "announcement": ""
+            }
+        }))
+        .expect("generic create_group should accept supported member entry shapes");
+    }
+
+    #[test]
+    fn generic_command_rejects_create_group_non_array_members() {
+        let error = validate_generic_command(&json!({
+            "op": "create_group",
+            "reqId": "req-create-group",
+            "payload": {
+                "groupName": "team",
+                "members": "10001"
+            }
+        }))
+        .expect_err("generic create_group members must be an array");
+
+        assert_eq!(error.code, "invalid_members");
+    }
+
+    #[test]
+    fn generic_command_rejects_create_group_empty_member_entry() {
+        let error = validate_generic_command(&json!({
+            "op": "create_group",
+            "reqId": "req-create-group",
+            "payload": {
+                "groupName": "team",
+                "members": [""]
+            }
+        }))
+        .expect_err("generic create_group member entries must be non-empty");
+
+        assert_eq!(error.code, "invalid_members");
+    }
+
+    #[test]
+    fn generic_command_rejects_create_group_invalid_member_object_field() {
+        let error = validate_generic_command(&json!({
+            "op": "create_group",
+            "reqId": "req-create-group",
+            "payload": {
+                "groupName": "team",
+                "members": [{ "userId": 10001 }]
+            }
+        }))
+        .expect_err("generic create_group member object fields must be strings");
+
+        assert_eq!(error.code, "invalid_members");
+    }
+
+    #[test]
+    fn generic_command_rejects_create_group_invalid_announcement() {
+        let error = validate_generic_command(&json!({
+            "op": "create_group",
+            "reqId": "req-create-group",
+            "payload": {
+                "groupName": "team",
+                "announcement": false
+            }
+        }))
+        .expect_err("generic create_group announcement must be a string when provided");
+
+        assert_eq!(error.code, "invalid_announcement");
+    }
+
+    #[test]
+    fn generic_command_accepts_empty_group_announcement_update() {
+        validate_generic_command(&json!({
+            "op": "update_group_announcement",
+            "reqId": "req-announcement",
+            "payload": {
+                "groupId": "group-1",
+                "announcement": ""
+            }
+        }))
+        .expect("generic update_group_announcement may clear announcement");
+    }
+
+    #[test]
+    fn generic_command_rejects_group_message_empty_content() {
+        let error = validate_generic_command(&json!({
+            "op": "send_group_message",
+            "reqId": "req-group-message",
+            "payload": {
+                "groupId": "group-1",
+                "content": ""
+            }
+        }))
+        .expect_err("generic send_group_message content must be non-empty");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
     fn generic_command_accepts_file_transfer_target() {
         validate_generic_command(&json!({
             "op": "send_file",
@@ -1341,6 +1554,58 @@ mod tests {
         let payload = cancel_transfer_payload("transfer-1".to_string());
 
         assert_eq!(payload["transferId"], "transfer-1");
+    }
+
+    #[test]
+    fn send_group_message_payload_requires_content() {
+        let error = send_group_message_payload("group-1".to_string(), "".to_string())
+            .expect_err("typed send_group_message payload should require content");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn create_group_payload_preserves_members_and_announcement() {
+        let packet = command_packet(
+            "create_group",
+            "req-create-group".to_string(),
+            create_group_payload(
+                "team".to_string(),
+                Some(vec!["10001".to_string(), "10002".to_string()]),
+                Some("hello".to_string()),
+            )
+            .expect("valid create_group payload should pass"),
+        );
+
+        assert_eq!(packet["payload"]["groupName"], "team");
+        assert_eq!(packet["payload"]["members"][0], "10001");
+        assert_eq!(packet["payload"]["members"][1], "10002");
+        assert_eq!(packet["payload"]["announcement"], "hello");
+    }
+
+    #[test]
+    fn create_group_payload_rejects_empty_member_entry() {
+        let error = create_group_payload(
+            "team".to_string(),
+            Some(vec!["10001".to_string(), " ".to_string()]),
+            None,
+        )
+        .expect_err("typed create_group payload should reject empty member ids");
+
+        assert_eq!(error.code, "invalid_members");
+    }
+
+    #[test]
+    fn update_group_announcement_payload_allows_empty_announcement() {
+        let packet = command_packet(
+            "update_group_announcement",
+            "req-announcement".to_string(),
+            update_group_announcement_payload("group-1".to_string(), "".to_string())
+                .expect("empty announcement should clear group announcement"),
+        );
+
+        assert_eq!(packet["payload"]["groupId"], "group-1");
+        assert_eq!(packet["payload"]["announcement"], "");
     }
 
     #[test]
