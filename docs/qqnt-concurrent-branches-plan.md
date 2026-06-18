@@ -29,11 +29,11 @@
 | `tauri-qqnt/src/App.tsx` | 空壳 |
 | `tauri-qqnt/src-tauri/` | Tauri v2 完整骨架 |
 | `tauri-qqnt/src-tauri/Cargo.toml` | 依赖已包含 `tauri`、`tauri-plugin-shell`、`tokio`、`serde_json` 等 |
-| `tauri-qqnt/src-tauri/tauri.conf.json` | `externalBin: ["QQNTEngine", "QQNTServer"]` 已注册；窗口 `decorations: false` |
-| `tauri-qqnt/src-tauri/src/main.rs` | 仅初始化 shell plugin，待后端填充 |
-| `tauri-qqnt/src-tauri/src/lib.rs` | 空模块导出 |
+| `tauri-qqnt/src-tauri/tauri.conf.json` | `externalBin: ["binaries/QQNTEngine", "binaries/QQNTServer"]` 已注册；窗口 `decorations: false` |
+| `tauri-qqnt/src-tauri/src/main.rs` | 调用 `tauri_qqnt_lib::run()` 进入 Rust 主进程 |
+| `tauri-qqnt/src-tauri/src/lib.rs` | 初始化 shell/opener plugin，启动 `QQNTServer` 与 `QQNTEngine` sidecar，并注册 Tauri commands |
 | `tauri-qqnt/src-tauri/capabilities/default.json` | 默认 capability |
-| `scripts/copy-sidecars.ps1` | 占位脚本 |
+| `scripts/copy-sidecars.ps1` | 将 `QQNTEngine` / `QQNTServer` 和 Qt sidecar runtime 复制到 `tauri-qqnt/src-tauri/binaries/` 的同步脚本 |
 | `dev/redis-compose.yml` | Redis compose |
 | `docs/qqnt-ipcv1.md` | 协议 v1 文档框架 |
 
@@ -85,8 +85,8 @@ tauri-qqnt/src-tauri/
 | 编号 | 任务 | 输出文件 | 验收标准 |
 |---|---|---|---|
 | B0 | 基线已完成 | `codex/qqnt-base` | 见基线验收 |
-| B1 | CMake 目标改造 | `CMakeLists.txt` | `cmake --build build --target QQNTEngine QQNTServer` 成功 |
-| B2 | sidecar 同步脚本 | `scripts/copy-sidecars.ps1` | 编译后自动拷贝 exe 到 `tauri-qqnt/src-tauri/binaries/` |
+| B1 | CMake 目标改造 | `CMakeLists.txt` | `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功 |
+| B2 | sidecar 同步脚本 | `scripts/copy-sidecars.ps1` | 编译后自动拷贝 exe 与 Qt runtime 到 `tauri-qqnt/src-tauri/binaries/` |
 | B3 | QQNTEngine 入口 + 日志隔离 | `tools/qqnt_engine.cpp` | `stdout` 仅含 NDJSON；`stderr` 输出日志 |
 | B4 | NDJSON 桥接核心 | `src/qqnt_client_bridge.cpp` `include/qqnt_client_bridge.h` | 能读写 NDJSON；命令与事件格式正确 |
 | B5 | 命令路由 | `src/qqnt_engine_command_router.cpp` `include/qqnt_engine_command_router.h` | `ready/connect/login/send_private_message` 可用 |
@@ -215,7 +215,7 @@ docs/qqnt-ipcv1.md                     # 协议契约
 | `tauri-qqnt/src/**/*` | ❌ 不修改 | ✅ 全权负责 |
 | `tauri-qqnt/src-tauri/**/*` | ✅ 全权负责 | ❌ 不修改 |
 | `tauri-qqnt/package.json` | 可新增脚本/依赖 | 可新增脚本/依赖 |
-| `tauri-qqnt/tauri.conf.json` | 窗口、externalBin 配置 | 只读 |
+| `tauri-qqnt/src-tauri/tauri.conf.json` | 窗口、externalBin 配置 | 只读 |
 | `include/qqnt_*`、`src/qqnt_*`、`tools/qqnt_*` | ✅ 全权负责 | ❌ 不修改 |
 | `CMakeLists.txt`、`tests/qqnt_*` | ✅ 全权负责 | ❌ 不修改 |
 | `docs/qqnt-ipcv1.md` | 维护协议 | 只读 |
@@ -266,8 +266,8 @@ Week 4: 合并两个大分支 → main；后端 BM6；前端 FM6
 ### 各自分支可独立合并条件
 
 - **后端分支合入 base/main 前**：
-  - `cmake --build build --target QQNTEngine QQNTServer` 成功
-  - `ctest --test-dir build --output-on-failure` 通过（含新增测试）
+  - `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功
+  - `ctest --test-dir build-qt6-mingw --output-on-failure` 通过（含新增测试）
   - `npm run tauri build` 在 `tauri-qqnt/` 下通过
 - **前端分支合入 base/main 前**：
   - `npm install && npm run tauri dev` 成功
@@ -294,7 +294,7 @@ main
 1. **后端（GPT5.5）**：
    - `git checkout -b codex/qqnt-base`
    - 跑 `npm create tauri-app@latest tauri-qqnt -- --template react-ts`
-   - 配置 `externalBin`、空 Rust 模块、`scripts/copy-sidecars.ps1`、`dev/redis-compose.yml`、`docs/qqnt-ipcv1.md`
+   - 配置 `externalBin`、Rust 主进程入口、`scripts/copy-sidecars.ps1`、`dev/redis-compose.yml`、`docs/qqnt-ipcv1.md`
    - 基线验收 `npm run tauri dev` 能打开无边框窗口
    - push 后切 `codex/qqnt-backend` 开始 B 任务
 

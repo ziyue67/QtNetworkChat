@@ -200,6 +200,21 @@ bool groupHasRejectedAuditEvent(const QJsonObject& group,
     return false;
 }
 
+bool hasMemberUpdateEvent(const QJsonArray& events,
+                          const QString& groupId,
+                          const QString& memberId,
+                          const QString& action) {
+    for (const QJsonValue& value : events) {
+        const QJsonObject event = value.toObject();
+        if (event["groupId"].toString() == groupId
+            && event["memberId"].toString() == memberId
+            && event["action"].toString() == action) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool writeTestFile(const QString& path, const QByteArray& payload) {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
@@ -265,6 +280,9 @@ int main(int argc, char** argv) {
         QStringList ownerSystemMessages;
         QStringList memberSystemMessages;
         QStringList guestSystemMessages;
+        QJsonArray ownerMemberEvents;
+        QJsonArray memberMemberEvents;
+        QJsonArray guestMemberEvents;
         QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Text) {
                 ownerGroupMessages << msg.content;
@@ -281,6 +299,22 @@ int main(int argc, char** argv) {
             if (msg.type == MessageType::System) {
                 guestSystemMessages << msg.content;
             }
+        });
+        auto recordMemberEvent = [](QJsonArray& events, const QString& groupId, const QString& memberId, const QString& action) {
+            QJsonObject event;
+            event["groupId"] = groupId;
+            event["memberId"] = memberId;
+            event["action"] = action;
+            events.append(event);
+        };
+        QObject::connect(&owner, &Client::serverGroupMemberUpdated, &app, [&](const QString& groupId, const QString& memberId, const QString& action) {
+            recordMemberEvent(ownerMemberEvents, groupId, memberId, action);
+        });
+        QObject::connect(&member, &Client::serverGroupMemberUpdated, &app, [&](const QString& groupId, const QString& memberId, const QString& action) {
+            recordMemberEvent(memberMemberEvents, groupId, memberId, action);
+        });
+        QObject::connect(&guest, &Client::serverGroupMemberUpdated, &app, [&](const QString& groupId, const QString& memberId, const QString& action) {
+            recordMemberEvent(guestMemberEvents, groupId, memberId, action);
         });
 
         const QString ownerId = "910001";
@@ -350,6 +384,10 @@ int main(int argc, char** argv) {
         return member.serverGroups().isEmpty() && hasRemovedPublicGroup(member);
     }), "removed member should receive an empty active group snapshot plus removed group history marker") && ok;
     ok = expect(waitFor([&] {
+        return hasMemberUpdateEvent(ownerMemberEvents, "public", memberId, "remove")
+            && hasMemberUpdateEvent(memberMemberEvents, "public", memberId, "remove");
+    }), "member removal should emit incremental group member update events") && ok;
+    ok = expect(waitFor([&] {
         return publicGroupHasAuditEvent(owner.serverGroups(), "remove", ownerId, memberId);
     }), "owner removal should be visible in group audit events") && ok;
 
@@ -386,6 +424,9 @@ int main(int argc, char** argv) {
         return publicGroupHasMember(member.serverGroups(), ownerId)
             && publicGroupHasMember(member.serverGroups(), memberId);
     }), "added member should receive restored public group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        return hasMemberUpdateEvent(memberMemberEvents, "public", memberId, "add");
+    }), "member add should emit an incremental group member update event") && ok;
     ok = expect(waitFor([&] {
         return member.removedServerGroups().isEmpty();
     }), "re-added member should no longer receive the removed group marker") && ok;
@@ -460,6 +501,9 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return guest.serverGroups().isEmpty() && hasRemovedPublicGroup(guest);
     }), "guest removed by admin should receive an empty public group snapshot plus removed marker") && ok;
+    ok = expect(waitFor([&] {
+        return hasMemberUpdateEvent(guestMemberEvents, "public", guestId, "remove");
+    }), "admin removal should emit an incremental update to the removed guest") && ok;
 
     const QString blockedFilePath = QDir(appDataDir).filePath("removed-member-file.txt");
     QFile blockedFile(blockedFilePath);

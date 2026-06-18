@@ -954,6 +954,91 @@ void Client::setAvatarData(const QByteArray& pngData) {
     m_avatarBase64 = avatarBase64FromPngData(pngData);
 }
 
+ChatUser Client::friendCandidateForId(const QString& userId, const QString& fallbackName) const {
+    const QString normalizedUserId = userId.trimmed();
+    ChatUser candidate;
+    if (normalizedUserId.isEmpty() || normalizedUserId == m_userId) {
+        return candidate;
+    }
+
+    for (const ChatUser& user : m_onlineUsers) {
+        if (user.id == normalizedUserId) {
+            candidate = user;
+            if (candidate.name.trimmed().isEmpty()) {
+                const QString normalizedName = fallbackName.trimmed();
+                candidate.name = normalizedName.isEmpty() ? normalizedUserId : normalizedName;
+            }
+            candidate.isOnline = user.isOnline;
+            return candidate;
+        }
+    }
+
+    candidate.id = normalizedUserId;
+    const QString normalizedName = fallbackName.trimmed();
+    candidate.name = normalizedName.isEmpty() ? normalizedUserId : normalizedName;
+    candidate.isOnline = false;
+    return candidate;
+}
+
+void Client::addOrUpdateFriend(const QString& userId, const QString& fallbackName) {
+    const ChatUser candidate = friendCandidateForId(userId, fallbackName);
+    if (candidate.id.isEmpty()) {
+        return;
+    }
+
+    for (ChatUser& friendUser : m_friends) {
+        if (friendUser.id != candidate.id) {
+            continue;
+        }
+        if (friendUser.name == candidate.name
+            && friendUser.avatar == candidate.avatar
+            && friendUser.isOnline == candidate.isOnline
+            && friendUser.lastActive == candidate.lastActive) {
+            return;
+        }
+        friendUser = candidate;
+        emit friendListUpdated(m_friends);
+        return;
+    }
+
+    m_friends.append(candidate);
+    emit friendListUpdated(m_friends);
+}
+
+void Client::refreshFriendPresenceFromOnlineUsers() {
+    bool changed = false;
+    for (ChatUser& friendUser : m_friends) {
+        bool foundOnline = false;
+        for (const ChatUser& user : m_onlineUsers) {
+            if (user.id != friendUser.id) {
+                continue;
+            }
+            foundOnline = true;
+            ChatUser updated = user;
+            updated.isOnline = user.isOnline;
+            if (updated.name.trimmed().isEmpty()) {
+                updated.name = friendUser.name;
+            }
+            if (friendUser.name != updated.name
+                || friendUser.avatar != updated.avatar
+                || friendUser.isOnline != updated.isOnline
+                || friendUser.lastActive != updated.lastActive) {
+                friendUser = updated;
+                changed = true;
+            }
+            break;
+        }
+        if (!foundOnline && friendUser.isOnline) {
+            friendUser.isOnline = false;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        emit friendListUpdated(m_friends);
+    }
+}
+
 bool Client::sendAvatarUpdate(const QByteArray& pngData) {
     setAvatarData(pngData);
     if (!isConnected()) {
@@ -969,6 +1054,7 @@ bool Client::sendAvatarUpdate(const QByteArray& pngData) {
 }
 
 void Client::setAccountInfo(const QString& account, const QString& password, bool registerMode) {
+    const bool accountChanged = m_account != account;
     m_account = account;
     m_password = password;
     m_registerMode = registerMode;
@@ -979,6 +1065,10 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
     m_cancelOutgoingTransfer = false;
     m_serverGroups = QJsonArray();
     m_removedServerGroups = QJsonArray();
+    if (accountChanged) {
+        m_friends.clear();
+        m_pendingIncomingFriendNames.clear();
+    }
     m_loginError.clear();
 }
 
@@ -2845,7 +2935,15 @@ bool Client::sendFriendResponse(const QString& receiverId, bool accepted) {
     obj["senderName"] = m_userName;
     obj["receiverId"] = receiverId;
     obj["accepted"] = accepted;
-    return sendJson(obj);
+    const bool sent = sendJson(obj);
+    if (sent) {
+        const QString normalizedReceiverId = receiverId.trimmed();
+        if (accepted) {
+            addOrUpdateFriend(normalizedReceiverId, m_pendingIncomingFriendNames.value(normalizedReceiverId));
+        }
+        m_pendingIncomingFriendNames.remove(normalizedReceiverId);
+    }
+    return sent;
 }
 
 bool Client::sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement) {
@@ -2885,7 +2983,7 @@ bool Client::sendServerGroupMemberUpdate(const QString& groupId, const QString& 
     return sendJson(obj);
 }
 
-bool Client::createPrivateServerGroup(const QString& groupName, const QString& announcement) {
+bool Client::createPrivateServerGroup(const QString& groupName, const QString& announcement, const QStringList& initialMemberIds) {
     if (!isConnected() || groupName.trimmed().isEmpty()) return false;
 
     QJsonObject obj;
@@ -2895,6 +2993,19 @@ bool Client::createPrivateServerGroup(const QString& groupName, const QString& a
     obj["announcement"] = announcement.trimmed();
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
+    QJsonArray members;
+    QStringList seenMemberIds;
+    for (const QString& memberId : initialMemberIds) {
+        const QString normalizedMemberId = memberId.trimmed();
+        if (normalizedMemberId.isEmpty() || normalizedMemberId == m_userId || seenMemberIds.contains(normalizedMemberId)) {
+            continue;
+        }
+        seenMemberIds << normalizedMemberId;
+        members.append(normalizedMemberId);
+    }
+    if (!members.isEmpty()) {
+        obj["members"] = members;
+    }
     return sendJson(obj);
 }
 
@@ -2951,7 +3062,8 @@ bool Client::resumeFileTransfer(const QString& filePath,
                                 qint64 confirmedBytes,
                                 qint64 nextChunkIndex,
                                 const QString& receiverId,
-                                MessageType messageType) {
+                                MessageType messageType,
+                                const QString& serverGroupId) {
     const QString trimmedTransferId = transferId.trimmed();
     if (trimmedTransferId.isEmpty() || confirmedBytes < 0 || nextChunkIndex < 0) {
         return false;
@@ -2963,7 +3075,15 @@ bool Client::resumeFileTransfer(const QString& filePath,
     const QString contentPrefix = messageType == MessageType::Image
         ? "发送了图片: "
         : "发送了文件: ";
-    return sendFilePayload(filePath, receiverId, messageType, contentPrefix, trimmedTransferId, confirmedBytes, nextChunkIndex);
+    return sendFilePayload(filePath,
+                           receiverId,
+                           messageType,
+                           contentPrefix,
+                           trimmedTransferId,
+                           confirmedBytes,
+                           nextChunkIndex,
+                           QVector<qint64>(),
+                           serverGroupId);
 }
 
 bool Client::queryAndResumeFileTransfer(const QString& filePath,
@@ -2971,7 +3091,8 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
                                         const QString& receiverId,
                                         MessageType messageType,
                                         QString* rejectReason,
-                                        int timeoutMs) {
+                                        int timeoutMs,
+                                        const QString& serverGroupId) {
     if (rejectReason) rejectReason->clear();
     if (messageType != MessageType::File && messageType != MessageType::Image) {
         if (rejectReason) *rejectReason = "续传类型非法";
@@ -3079,7 +3200,8 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
                            trimmedTransferId,
                            confirmedBytes,
                            firstMissingChunkIndex,
-                           receivedChunks);
+                           receivedChunks,
+                           serverGroupId);
 }
 
 bool Client::queryFileTransferResumeState(const QString& transferId,
@@ -3133,7 +3255,8 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
                                        const QString& fileHash,
                                        qint64 fileSize,
                                        qint64 chunkCount,
-                                       const QJsonObject& recoveryPolicy) {
+                                       const QJsonObject& recoveryPolicy,
+                                       const QString& serverGroupId) {
     const QString trimmedTransferId = transferId.trimmed();
     const QString trimmedFileHash = fileHash.trimmed();
     if (trimmedTransferId.isEmpty()
@@ -3149,6 +3272,7 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
     state["transferId"] = trimmedTransferId;
     state["filePath"] = QFileInfo(filePath).absoluteFilePath();
     state["receiverId"] = receiverId;
+    state["groupId"] = serverGroupId.trimmed();
     state["messageType"] = static_cast<int>(messageType);
     state["fileHash"] = trimmedFileHash;
     state["fileSize"] = QString::number(fileSize);
@@ -3325,6 +3449,7 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
         status["filePath"] = state.value("filePath").toString();
     }
     status["receiverId"] = state.value("receiverId").toString();
+    status["groupId"] = state.value("groupId").toString();
     status["messageType"] = state.value("messageType").toInt();
     status["fileHash"] = state.value("fileHash").toString();
     status["fileSize"] = state.value("fileSize").toString();
@@ -3521,7 +3646,10 @@ bool Client::resumeSavedOutgoingTransfer(QString* rejectReason, int timeoutMs) {
                                        state["transferId"].toString(),
                                        reason,
                                        0,
-                                       state["fileSize"].toVariant().toLongLong());
+                                       state["fileSize"].toVariant().toLongLong(),
+                                       QStringLiteral("outgoing"),
+                                       state["filePath"].toString(),
+                                       true);
         emit connectionError(QStringLiteral("未完成发送需要重新发送：%1").arg(reason));
         return false;
     }
@@ -3574,7 +3702,8 @@ bool Client::resumeSavedOutgoingTransfer(QString* rejectReason, int timeoutMs) {
         state["receiverId"].toString(),
         messageType,
         &resumeReason,
-        timeoutMs);
+        timeoutMs,
+        state.value("groupId").toString());
     if (!resumed) {
         if (rejectReason) *rejectReason = resumeReason.isEmpty() ? "发送任务恢复失败" : resumeReason;
         return false;
@@ -3594,6 +3723,9 @@ void Client::cancelCurrentOutgoingTransfer() {
         obj["senderId"] = m_userId;
         obj["senderName"] = m_userName;
         obj["receiverId"] = m_currentOutgoingReceiverId;
+        if (!m_currentOutgoingGroupId.isEmpty()) {
+            obj["groupId"] = m_currentOutgoingGroupId;
+        }
         obj["fileName"] = m_currentOutgoingFileName;
         sendJson(obj);
     }
@@ -3630,12 +3762,14 @@ bool Client::sendFilePayload(const QString& filePath,
     m_cancelOutgoingTransfer = false;
     m_currentOutgoingTransferId.clear();
     m_currentOutgoingReceiverId.clear();
+    m_currentOutgoingGroupId.clear();
     m_currentOutgoingFileName.clear();
     struct OutgoingTransferCleanup {
         Client* client;
         ~OutgoingTransferCleanup() {
             client->m_currentOutgoingTransferId.clear();
             client->m_currentOutgoingReceiverId.clear();
+            client->m_currentOutgoingGroupId.clear();
             client->m_currentOutgoingFileName.clear();
         }
     } cleanup{this};
@@ -3686,7 +3820,7 @@ bool Client::sendFilePayload(const QString& filePath,
         qint64 preparedBytes = 0;
         plainFileSize = fileInfo.size();
         plainChunkCount = (plainFileSize + kTransferChunkBytes - 1) / kTransferChunkBytes;
-        emit fileTransferProgress(displayFileName, 0, plainFileSize);
+        emit fileTransferProgress(displayFileName, 0, plainFileSize, transferId);
 
         while (!file.atEnd()) {
             if (m_cancelOutgoingTransfer) {
@@ -3700,7 +3834,7 @@ bool Client::sendFilePayload(const QString& filePath,
             }
             hasher.addData(chunk);
             preparedBytes += chunk.size();
-            emit fileTransferProgress(displayFileName, preparedBytes, plainFileSize);
+            emit fileTransferProgress(displayFileName, preparedBytes, plainFileSize, transferId);
             if (m_cancelOutgoingTransfer) {
                 file.close();
                 return false;
@@ -3824,12 +3958,16 @@ bool Client::sendFilePayload(const QString& filePath,
     if (!e2eFileRequired && !file.open(QIODevice::ReadOnly)) return false;
     m_currentOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
+    m_currentOutgoingGroupId = trimmedServerGroupId;
     m_currentOutgoingFileName = displayFileName;
     emit fileTransferStatusChanged(displayFileName,
                                    transferId,
                                    resumeMode ? QStringLiteral("transfer-resumed") : QStringLiteral("transfer-prepared"),
                                    resumeMode ? resumeConfirmedBytes : 0,
-                                   plainFileSize);
+                                   plainFileSize,
+                                   QStringLiteral("outgoing"),
+                                   stateFilePath,
+                                   false);
     if (!e2eFileRequired
         && !saveOutgoingTransferState(transferId,
                                       stateFilePath,
@@ -3837,7 +3975,9 @@ bool Client::sendFilePayload(const QString& filePath,
                                       messageType,
                                       wireFileHash,
                                       wireFileSize,
-                                      wireChunkCount)) {
+                                      wireChunkCount,
+                                      QJsonObject(),
+                                      trimmedServerGroupId)) {
         file.close();
         return false;
     }
@@ -3875,7 +4015,8 @@ bool Client::sendFilePayload(const QString& filePath,
                                        wireFileHash,
                                        wireFileSize,
                                        wireChunkCount,
-                                       recoveryPolicy)) {
+                                       recoveryPolicy,
+                                       trimmedServerGroupId)) {
             removeE2EFileResumeCache(transferId);
             file.close();
             return false;
@@ -3883,7 +4024,7 @@ bool Client::sendFilePayload(const QString& filePath,
     }
     qint64 sentBytes = resumeMode ? resumeConfirmedBytes : 0;
     qint64 chunkIndex = resumeMode ? resolvedResumeNextChunkIndex : 0;
-    emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+    emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
     if (chunkIndex == wireChunkCount) {
         file.close();
         const bool completed = sentBytes == wireFileSize;
@@ -3893,7 +4034,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                            transferId,
                                            QStringLiteral("transfer-completed"),
                                            sentBytes,
-                                           plainFileSize);
+                                           plainFileSize,
+                                           QStringLiteral("outgoing"),
+                                           stateFilePath,
+                                           true);
         }
         return completed;
     }
@@ -3920,7 +4064,7 @@ bool Client::sendFilePayload(const QString& filePath,
         if (receivedChunkIndexes.contains(chunkIndex)) {
             sentBytes = qMax(sentBytes, qMin(wireFileSize, (chunkIndex + 1) * kTransferChunkBytes));
             ++chunkIndex;
-            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
             continue;
         }
 
@@ -3982,13 +4126,27 @@ bool Client::sendFilePayload(const QString& filePath,
             }
             if (!ackRejectReason.isEmpty()) {
                 if (isRetriableFileChunkRejectReason(ackRejectReason) && attempt < kChunkSendMaxAttempts) {
-                    emit fileTransferStatusChanged(displayFileName, transferId, ackRejectReason, sentBytes, plainFileSize);
+                    emit fileTransferStatusChanged(displayFileName,
+                                                   transferId,
+                                                   ackRejectReason,
+                                                   sentBytes,
+                                                   plainFileSize,
+                                                   QStringLiteral("outgoing"),
+                                                   stateFilePath,
+                                                   false);
                     emit connectionError(fileTransferUserMessage(ackRejectReason,
                         QString("文件分片暂时被拒绝，正在重试：%1").arg(ackRejectReason)) + QStringLiteral("，正在重试"));
                     ackRejectReason.clear();
                     continue;
                 }
-                emit fileTransferStatusChanged(displayFileName, transferId, ackRejectReason, sentBytes, plainFileSize);
+                emit fileTransferStatusChanged(displayFileName,
+                                               transferId,
+                                               ackRejectReason,
+                                               sentBytes,
+                                               plainFileSize,
+                                               QStringLiteral("outgoing"),
+                                               stateFilePath,
+                                               true);
                 emit connectionError(fileTransferUserMessage(ackRejectReason,
                     QString("文件分片发送被拒绝：%1").arg(ackRejectReason)));
                 file.close();
@@ -4032,7 +4190,7 @@ bool Client::sendFilePayload(const QString& filePath,
                             if (firstMissingChunkIndex == wireChunkCount) {
                                 sentBytes = wireFileSize;
                                 chunkIndex = wireChunkCount;
-                                emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+                                emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
                                 advancedByResumeState = true;
                                 acknowledged = true;
                                 break;
@@ -4046,7 +4204,7 @@ bool Client::sendFilePayload(const QString& filePath,
                                                                      wireFileSize,
                                                                      wireChunkCount));
                             chunkIndex = firstMissingChunkIndex;
-                            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+                            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
                             advancedByResumeState = true;
                             acknowledged = true;
                             break;
@@ -4065,7 +4223,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                                    transferId,
                                                    QStringLiteral("transfer-completed"),
                                                    sentBytes,
-                                                   plainFileSize);
+                                                   plainFileSize,
+                                                   QStringLiteral("outgoing"),
+                                                   stateFilePath,
+                                                   true);
                 }
                 return completed;
             }
@@ -4076,7 +4237,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                            transferId,
                                            QStringLiteral("chunk-ack-timeout"),
                                            sentBytes,
-                                           plainFileSize);
+                                           plainFileSize,
+                                           QStringLiteral("outgoing"),
+                                           stateFilePath,
+                                           true);
             emit connectionError(fileTransferUserMessage(QStringLiteral("chunk-ack-timeout"),
                 QString("文件分片发送超时：%1 第 %2/%3 片").arg(displayFileName).arg(chunkIndex + 1).arg(wireChunkCount)));
             file.close();
@@ -4091,7 +4255,7 @@ bool Client::sendFilePayload(const QString& filePath,
             markE2EFileChunkSent(receiverId);
         }
         ++chunkIndex;
-        emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+        emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
     }
     file.close();
     const bool completed = sentBytes == wireFileSize && chunkIndex == wireChunkCount;
@@ -4101,7 +4265,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                        transferId,
                                        QStringLiteral("transfer-completed"),
                                        sentBytes,
-                                       plainFileSize);
+                                       plainFileSize,
+                                       QStringLiteral("outgoing"),
+                                       stateFilePath,
+                                       true);
     }
     return completed;
 }
@@ -4245,6 +4412,38 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             m_onlineUsers.append(user);
         }
         emit userListUpdated(m_onlineUsers);
+        refreshFriendPresenceFromOnlineUsers();
+        return;
+    }
+
+    if (type == "friend_list") {
+        QVector<ChatUser> friends;
+        const QJsonArray friendsArray = obj["friends"].toArray();
+        friends.reserve(friendsArray.size());
+        for (const QJsonValue& value : friendsArray) {
+            const QJsonObject friendObject = value.toObject();
+            const QString friendId = friendObject["id"].toString().trimmed();
+            if (friendId.isEmpty() || friendId == m_userId) {
+                continue;
+            }
+
+            ChatUser friendUser;
+            friendUser.id = friendId;
+            friendUser.name = friendObject["name"].toString().trimmed();
+            if (friendUser.name.isEmpty()) {
+                friendUser.name = friendId;
+            }
+            friendUser.avatar = friendObject["avatar"].toString();
+            friendUser.isOnline = friendObject["online"].toBool(false);
+            friendUser.lastActive = QDateTime::fromString(friendObject["lastActive"].toString(), Qt::ISODateWithMs);
+            if (!friendUser.lastActive.isValid()) {
+                friendUser.lastActive = QDateTime::fromString(friendObject["lastActive"].toString(), Qt::ISODate);
+            }
+            friends.append(friendUser);
+        }
+        m_friends = friends;
+        refreshFriendPresenceFromOnlineUsers();
+        emit friendListUpdated(m_friends);
         return;
     }
 
@@ -4459,6 +4658,13 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         return;
     }
 
+    if (type == "server_group_member_updated") {
+        emit serverGroupMemberUpdated(obj["groupId"].toString(),
+                                      obj["memberId"].toString(),
+                                      obj["action"].toString());
+        return;
+    }
+
     if (type == "friend_search_result") {
         emit friendSearchResult(
             obj["account"].toString(),
@@ -4478,12 +4684,23 @@ void Client::handleServerMessage(const QJsonObject& obj) {
     }
 
     if (type == "friend_request") {
-        emit friendRequestReceived(obj["senderId"].toString(), obj["senderName"].toString());
+        const QString senderId = obj["senderId"].toString().trimmed();
+        const QString senderName = obj["senderName"].toString().trimmed();
+        if (!senderId.isEmpty()) {
+            m_pendingIncomingFriendNames.insert(senderId, senderName);
+        }
+        emit friendRequestReceived(senderId, senderName);
         return;
     }
 
     if (type == "friend_response") {
-        emit friendResponseReceived(obj["senderId"].toString(), obj["senderName"].toString(), obj["accepted"].toBool());
+        const QString senderId = obj["senderId"].toString().trimmed();
+        const QString senderName = obj["senderName"].toString().trimmed();
+        const bool accepted = obj["accepted"].toBool();
+        if (accepted) {
+            addOrUpdateFriend(senderId, senderName);
+        }
+        emit friendResponseReceived(senderId, senderName, accepted);
         return;
     }
 
@@ -4523,7 +4740,14 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
             sendFileChunkAck(transferId, chunkIndex, false, reason);
             m_incomingFileTransfers.remove(transferId);
         }
-        emit fileTransferStatusChanged(fileName, transferId, reason, receivedBytes, fileSize);
+        emit fileTransferStatusChanged(fileName,
+                                       transferId,
+                                       reason,
+                                       receivedBytes,
+                                       fileSize,
+                                       QStringLiteral("incoming"),
+                                       QString(),
+                                       true);
         emit connectionError("文件分片接收失败：" + reason);
     };
 
@@ -4583,7 +4807,10 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
                                        transferId,
                                        QStringLiteral("receive-started"),
                                        0,
-                                       pending.fileSize);
+                                       pending.fileSize,
+                                       QStringLiteral("incoming"),
+                                       QString(),
+                                       false);
     } else if (pending.fileSize != fileSize
                || pending.chunkSize != chunkSize
                || pending.chunkCount != chunkCount
@@ -4604,7 +4831,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         failTransfer("累计分片大小超过声明文件大小");
         return;
     }
-    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, pending.fileSize);
+    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, pending.fileSize, transferId);
     if (pending.receivedIndexes.size() < pending.chunkCount) {
         sendFileChunkAck(transferId, chunkIndex, true, QString(), pending.receivedBytes);
         return;
@@ -4663,7 +4890,10 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
                                    transferId,
                                    QStringLiteral("receive-completed"),
                                    fileData.size(),
-                                   fileSize);
+                                   fileSize,
+                                   QStringLiteral("incoming"),
+                                   QString(),
+                                   true);
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleServerMessage(fullFile);
 }

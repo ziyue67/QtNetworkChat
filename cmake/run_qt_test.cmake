@@ -28,7 +28,7 @@ set(ENV{TMP} "${TEST_RUNTIME_ROOT}/Temp")
 set(ENV{QTNETWORKCHAT_APPDATA_DIR} "${TEST_RUNTIME_ROOT}/AppData/QtNetworkChat")
 
 execute_process(
-    COMMAND "${TEST_EXE}"
+    COMMAND "${TEST_EXE}" ${TEST_ARGS}
     RESULT_VARIABLE test_result
     OUTPUT_VARIABLE test_output
     ERROR_VARIABLE test_error

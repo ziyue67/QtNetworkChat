@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QMap>
 #include <QSet>
+#include <QStringList>
 #include <QVector>
 #include <QByteArray>
 #include "chatuser.h"
@@ -59,7 +60,7 @@ public:
     bool sendFriendResponse(const QString& receiverId, bool accepted);
     bool sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement);
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
-    bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString());
+    bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString(), const QStringList& initialMemberIds = QStringList());
     bool sendServerGroupMessage(const QString& groupId, const QString& content);
     bool sendServerGroupFile(const QString& groupId, const QString& filePath);
     bool sendServerGroupImage(const QString& groupId, const QString& filePath);
@@ -70,13 +71,15 @@ public:
                             qint64 confirmedBytes,
                             qint64 nextChunkIndex,
                             const QString& receiverId = QString(),
-                            MessageType messageType = MessageType::File);
+                            MessageType messageType = MessageType::File,
+                            const QString& serverGroupId = QString());
     bool queryAndResumeFileTransfer(const QString& filePath,
                                     const QString& transferId,
                                     const QString& receiverId = QString(),
                                     MessageType messageType = MessageType::File,
                                     QString* rejectReason = nullptr,
-                                    int timeoutMs = 5000);
+                                    int timeoutMs = 5000,
+                                    const QString& serverGroupId = QString());
     bool queryFileTransferResumeState(const QString& transferId,
                                       qint64* confirmedBytes = nullptr,
                                       qint64* nextChunkIndex = nullptr,
@@ -94,7 +97,8 @@ public:
                                    const QString& fileHash,
                                    qint64 fileSize,
                                    qint64 chunkCount,
-                                   const QJsonObject& recoveryPolicy = QJsonObject());
+                                   const QJsonObject& recoveryPolicy = QJsonObject(),
+                                   const QString& serverGroupId = QString());
     bool loadOutgoingTransferState(QJsonObject* state) const;
     QJsonObject savedOutgoingTransferRecoveryStatus() const;
     bool clearOutgoingTransferState();
@@ -110,7 +114,9 @@ public:
     QString currentUserName() const { return m_userName; }
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
+    QString currentOutgoingTransferId() const { return m_currentOutgoingTransferId; }
     QVector<ChatUser> onlineUsers() const { return m_onlineUsers; }
+    QVector<ChatUser> friends() const { return m_friends; }
     QString transportSecurityDescription() const;
     bool hasServerGroupSnapshot() const { return m_hasServerGroupSnapshot; }
     QJsonArray serverGroups() const { return m_serverGroups; }
@@ -123,16 +129,24 @@ signals:
     void userJoined(const QString& userId, const QString& userName);
     void userLeft(const QString& userId, const QString& userName);
     void userListUpdated(const QVector<ChatUser>& users);
+    void friendListUpdated(const QVector<ChatUser>& friends);
     void loginSucceeded();
     void loginFailed(const QString& reason);
     void friendRequestReceived(const QString& senderId, const QString& senderName);
     void friendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason);
     void friendRequestSent(const QString& receiverId, bool delivered);
     void friendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
-    void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
+    void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes, const QString& transferId = QString());
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
-    void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
-    void fileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
+    void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes, const QString& transferId = QString());
+    void fileTransferStatusChanged(const QString& fileName,
+                                   const QString& transferId,
+                                   const QString& reason,
+                                   qint64 receivedBytes,
+                                   qint64 totalBytes,
+                                   const QString& direction = QString(),
+                                   const QString& filePath = QString(),
+                                   bool terminal = true);
     void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason, qint64 receivedBytes);
     void fileTransferResumeStateReceived(const QString& transferId,
                                          bool canResume,
@@ -145,6 +159,7 @@ signals:
                                          const QVector<qint64>& receivedChunks,
                                          const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
+    void serverGroupMemberUpdated(const QString& groupId, const QString& memberId, const QString& action);
     void e2eSessionStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eIdentityStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eSessionRotationRequested(const QString& peerId, const QJsonObject& agreement);
@@ -164,6 +179,9 @@ private:
     void handleServerMessage(const QJsonObject& obj);
     void handleIncomingFileChunk(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
+    ChatUser friendCandidateForId(const QString& userId, const QString& fallbackName = QString()) const;
+    void addOrUpdateFriend(const QString& userId, const QString& fallbackName = QString());
+    void refreshFriendPresenceFromOnlineUsers();
     bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
     bool sendFilePayload(const QString& filePath,
                          const QString& receiverId,
@@ -272,6 +290,8 @@ private:
     QString m_serverHost;
     quint16 m_serverPort;
     QVector<ChatUser> m_onlineUsers;
+    QVector<ChatUser> m_friends;
+    QMap<QString, QString> m_pendingIncomingFriendNames;
     QByteArray m_buffer;
     quint16 m_reconnectAttempts;
     QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;
@@ -279,6 +299,7 @@ private:
     bool m_cancelOutgoingTransfer;
     QString m_currentOutgoingTransferId;
     QString m_currentOutgoingReceiverId;
+    QString m_currentOutgoingGroupId;
     QString m_currentOutgoingFileName;
     QJsonArray m_serverGroups;
     QJsonArray m_removedServerGroups;

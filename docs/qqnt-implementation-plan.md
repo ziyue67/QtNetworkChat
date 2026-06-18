@@ -249,31 +249,33 @@ int main(int argc, char* argv[]) {
 
 ### 5.4 命令路由表 V1
 
+表中 payload 为 `{}` 的命令不得携带额外字段；省略 payload 与传 `{}` 等价。
+
 | op | payload | 说明 |
 |---|---|---|
-| `ready` | — | 返回协议版本、Qt 版本、E2E 状态 |
+| `ready` | `{}` | 返回协议版本、Qt 版本、E2E 状态 |
 | `connect` | `{host, port}` | TCP 连接服务端 |
-| `disconnect` | — | 断开 |
+| `disconnect` | `{}` | 断开 |
 | `login` | `{account, password}` | 账号密码登录 |
 | `register` | `{account, password, userName}` | 注册 |
-| `logout` | — | 清空状态并断开 |
+| `logout` | `{}` | 清空状态并断开 |
 | `set_user_info` | `{userId, userName}` | 设置当前用户信息 |
-| `get_user_list` | — | 在线用户 |
-| `get_friend_list` | — | 好友列表 |
-| `get_group_list` | — | 群组列表 |
+| `get_user_list` | `{}` | 在线用户 |
+| `get_friend_list` | `{}` | 好友列表 |
+| `get_group_list` | `{}` | 群组列表 |
 | `search_friend` | `{account}` | 搜 QQ 号 |
 | `send_friend_request` | `{receiverId}` | 加好友 |
 | `respond_friend_request` | `{senderId, accepted}` | 接受/拒绝 |
 | `send_private_message` | `{receiverId, content}` | 私聊 |
 | `send_group_message` | `{groupId, content}` | 群聊 |
-| `create_group` | `{groupName, members[], announcement?}` | 建群 |
+| `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 建私有群；`members` 可为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId` |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
-| `update_group_member` | `{groupId, memberId, action}` | 成员管理 |
-| `send_file` | `{receiverId/groupId, filePath}` | 发文件 |
-| `send_image` | `{receiverId/groupId, filePath}` | 发图片 |
-| `cancel_transfer` | `{transferId}` | 取消 |
-| `query_resume` | `{filePath, transferId, receiverId?}` | 续传查询 |
-| `e2e_status` | `{peerId}` | E2E 状态 |
+| `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 成员管理；`action` 必须精确匹配小写枚举值 |
+| `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
+| `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
+| `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
+| `query_resume` | `{transferId, filePath?, receiverId xor groupId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送，恢复发送目标必须二选一；目标字段仅在恢复模式有效；`contentType` 必须精确匹配小写枚举值 `file`/`image` |
+| `e2e_status` | `{peerId?}` | E2E 状态；省略时返回本机身份，提供时追加会话与对端身份 |
 | `e2e_announce_identity` | `{peerId}` | 身份公告 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定身份 |
 | `e2e_request_rotation` | `{peerId}` | 请求轮换 |
@@ -286,21 +288,26 @@ int main(int argc, char* argv[]) {
 |---|---|---|
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 状态 |
-| `login_result` | `{success, userId, userName, error?}` | 登录结果 |
-| `user_list` | `{users[]}` | 在线列表 |
-| `user_joined` / `user_left` | `{userId, userName}` | 上下线 |
-| `friend_event` | `{type, senderId, senderName, accepted?}` | 好友申请/回应 |
-| `friend_search_result` | `{found, userId, userName, online}` | 搜索结果 |
+| `login_result` | `{success=true, userId, userName, registered} / {success=false, error}` | 登录结果 |
+| `user_list` | `{users: UserSummary[]}` | 在线列表 |
+| `user_joined` | `{userId, userName}` | 上线 |
+| `user_left` | `{userId, userName}` | 下线 |
+| `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
+| `friend_event` | `{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}` | 好友申请/回应 |
+| `friend_search_result` | `{found=true, userId, userName, online, reason?} / {found=false, reason}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
-| `group_snapshot` | `{groups[]}` | 群快照 |
-| `group_member_updated` | `{groupId, memberId, action}` | 群成员变更 |
-| `file_progress` | `{transferId, fileName, bytes, total, direction}` | 文件进度 |
-| `file_done` | `{transferId, fileName, filePath, direction}` | 文件完成 |
-| `file_error` | `{transferId, reason}` | 文件失败 |
+| `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
+| `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更；`action` 为精确小写枚举值 |
+| `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件进度；`bytes`/`total` 以无符号整数字符串表示 |
+| `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件完成 |
+| `file_error` | `{transferId, fileName, reason, bytes, total, direction=incoming/outgoing}` | 文件失败；`bytes`/`total` 以无符号整数字符串表示 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话 |
-| `e2e_identity_state` | `{peerId, trusted, fingerprint}` | E2E 身份 |
+| `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份 |
+| `e2e_rotation_request` | `{peerId, agreement}` | E2E 会话轮换请求 |
+| `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | E2E 会话轮换回应 |
+| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步；`revision` 从 1 开始递增；文件下载目录可影响 engine 接收文件保存位置 |
 | `notification` | `{title, body}` | 需要前端通知 |
-| `error` | `{message, source}` | 通用错误 |
+| `error` | `{message, source=client}` | 通用客户端错误 |
 
 ### 5.6 `QQNTServer` 与 Redis 服务封装
 
@@ -371,29 +378,30 @@ signals:
 
 ### 6.1 crate 模块
 
-- `main.rs`：应用入口；注册 command；启动引擎 sidecar。
-- `lib.rs`：导出各模块。
+- `main.rs`：应用入口；调用 `tauri_qqnt_lib::run()`。
+- `lib.rs`：注册 plugin/command，初始化 `AppState`，启动 `QQNTServer` 与 `QQNTEngine` sidecar。
 - `commands.rs`：`qqnt_command` 通用命令 + 类型化 wrapper。
 - `bridge.rs`：NDJSON 读写；请求-响应关联；事件广播。
-- `sidecar.rs`：spawn/monitor `QQNTEngine` 与可选 `QQNTServer`。
-- `state.rs`：`AppState` 与 `EngineState`。
+- `sidecar.rs`：spawn/monitor `QQNTEngine` 与 `QQNTServer`。
+- `state.rs`：`AppState`、`EngineState` 与 `ServerState`。
 - `error.rs`：统一错误类型。
 
 ### 6.2 sidecar 启动与 Redis 预检
 
-`sidecar.rs` 在托管模式下启动 `QQNTServer` 前，先 ping Redis：
+`sidecar.rs` 启动 `QQNTServer` 前，先 ping Redis；Redis 不可用时写入 server last error 并 emit `qqnt://server/fatal`：
 
 ```rust
-pub async fn start_server(state: &AppState, app: &AppHandle) -> Result<(), String> {
+async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
     let host = env::var("QTNETWORKCHAT_REDIS_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let port = env::var("QTNETWORKCHAT_REDIS_PORT").unwrap_or_else(|_| "6379".into()).parse::<u16>().unwrap_or(6379);
 
     if tokio::net::TcpStream::connect((host.as_str(), port)).await.is_err() {
-        app.emit("qqnt://server/fatal", json!({"reason":"redis_unavailable"})).ok();
-        return Err("Redis 未就绪".into());
+        return Err(QQNTError::rust("redis_unavailable", "Redis is unavailable for QQNTServer."));
     }
 
-    let (mut rx, child) = tauri::api::process::Command::new_sidecar("QQNTServer")
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("binaries/QQNTServer")
         .map_err(|e| e.to_string())?
         .spawn()
         .map_err(|e| e.to_string())?;
@@ -401,7 +409,7 @@ pub async fn start_server(state: &AppState, app: &AppHandle) -> Result<(), Strin
 }
 ```
 
-`QQNTEngine` 启动统一用 `Command::new_sidecar("QQNTEngine")`，Tauri 自动处理 dev/build 路径差异。
+`QQNTEngine` 启动统一用 `app.shell().sidecar("binaries/QQNTEngine")`，路径与 `tauri.conf.json` 的 `externalBin` 保持一致。
 
 ### 6.3 环境变量透传
 
@@ -611,8 +619,8 @@ export const APP_ENTRIES: QQNTAppEntry[] = [
 ### 8.1 C++ 编译
 
 ```powershell
-cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
-cmake --build build --target QQNTEngine QQNTServer
+cmake -S . -B build-qt6-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="D:/Qt/6.8.3/mingw_64"
+cmake --build build-qt6-mingw --target QQNTEngine QQNTServer
 ```
 
 ### 8.2 sidecar 同步脚本
@@ -620,19 +628,16 @@ cmake --build build --target QQNTEngine QQNTServer
 `scripts/copy-sidecars.ps1`：
 
 ```powershell
-$triplet = "x86_64-pc-windows-msvc"
-$outDir = "tauri-qqnt/src-tauri/binaries"
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-Copy-Item -Path "build/QQNTEngine.exe" -Destination "$outDir/QQNTEngine-$triplet.exe" -Force
-Copy-Item -Path "build/QQNTServer.exe" -Destination "$outDir/QQNTServer-$triplet.exe" -Force
+.\scripts\copy-sidecars.ps1 -BuildDir build-qt6-mingw -OutDir tauri-qqnt\src-tauri\binaries
 ```
+
+脚本会把 `QQNTEngine` / `QQNTServer` 复制为 Tauri target triplet 后缀的 external bin，并把 `Qt6Core.dll`、`Qt6Network.dll`、`Qt6Sql.dll` 与 `sqldrivers/qsqlite.dll` 部署到同一 `binaries` 运行时目录。`tauri.conf.json` 通过 `binaries/*.dll` 与 `binaries/**/*.dll` 把这些 sidecar runtime 文件纳入 NSIS 包，避免 Tauri dev/build 启动 sidecar 时弹出 Qt DLL 缺失错误。
 
 CMake POST_BUILD 接入：
 
 ```cmake
 add_custom_command(TARGET QQNTEngine POST_BUILD
-    COMMAND powershell -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/scripts/copy-sidecars.ps1"
+    COMMAND powershell -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/scripts/copy-sidecars.ps1" -BuildDir "${CMAKE_BINARY_DIR}"
 )
 ```
 
@@ -676,15 +681,19 @@ npm run tauri build
 
 | 层 | 文件 | 验证点 |
 |---|---|---|
-| Engine stdout 纯净 | `tests/qqnt_engine_smoke_test.cpp` | 每行 stdout 都是合法 JSON |
+| Engine stdout 与命令契约 | `tests/qqnt_engine_smoke_test.cpp` + `tests/fixtures/protocol_contract.json` | 每行 stdout 都是合法 JSON；fixture 中每个命令都会被 `QQNTEngine` 路由且不会返回 `unknown_op` |
 | Engine ready/connect | 同上 | `ready` ack 含 `protocolVersion`；`connect` ack 正确 |
 | Server Redis 就绪 | `tests/qqnt_server_redis_test.cpp` | `isServiceReady=true` |
 | 跨实例消息路由 | 同上 | A 实例发布，B 实例通过 Redis 收到 |
-| 协议漂移 | `tests/qqnt_protocol_drift_test.cpp` + `tests/fixtures/ready.json` | 三端都能解析同一份 fixture |
+| 跨实例群快照刷新 | 同上 | 建私有群时远端在线初始成员通过 Redis 收到群快照 |
+| 跨实例私有群消息 | 同上 | 远端在线私有群成员收到群消息，同实例非成员不收到 |
+| 跨实例私有群小文件 | 同上 | 远端在线私有群成员收到 Redis Pub/Sub 可承载的小文件分片，同实例非成员不收到 |
+| 跨实例私有群大文件 | 同上 | 远端在线私有群成员收到 object-store large_file_offer 分片，同实例非成员不收到 |
+| 协议漂移 | `tests/qqnt_protocol_drift_test.cpp` + `tests/fixtures/ready.json` + `tests/fixtures/protocol_contract.json` | 三端能解析同一份 fixture；命令/事件清单、命令/事件 payload 形状、命令包络与 payload 严格字段白名单与 IPC 文档一致 |
 | Rust Bridge mock | `tests/qqnt_bridge_rust_test.rs` | reqId 关联与事件广播 |
 | 前端 store | `src/stores/*.test.ts` | 会话排序、未读、乐观发送 |
 | 前端组件 | `src/components/**/*.test.tsx` | MessageBubble、Composer、SessionList |
-| 回归 | 现有 CTest | `ctest --test-dir build --output-on-failure` 全过 |
+| 回归 | 现有 CTest | `ctest --test-dir build-qt6-mingw --output-on-failure` 全过 |
 
 ---
 
@@ -693,7 +702,7 @@ npm run tauri build
 | 风险 | 缓解措施 | 对应任务 |
 |---|---|---|
 | `QQNTClientCore` 依赖 Widgets 导致无头启动失败 | 先不链 Widgets；必要时加 `QQNT_HEADLESS` 宏排除 GUI 代码；smoke test 验证无窗口 | Phase 1 任务 1.3、1.4 |
-| Sidecar 路径 dev/build 不一致 | `tauri.conf.json` 注册 `externalBin`；CMake POST_BUILD 执行 `scripts/copy-sidecars.ps1`；Rust 用 `Command::new_sidecar` | Phase 1 任务 1.2、1.2a |
+| Sidecar 路径 dev/build 不一致 | `tauri.conf.json` 注册 `externalBin`；CMake POST_BUILD 执行 `scripts/copy-sidecars.ps1`；Rust 用 `app.shell().sidecar("binaries/...")` | Phase 1 任务 1.2、1.2a |
 | Redis 未启动时 `QQNTServer` 拒绝启动 | `dev/redis-compose.yml`；Rust ping Redis 失败 emit `qqnt://server/fatal`；前端提示 | Phase 1 任务 1.1、1.2；Phase 3 任务 3.3 |
 | Engine stdout 被日志污染 | `qInstallMessageHandler` 重定向到 `stderr`；bridge 只写 NDJSON 到 `stdout` | Phase 1 任务 1.4 |
 | 前端 TS 类型与 C++/Rust 不同步 | `protocolVersion` 协商；单一 `docs/qqnt-ipcv1.md`；共享 fixture 三端漂移测试 | Phase 1 任务 1.4、1.5a；Phase 8 任务 8.1 |
@@ -709,7 +718,7 @@ npm run tauri build
 | 1.1 | 安装 Rust + Tauri CLI + WebView2；安装/验证 Docker + Redis compose | GPT5.5 | `cargo tauri --version`；`docker compose -f dev/redis-compose.yml up -d` 成功 |
 | 1.2 | 初始化 `tauri-qqnt`；配置 `tauri.conf.json` 与 `capabilities/default.json` | GPT5.5 | `npm run tauri dev` 打开空窗口 |
 | 1.2a | 编写 `scripts/copy-sidecars.ps1` 并接入 CMake POST_BUILD | GPT5.5 | C++ 编译后 `tauri-qqnt/src-tauri/binaries/` 出现带 triplet 的 exe |
-| 1.3 | CMake 新增 `QQNTEngine` 与 `QQNTServer` target；`QQNTClientCore` OBJECT library | GPT5.5 | `cmake --build build --target QQNTEngine QQNTServer` 成功 |
+| 1.3 | CMake 新增 `QQNTEngine` 与 `QQNTServer` target；`QQNTClientCore` OBJECT library | GPT5.5 | `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功 |
 | 1.4 | 实现 `QQNTEngine` ready + connect；安装 `qInstallMessageHandler` 保证 stdout 纯净；`ready` ack 带 `protocolVersion` | GPT5.5 | CTest `qqnt_engine_smoke_test` 通过；stdout 每行合法 JSON |
 | 1.5 | Rust `bridge.rs`/`sidecar.rs` spawn engine + NDJSON 读写 + 事件广播 | GPT5.5 | 测试能收到 `qqnt://engine/ready` |
 | 1.5a | 创建 `docs/qqnt-ipcv1.md` 与 `tests/fixtures/ready.json` | GPT5.5 | 文档与 fixture 齐全 |
@@ -751,14 +760,21 @@ npm run tauri build
 | 5.3 | Engine 群列表/建群/群消息/群成员管理 | GPT5.5 | 群聊消息同步 |
 | 5.4 | 前端群聊列表与群成员面板 | Kimi | 群消息收发正常 |
 
+> 后端已支持 `create_group.members[]` 作为可选初始成员账号或成员对象数组；服务端建私有群时会把已存在账号加入群，向本实例在线成员直接推送 `server_group_snapshot`，并通过 Redis 内部刷新事件通知其他实例上的在线初始成员。
+> 私有群文本消息已接入 Redis 跨实例路由；远端实例会按 SQLite 群成员关系只推送给本实例在线成员，非成员不会收到。
+> 私有群小文件/图片已接入 Redis 跨实例路由；远端实例会按群成员关系把 Pub/Sub 负载分片发送给本实例在线成员，非成员不会收到。
+> 私有群大文件/图片已接入 Redis 对象路由；发送实例写入 object store 并发布 `large_file_offer`，远端实例按群成员关系投递给本实例在线成员，群 fanout 不发送一对一 delivered 清理回执，对象保留到 TTL 清理。
+
 ### Phase 6：文件传输
 
 | 编号 | 任务 | 负责人 | 验收 |
 |---|---|---|---|
 | 6.1 | Engine 文件/图片发送 + 进度事件 | GPT5.5 | 进度条更新 |
 | 6.2 | 前端 `FileMessage` + 下载/打开目录 | Kimi | 文件可接收 |
-| 6.3 | 取消传输 | Kimi | 前端取消后端停止 |
-| 6.4 | 断点续传查询与恢复 | GPT5.5 | 重发按续传状态继续 |
+| 6.3 | 取消传输 | Kimi/GPT5.5 | 前端传入当前 `transferId` 后，Engine 校验并停止当前发送任务 |
+| 6.4 | 断点续传查询与恢复 | GPT5.5 | `query_resume` 可只查状态，也可带 `filePath` 和 `receiverId`/`groupId` 二选一目标按续传状态继续发送 |
+
+> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；文件/图片发送和续传恢复目标按 `receiverId`/`groupId` 二选一校验，相关 `missing_target`、`ambiguous_target` 与目标字段缺少 `filePath` 的 `invalid_target` 错误会返回 `details.targetFields`；`query_resume` 仅在提供 `filePath` 的恢复模式下接受目标字段，群文件续传会保留 `groupId`；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
 
 ### Phase 7：设置与扩展
 
@@ -768,6 +784,8 @@ npm run tauri build
 | 7.2 | 个人资料编辑页 | Kimi | 昵称头像可修改 |
 | 7.3 | 8 个扩展页 mock 占位 | Kimi | 入口与 UI 完整 |
 
+> 后端已支持 `settings_sync` 校验、最近设置快照、`settings_synced` 事件，以及文件下载目录设置应用；设置同步 `revision` 从 1 开始递增；前端可通过 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 影响 engine 接收文件保存位置，且任一已提供字段都必须保持类型合法，不会因其他下载目录字段存在而被跳过校验。
+
 ### Phase 8：收尾
 
 | 编号 | 任务 | 负责人 | 验收 |
@@ -776,6 +794,8 @@ npm run tauri build
 | 8.2 | Tauri `npm run tauri build` 出 MSI/NSIS | GPT5.5 | 安装包可安装运行 |
 | 8.3 | 更新 README、IPC 文档 | Kimi | 新构建与运行方式说明 |
 | 8.4 | 清理运行时数据提交；`.gitignore` 检查 | 共同 | 无 accounts.sqlite3、histories、离线附件入仓 |
+
+> 后端 Phase 8 验证已覆盖 97 条 CTest（按 `-I 1,24`、`-I 25,54`、`-I 55,79`、`-I 80,97` 分片全过）、`tauri-qqnt/src-tauri` 的 `cargo fmt --check` / `cargo test`、以及 `npm run tauri build` 打包；Vitest 渲染与 `*.test.ts(x)` 用例归 `codex/qqnt-frontend`，后端分支不补前端测试桩。
 
 ### 立即并行启动
 - **Kimi**：Phase 2（前端脚手架 + 无边框窗口 + 11 入口）。

@@ -158,6 +158,18 @@ FileTransferStatusInfo describeFileTransferReason(const QString& reason) {
             false};
 }
 
+QString canonicalFileTransferDirection(const QString& category, const QString& direction) {
+    const QString normalizedDirection = direction.trimmed().toLower();
+    if (normalizedDirection == QLatin1String("incoming")
+        || normalizedDirection == QLatin1String("outgoing")) {
+        return normalizedDirection;
+    }
+
+    return category.trimmed().startsWith(QLatin1String("receive-"))
+        ? QStringLiteral("incoming")
+        : QStringLiteral("outgoing");
+}
+
 QString fileTransferUserMessage(const QString& reason, const QString& fallback) {
     const FileTransferStatusInfo info = describeFileTransferReason(reason);
     if (info.category == QLatin1String("unknown") && !fallback.trimmed().isEmpty()) {
