@@ -40,23 +40,9 @@ QJsonObject makeResumeStatePayload(const QString& transferId,
     return response;
 }
 
-MessageType resumeMessageTypeFromPayload(const QJsonObject& payload, const QString& contentType) {
+MessageType resumeMessageTypeFromContentType(const QString& contentType) {
     const QString textType = contentType.trimmed().toLower();
     if (textType == QLatin1String("image")) {
-        return MessageType::Image;
-    }
-    if (!textType.isEmpty()) {
-        return MessageType::File;
-    }
-
-    const QJsonValue messageTypeValue = payload.value(QStringLiteral("messageType"));
-    if (messageTypeValue.isDouble()
-        && messageTypeValue.toInt() == static_cast<int>(MessageType::Image)) {
-        return MessageType::Image;
-    }
-
-    const QString legacyTextType = messageTypeValue.toString().trimmed().toLower();
-    if (legacyTextType == QLatin1String("image")) {
         return MessageType::Image;
     }
     return MessageType::File;
@@ -736,7 +722,7 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
     }
 
     QString resumeRejectReason;
-    const MessageType messageType = resumeMessageTypeFromPayload(payload, contentType);
+    const MessageType messageType = resumeMessageTypeFromContentType(contentType);
     if (!m_bridge->client()->queryAndResumeFileTransfer(filePath,
                                                         transferId,
                                                         receiverId,

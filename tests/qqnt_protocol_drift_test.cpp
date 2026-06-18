@@ -337,6 +337,8 @@ int main(int argc, char* argv[]) {
     ok = expectSameMap(documentedEventPayloads, expectedEventPayloads, QStringLiteral("documented event payloads")) && ok;
     ok = expectSameSet(routedCppCommands, expectedCommands, QStringLiteral("C++ routed commands")) && ok;
     ok = expectSameSet(emittedCppEvents, expectedEvents, QStringLiteral("C++ emitted events")) && ok;
+    ok = expect(!routerSource.contains(QStringLiteral("QStringLiteral(\"messageType\")")),
+                QStringLiteral("C++ IPC router should use documented contentType instead of legacy messageType")) && ok;
 
     return ok ? 0 : 1;
 }
