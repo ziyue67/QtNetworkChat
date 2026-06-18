@@ -773,7 +773,7 @@ npm run tauri build
 | 6.3 | 取消传输 | Kimi/GPT5.5 | 前端传入当前 `transferId` 后，Engine 校验并停止当前发送任务 |
 | 6.4 | 断点续传查询与恢复 | GPT5.5 | `query_resume` 可只查状态，也可带 `filePath` 和 `receiverId`/`groupId` 二选一目标按续传状态继续发送 |
 
-> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；文件/图片发送和续传恢复目标按 `receiverId`/`groupId` 二选一校验，群文件续传会保留 `groupId`；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
+> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；文件/图片发送和续传恢复目标按 `receiverId`/`groupId` 二选一校验，且 `query_resume` 仅在提供 `filePath` 的恢复模式下接受目标字段，群文件续传会保留 `groupId`；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
 
 ### Phase 7：设置与扩展
 

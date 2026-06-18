@@ -676,6 +676,13 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
         || !optionalTargetString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)) {
         return;
     }
+    if (filePath.isEmpty() && (!groupId.isEmpty() || !receiverId.isEmpty())) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_target"),
+                               QStringLiteral("query_resume receiverId/groupId may only be provided with filePath."));
+        return;
+    }
     if (!filePath.isEmpty() && groupId.isEmpty() && receiverId.isEmpty()) {
         m_bridge->sendErrorAck(op,
                                reqId,

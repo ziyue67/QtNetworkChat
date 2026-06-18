@@ -465,6 +465,8 @@ int main(int argc, char* argv[]) {
                 "query_resume invalid contentType command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-unsupported-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\"video\"}}\n"),
                 "query_resume unsupported contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-target-without-file-path\",\"payload\":{\"transferId\":\"resume-transfer\",\"receiverId\":\"10001\"}}\n"),
+                "query_resume target without filePath command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-field\",\"payload\":{\"avatarBase64\":42}}\n"),
@@ -576,6 +578,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-resume-invalid-file-path"),
         QStringLiteral("smoke-resume-invalid-content-type"),
         QStringLiteral("smoke-resume-unsupported-content-type"),
+        QStringLiteral("smoke-resume-target-without-file-path"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-profile-invalid-field"),
         QStringLiteral("smoke-profile-invalid-avatar"),
@@ -886,6 +889,11 @@ int main(int argc, char* argv[]) {
                         "query_resume with unsupported contentType should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
                         "query_resume with unsupported contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-target-without-file-path")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with target and no filePath should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
+                        "query_resume with target and no filePath should use invalid_target code") && ok;
         } else if (reqId == QLatin1String("smoke-profile")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "profile_update should return ok ack") && ok;

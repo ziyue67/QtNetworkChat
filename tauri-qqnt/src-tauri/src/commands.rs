@@ -1005,7 +1005,14 @@ fn validate_query_resume_command_payload(payload: &Value) -> Result<(), QQNTErro
 
     let receiver_id = optional_command_target_string_field(payload, "receiverId")?;
     let group_id = optional_command_target_string_field(payload, "groupId")?;
-    if !file_path.trim().is_empty() {
+    if file_path.trim().is_empty() {
+        if !receiver_id.trim().is_empty() || !group_id.trim().is_empty() {
+            return Err(QQNTError::rust(
+                "invalid_target",
+                "query_resume receiverId/groupId may only be provided with filePath.",
+            ));
+        }
+    } else {
         validate_required_command_target(
             receiver_id,
             group_id,
@@ -2121,6 +2128,21 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_query_resume_target_without_file_path() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1",
+                "receiverId": "10001"
+            }
+        }))
+        .expect_err("query_resume query-only mode should not accept a target");
+
+        assert_eq!(error.code, "invalid_target");
+    }
+
+    #[test]
     fn generic_command_rejects_query_resume_resume_missing_target() {
         let error = validate_generic_command(&json!({
             "op": "query_resume",
@@ -2598,6 +2620,20 @@ mod tests {
         .expect_err("typed query_resume payload should reject unsupported contentType");
 
         assert_eq!(error.code, "invalid_content_type");
+    }
+
+    #[test]
+    fn query_resume_payload_rejects_target_without_file_path() {
+        let error = query_resume_payload(
+            "transfer-1".to_string(),
+            None,
+            Some("10001".to_string()),
+            None,
+            None,
+        )
+        .expect_err("typed query_resume payload should reject target without filePath");
+
+        assert_eq!(error.code, "invalid_target");
     }
 
     #[test]
