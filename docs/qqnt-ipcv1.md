@@ -354,5 +354,5 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 
 - 前端命令入口固定为 `invoke('qqnt_command', { payload })`。
 - Engine 事件固定为 `listen('qqnt://engine/<event>', handler)`。
-- Server 致命错误固定为 `listen('qqnt://server/fatal', handler)`，例如 Redis 未就绪。
+- Server 致命错误固定为 `listen('qqnt://server/fatal', handler)`，payload 使用 `{code, message, source, details?}`；例如 Redis 未就绪使用 `code=redis_unavailable`，`details.host`/`details.port` 指向预检目标，`details.cause` 保留底层 Redis 连接错误。
 - 后端新增字段必须保持向后兼容；删除或改名必须升级 `protocolVersion`。

@@ -59,7 +59,7 @@ async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
 }
 
 async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
-    let redis = redis_preflight(&app).await?;
+    let redis = redis_preflight().await?;
     let mut command = app
         .shell()
         .sidecar(SERVER_SIDECAR_PATH)
@@ -143,7 +143,7 @@ struct RedisConfig {
     port: u16,
 }
 
-async fn redis_preflight(app: &AppHandle) -> Result<RedisConfig, QQNTError> {
+async fn redis_preflight() -> Result<RedisConfig, QQNTError> {
     let host = std::env::var("QTNETWORKCHAT_REDIS_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let port = std::env::var("QTNETWORKCHAT_REDIS_PORT")
         .ok()
@@ -153,23 +153,20 @@ async fn redis_preflight(app: &AppHandle) -> Result<RedisConfig, QQNTError> {
         .ok()
         .filter(|value| !value.is_empty());
 
-    if ping_redis(host.as_str(), port, password.as_deref())
-        .await
-        .is_ok()
-    {
-        return Ok(RedisConfig { host, port });
+    match ping_redis(host.as_str(), port, password.as_deref()).await {
+        Ok(()) => Ok(RedisConfig { host, port }),
+        Err(cause) => Err(redis_unavailable_error(host.as_str(), port, &cause)),
     }
+}
 
-    let error = QQNTError::rust("redis_unavailable", "Redis is unavailable for QQNTServer.");
-    let _ = app.emit(
-        "qqnt://server/fatal",
+fn redis_unavailable_error(host: &str, port: u16, cause: &QQNTError) -> QQNTError {
+    QQNTError::rust("redis_unavailable", "Redis is unavailable for QQNTServer.").with_details(
         json!({
-            "reason": "redis_unavailable",
             "host": host,
-            "port": port
+            "port": port,
+            "cause": cause
         }),
-    );
-    Err(error)
+    )
 }
 
 async fn ping_redis(host: &str, port: u16, password: Option<&str>) -> Result<(), QQNTError> {
@@ -393,5 +390,21 @@ mod tests {
             .expect_err("non-PONG reply should fail preflight");
         assert_eq!(error.code, "redis_ping_failed");
         server.await.expect("mock Redis task should finish");
+    }
+
+    #[test]
+    fn redis_preflight_failure_keeps_endpoint_and_cause_details() {
+        let cause = QQNTError::rust("redis_connect_failed", "connection refused");
+        let error = redis_unavailable_error("10.0.0.5", 6380, &cause);
+        let value = serde_json::to_value(error).expect("redis fatal error should serialize");
+
+        assert_eq!(value["code"], "redis_unavailable");
+        assert_eq!(value["message"], "Redis is unavailable for QQNTServer.");
+        assert_eq!(value["source"], "rust");
+        assert_eq!(value["details"]["host"], "10.0.0.5");
+        assert_eq!(value["details"]["port"], 6380);
+        assert_eq!(value["details"]["cause"]["code"], "redis_connect_failed");
+        assert_eq!(value["details"]["cause"]["message"], "connection refused");
+        assert_eq!(value["details"]["cause"]["source"], "rust");
     }
 }
