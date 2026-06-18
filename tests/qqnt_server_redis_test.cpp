@@ -163,6 +163,37 @@ bool bufferHasActiveGroupSnapshot(const QByteArray& buffer,
     return false;
 }
 
+bool bufferHasActiveGroupMemberRole(const QByteArray& buffer,
+                                    const QString& expectedGroupId,
+                                    const QString& expectedMemberId,
+                                    const QString& expectedRole) {
+    const QList<QByteArray> lines = buffer.split('\n');
+    for (const QByteArray& line : lines) {
+        const QJsonDocument doc = QJsonDocument::fromJson(line.trimmed());
+        if (!doc.isObject()) continue;
+        const QJsonObject root = doc.object();
+        if (root.value("type").toString() != QLatin1String("server_group_snapshot")) continue;
+        const QJsonArray groups = root.value("groups").toArray();
+        for (const QJsonValue& groupValue : groups) {
+            const QJsonObject group = groupValue.toObject();
+            if (group.value("groupId").toString() != expectedGroupId
+                || group.value("membershipState").toString() != QLatin1String("active")) {
+                continue;
+            }
+
+            const QJsonArray members = group.value("members").toArray();
+            for (const QJsonValue& memberValue : members) {
+                const QJsonObject member = memberValue.toObject();
+                if (member.value("userId").toString() == expectedMemberId
+                    && member.value("role").toString() == expectedRole) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool bufferHasGroupMemberUpdate(const QByteArray& buffer,
                                 const QString& expectedGroupId,
                                 const QString& expectedMemberId,
@@ -469,6 +500,44 @@ int main(int argc, char** argv) {
             && bobBuffer.contains(privateGroupId.toUtf8())
             && bobBuffer.contains(postAddText.toUtf8());
     }, 5000), "added remote private group member should receive later private group messages") && ok;
+
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject promoteBobInPrivateGroup;
+    promoteBobInPrivateGroup["type"] = "server_group_member_update";
+    promoteBobInPrivateGroup["groupId"] = privateGroupId;
+    promoteBobInPrivateGroup["memberId"] = "970002";
+    promoteBobInPrivateGroup["action"] = "promote_admin";
+    ok = expect(writeJsonLine(&alice, promoteBobInPrivateGroup),
+                "alice should promote a remote private group member") && ok;
+    ok = expect(waitFor([&] {
+        bobBuffer.append(bob.readAll());
+        carolBuffer.append(carol.readAll());
+        return bufferHasGroupMemberUpdate(bobBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("promote_admin"))
+            && bufferHasActiveGroupMemberRole(bobBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("admin"))
+            && bufferHasGroupMemberUpdate(carolBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("promote_admin"))
+            && bufferHasActiveGroupMemberRole(carolBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("admin"));
+    }, 5000), "remote private group members should receive Redis-routed promote_admin update and admin snapshot") && ok;
+
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject demoteBobInPrivateGroup;
+    demoteBobInPrivateGroup["type"] = "server_group_member_update";
+    demoteBobInPrivateGroup["groupId"] = privateGroupId;
+    demoteBobInPrivateGroup["memberId"] = "970002";
+    demoteBobInPrivateGroup["action"] = "demote_admin";
+    ok = expect(writeJsonLine(&alice, demoteBobInPrivateGroup),
+                "alice should demote a remote private group member") && ok;
+    ok = expect(waitFor([&] {
+        bobBuffer.append(bob.readAll());
+        carolBuffer.append(carol.readAll());
+        return bufferHasGroupMemberUpdate(bobBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("demote_admin"))
+            && bufferHasActiveGroupMemberRole(bobBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("member"))
+            && bufferHasGroupMemberUpdate(carolBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("demote_admin"))
+            && bufferHasActiveGroupMemberRole(carolBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("member"));
+    }, 5000), "remote private group members should receive Redis-routed demote_admin update and member snapshot") && ok;
 
     aliceBuffer.clear();
     bobBuffer.clear();
