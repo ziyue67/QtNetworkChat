@@ -866,7 +866,18 @@ void QQNTEngineCommandRouter::handleProfileUpdate(const QString& op, const QStri
 
     bool avatarSent = false;
     if (!avatarBase64.isEmpty()) {
-        avatarSent = m_bridge->client()->sendAvatarUpdate(QByteArray::fromBase64(avatarBase64.toLatin1()));
+        const QByteArray::FromBase64Result avatarBytes =
+            QByteArray::fromBase64Encoding(avatarBase64.toLatin1(),
+                                           QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
+        if (!avatarBytes) {
+            m_bridge->sendErrorAck(op,
+                                   reqId,
+                                   QStringLiteral("invalid_profile_field"),
+                                   QStringLiteral("payload.avatarBase64 must be valid Base64 when provided."));
+            return;
+        }
+
+        avatarSent = m_bridge->client()->sendAvatarUpdate(avatarBytes.decoded);
         if (!avatarSent && m_bridge->client()->isConnected()) {
             m_bridge->sendErrorAck(op, reqId, QStringLiteral("profile_update_failed"), QStringLiteral("Avatar profile update failed."));
             return;

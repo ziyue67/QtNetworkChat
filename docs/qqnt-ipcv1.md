@@ -122,7 +122,7 @@
 | `e2e_announce_identity` | `{peerId}` | 公告身份密钥 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定或更新身份指纹 |
 | `e2e_request_rotation` | `{peerId}` | 请求会话密钥轮换 |
-| `profile_update` | `{userName?, avatarBase64?}` | 更新个人资料 |
+| `profile_update` | `{userName?, avatarBase64?}` | 更新个人资料；`avatarBase64` 提供时必须是有效 Base64，非法返回 `invalid_profile_field` |
 | `settings_sync` | `{settings}` | 同步本地设置 |
 
 ### 成功 ack payload 表

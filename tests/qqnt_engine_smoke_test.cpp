@@ -427,6 +427,8 @@ int main(int argc, char* argv[]) {
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-field\",\"payload\":{\"avatarBase64\":42}}\n"),
                 "profile_update invalid field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-avatar\",\"payload\":{\"avatarBase64\":\"not-base64%%%\"}}\n"),
+                "profile_update invalid avatar command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
                 "settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
@@ -678,6 +680,11 @@ int main(int argc, char* argv[]) {
                         "profile_update with non-string optional field should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_profile_field"),
                         "profile_update with non-string optional field should use invalid_profile_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-profile-invalid-avatar")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "profile_update with invalid avatar Base64 should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_profile_field"),
+                        "profile_update with invalid avatar Base64 should use invalid_profile_field code") && ok;
         } else if (reqId == QLatin1String("smoke-settings")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "settings_sync should return ok ack") && ok;
