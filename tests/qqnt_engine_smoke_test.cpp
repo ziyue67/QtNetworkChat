@@ -387,6 +387,10 @@ int main(int argc, char* argv[]) {
                 "get_friend_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"get_group_list\",\"reqId\":\"smoke-groups\",\"payload\":{}}\n"),
                 "get_group_list command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-missing-host\",\"payload\":{\"port\":8888}}\n"),
+                "connect missing host command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
+                "connect invalid port command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
                 "e2e_status command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
@@ -432,6 +436,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-users"),
         QStringLiteral("smoke-friends"),
         QStringLiteral("smoke-groups"),
+        QStringLiteral("smoke-connect-missing-host"),
+        QStringLiteral("smoke-connect-invalid-port"),
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-e2e-announce-missing"),
         QStringLiteral("smoke-cancel-missing"),
@@ -530,6 +536,16 @@ int main(int argc, char* argv[]) {
                         "get_group_list payload should include removedGroups array") && ok;
             ok = expect(payload.value(QStringLiteral("hasSnapshot")).isBool(),
                         "get_group_list payload should include hasSnapshot boolean") && ok;
+        } else if (reqId == QLatin1String("smoke-connect-missing-host")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "connect without host should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "connect without host should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-connect-invalid-port")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "connect with invalid port should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
+                        "connect with invalid port should use invalid_target code") && ok;
         } else if (reqId == QLatin1String("smoke-e2e")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "e2e_status should return ok ack") && ok;

@@ -62,6 +62,11 @@ private:
                      bool* value,
                      const QString& op,
                      const QString& reqId) const;
+    bool requireTcpPort(const QJsonObject& payload,
+                        const QString& field,
+                        quint16* value,
+                        const QString& op,
+                        const QString& reqId) const;
 
     QQNTClientBridge* m_bridge;
     QString m_account;

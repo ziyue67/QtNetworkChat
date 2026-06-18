@@ -238,6 +238,13 @@ void QQNTEngineCommandRouter::handleLogin(const QString& op, const QString& reqI
 }
 
 void QQNTEngineCommandRouter::handleConnect(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString host;
+    quint16 port = 0;
+    if (!requireString(payload, QStringLiteral("host"), &host, op, reqId)
+        || !requireTcpPort(payload, QStringLiteral("port"), &port, op, reqId)) {
+        return;
+    }
+
     if (!m_hasAccountInfo) {
         m_bridge->sendErrorAck(op,
                                reqId,
@@ -246,15 +253,8 @@ void QQNTEngineCommandRouter::handleConnect(const QString& op, const QString& re
         return;
     }
 
-    const QString host = payload.value(QStringLiteral("host")).toString(QStringLiteral("127.0.0.1")).trimmed();
-    const int portValue = payload.value(QStringLiteral("port")).toInt(8888);
-    if (host.isEmpty() || portValue <= 0 || portValue > 65535) {
-        m_bridge->sendErrorAck(op, reqId, QStringLiteral("invalid_target"), QStringLiteral("connect requires a valid host and port."));
-        return;
-    }
-
-    m_bridge->setConnectionTarget(host, static_cast<quint16>(portValue));
-    const bool connected = m_bridge->client()->connectToServer(host, static_cast<quint16>(portValue));
+    m_bridge->setConnectionTarget(host, port);
+    const bool connected = m_bridge->client()->connectToServer(host, port);
     if (!connected) {
         const QString reason = m_bridge->client()->lastLoginError().isEmpty()
             ? QStringLiteral("Unable to connect to server.")
@@ -266,7 +266,7 @@ void QQNTEngineCommandRouter::handleConnect(const QString& op, const QString& re
     QJsonObject response;
     response[QStringLiteral("connected")] = true;
     response[QStringLiteral("host")] = host;
-    response[QStringLiteral("port")] = portValue;
+    response[QStringLiteral("port")] = static_cast<int>(port);
     m_bridge->sendAck(op, reqId, response);
 }
 
@@ -744,5 +744,32 @@ bool QQNTEngineCommandRouter::requireBool(const QJsonObject& payload,
         return false;
     }
     *value = fieldValue.toBool();
+    return true;
+}
+
+bool QQNTEngineCommandRouter::requireTcpPort(const QJsonObject& payload,
+                                             const QString& field,
+                                             quint16* value,
+                                             const QString& op,
+                                             const QString& reqId) const {
+    const QJsonValue fieldValue = payload.value(field);
+    if (!fieldValue.isDouble()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("missing_field"),
+                               QStringLiteral("payload.%1 is required.").arg(field));
+        return false;
+    }
+
+    const int port = fieldValue.toInt(-1);
+    if (port <= 0 || port > 65535 || fieldValue.toDouble(-1.0) != static_cast<double>(port)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_target"),
+                               QStringLiteral("connect requires a valid host and port."));
+        return false;
+    }
+
+    *value = static_cast<quint16>(port);
     return true;
 }
