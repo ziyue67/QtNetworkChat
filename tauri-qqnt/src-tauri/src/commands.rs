@@ -992,10 +992,7 @@ fn validate_query_resume_command_payload(payload: &Value) -> Result<(), QQNTErro
     let file_path = optional_command_string_field(payload, "filePath", "invalid_file_path")?;
     let content_type =
         optional_command_string_field(payload, "contentType", "invalid_content_type")?;
-    let normalized_content_type = content_type.trim().to_ascii_lowercase();
-    if !normalized_content_type.is_empty()
-        && !matches!(normalized_content_type.as_str(), "file" | "image")
-    {
+    if !content_type.trim().is_empty() && !matches!(content_type, "file" | "image") {
         return Err(QQNTError::rust(
             "invalid_content_type",
             "query_resume contentType must be file or image when provided.",
@@ -2178,6 +2175,23 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_query_resume_non_canonical_content_type() {
+        for content_type in ["IMAGE", " image "] {
+            let error = validate_generic_command(&json!({
+                "op": "query_resume",
+                "reqId": "req-resume",
+                "payload": {
+                    "transferId": "transfer-1",
+                    "contentType": content_type
+                }
+            }))
+            .expect_err("query_resume contentType must match protocol enum exactly");
+
+            assert_eq!(error.code, "invalid_content_type");
+        }
+    }
+
+    #[test]
     fn generic_command_rejects_query_resume_target_without_file_path() {
         let error = validate_generic_command(&json!({
             "op": "query_resume",
@@ -2684,6 +2698,22 @@ mod tests {
         .expect_err("typed query_resume payload should reject unsupported contentType");
 
         assert_eq!(error.code, "invalid_content_type");
+    }
+
+    #[test]
+    fn query_resume_payload_rejects_non_canonical_content_type() {
+        for content_type in ["IMAGE", " image "] {
+            let error = query_resume_payload(
+                "transfer-1".to_string(),
+                None,
+                None,
+                None,
+                Some(content_type.to_string()),
+            )
+            .expect_err("typed query_resume payload should require canonical contentType enum");
+
+            assert_eq!(error.code, "invalid_content_type");
+        }
     }
 
     #[test]

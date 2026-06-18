@@ -274,7 +274,7 @@ int main(int argc, char* argv[]) {
 | `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
 | `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
-| `query_resume` | `{transferId, filePath?, receiverId xor groupId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送，恢复发送目标必须二选一；目标字段仅在恢复模式有效 |
+| `query_resume` | `{transferId, filePath?, receiverId xor groupId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送，恢复发送目标必须二选一；目标字段仅在恢复模式有效；`contentType` 必须精确匹配小写枚举值 `file`/`image` |
 | `e2e_status` | `{peerId?}` | E2E 状态；省略时返回本机身份，提供时追加会话与对端身份 |
 | `e2e_announce_identity` | `{peerId}` | 身份公告 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定身份 |

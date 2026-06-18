@@ -41,18 +41,16 @@ QJsonObject makeResumeStatePayload(const QString& transferId,
 }
 
 MessageType resumeMessageTypeFromContentType(const QString& contentType) {
-    const QString textType = contentType.trimmed().toLower();
-    if (textType == QLatin1String("image")) {
+    if (contentType == QLatin1String("image")) {
         return MessageType::Image;
     }
     return MessageType::File;
 }
 
 bool isSupportedResumeContentType(const QString& contentType) {
-    const QString textType = contentType.trimmed().toLower();
-    return textType.isEmpty()
-        || textType == QLatin1String("file")
-        || textType == QLatin1String("image");
+    return contentType.trimmed().isEmpty()
+        || contentType == QLatin1String("file")
+        || contentType == QLatin1String("image");
 }
 
 bool optionalSettingsStringField(const QJsonObject& object,

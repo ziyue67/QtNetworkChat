@@ -467,6 +467,10 @@ int main(int argc, char* argv[]) {
                 "query_resume invalid contentType command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-unsupported-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\"video\"}}\n"),
                 "query_resume unsupported contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-uppercase-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\"IMAGE\"}}\n"),
+                "query_resume uppercase contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-spaced-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\" image \"}}\n"),
+                "query_resume spaced contentType command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-target-without-file-path\",\"payload\":{\"transferId\":\"resume-transfer\",\"receiverId\":\"10001\"}}\n"),
                 "query_resume target without filePath command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
@@ -589,6 +593,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-resume-invalid-file-path"),
         QStringLiteral("smoke-resume-invalid-content-type"),
         QStringLiteral("smoke-resume-unsupported-content-type"),
+        QStringLiteral("smoke-resume-uppercase-content-type"),
+        QStringLiteral("smoke-resume-spaced-content-type"),
         QStringLiteral("smoke-resume-target-without-file-path"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-profile-invalid-field"),
@@ -914,6 +920,16 @@ int main(int argc, char* argv[]) {
                         "query_resume with unsupported contentType should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
                         "query_resume with unsupported contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-uppercase-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with uppercase contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with uppercase contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-spaced-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with spaced contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with spaced contentType should use invalid_content_type code") && ok;
         } else if (reqId == QLatin1String("smoke-resume-target-without-file-path")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "query_resume with target and no filePath should return error ack") && ok;
