@@ -39,12 +39,16 @@ pub async fn call_engine(state: &Arc<AppState>, command: Value) -> QQNTResult<Va
     line.push(b'\n');
 
     let (sender, receiver) = oneshot::channel();
-    state
-        .engine
-        .pending
-        .lock()
-        .await
-        .insert(req_id.clone(), PendingEngineRequest { op, sender });
+    {
+        let mut pending = state.engine.pending.lock().await;
+        if pending.contains_key(&req_id) {
+            return Err(QQNTError::rust(
+                "duplicate_req_id",
+                format!("Command reqId {req_id} is already pending."),
+            ));
+        }
+        pending.insert(req_id.clone(), PendingEngineRequest { op, sender });
+    }
 
     let write_result = {
         let mut child_guard = state.engine.child.lock().await;
@@ -705,6 +709,57 @@ mod tests {
         let packet = receiver.await.expect("pending receiver should resolve");
         assert_eq!(packet["reqId"], "req-42");
         assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn call_engine_rejects_duplicate_req_id_without_replacing_pending() {
+        let state = Arc::new(AppState::new());
+        let (existing_sender, existing_receiver) = oneshot::channel();
+        state.engine.pending.lock().await.insert(
+            "req-dupe".to_string(),
+            PendingEngineRequest {
+                op: "ready".to_string(),
+                sender: existing_sender,
+            },
+        );
+
+        let error = call_engine(
+            &state,
+            json!({
+                "op": "login",
+                "reqId": "req-dupe",
+                "payload": {
+                    "account": "10001",
+                    "password": "secret"
+                }
+            }),
+        )
+        .await
+        .expect_err("duplicate reqId should fail before writing to engine");
+
+        assert_eq!(error.code, "duplicate_req_id");
+        let existing_request = state
+            .engine
+            .pending
+            .lock()
+            .await
+            .remove("req-dupe")
+            .expect("existing pending request should remain registered");
+        assert_eq!(existing_request.op, "ready");
+        existing_request
+            .sender
+            .send(json!({
+                "type": "ack",
+                "op": "ready",
+                "reqId": "req-dupe",
+                "status": "ok",
+                "payload": {}
+            }))
+            .expect("existing pending request channel should stay open");
+        let packet = existing_receiver
+            .await
+            .expect("existing pending receiver should resolve");
+        assert_eq!(packet["op"], "ready");
     }
 
     #[tokio::test]
