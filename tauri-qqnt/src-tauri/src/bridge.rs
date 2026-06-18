@@ -168,7 +168,11 @@ fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
 
     match packet.get("type").and_then(Value::as_str) {
         Some("ack") => {
-            let Some(req_id) = packet.get("reqId").and_then(Value::as_str) else {
+            let Some(req_id) = packet
+                .get("reqId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            else {
                 return EngineDispatch::Error(json!({
                     "code": "missing_req_id",
                     "message": "QQNTEngine ack packet did not include reqId.",
@@ -422,6 +426,21 @@ mod tests {
                 assert_eq!(packet["payload"]["protocolVersion"], 1);
             }
             other => panic!("expected ack dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_empty_ack_req_id_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"ack","op":"ready","reqId":"   ","status":"ok","payload":{"protocolVersion":1}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "missing_req_id");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
         }
     }
 
