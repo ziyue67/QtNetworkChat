@@ -250,6 +250,14 @@ bool expectAcceptedPayload(const QString& op, const QJsonObject& payload) {
     return expectTrueBoolField(op, payload, QStringLiteral("accepted"));
 }
 
+bool expectExactAcceptedPayload(const QString& op, const QJsonObject& payload) {
+    bool ok = true;
+    ok = expect(payload.size() == 1,
+                QStringLiteral("%1 contract payload should only include accepted").arg(op)) && ok;
+    ok = expectAcceptedPayload(op, payload) && ok;
+    return ok;
+}
+
 bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload) {
     bool ok = true;
 
@@ -297,7 +305,7 @@ bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload)
                || op == QLatin1String("e2e_announce_identity")
                || op == QLatin1String("e2e_pin_identity")
                || op == QLatin1String("e2e_request_rotation")) {
-        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectExactAcceptedPayload(op, payload) && ok;
     } else if (op == QLatin1String("send_private_message")) {
         ok = expectNonEmptyStringField(op, payload, QStringLiteral("receiverId")) && ok;
     } else if (op == QLatin1String("cancel_transfer")) {

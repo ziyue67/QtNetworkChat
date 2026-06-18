@@ -130,6 +130,7 @@ fn validate_login_ack_payload(
 }
 
 fn validate_bool_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_exact_object_fields(payload, &["accepted"], contract_name)?;
     require_true_bool_field(payload, "accepted", contract_name)?;
 
     Ok(())
@@ -645,6 +646,33 @@ fn validate_error_payload(payload: &Value) -> QQNTResult<()> {
     require_one_of_string_field(payload, "source", &["client"], "error")?;
 
     Ok(())
+}
+
+fn require_exact_object_fields(
+    payload: &Value,
+    expected_fields: &[&str],
+    contract_name: &str,
+) -> QQNTResult<()> {
+    let Some(map) = payload.as_object() else {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload must be an object."),
+        ));
+    };
+
+    let has_only_expected_fields = map.len() == expected_fields.len()
+        && expected_fields.iter().all(|field| map.contains_key(*field));
+    if has_only_expected_fields {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!(
+            "QQNTEngine {contract_name} payload must only include {}.",
+            expected_fields.join(", ")
+        ),
+    ))
 }
 
 fn require_bool_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
@@ -2489,6 +2517,20 @@ mod tests {
             }),
         )
         .expect_err("successful bool ack with accepted false should fail");
+
+        assert_eq!(error.code, "invalid_send_file_payload");
+    }
+
+    #[test]
+    fn bool_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "send_file",
+            &json!({
+                "accepted": true,
+                "extra": true
+            }),
+        )
+        .expect_err("successful bool ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_send_file_payload");
     }
