@@ -386,10 +386,19 @@ void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString
                                QStringLiteral("create_group members must be an array when provided."));
         return;
     }
+    QString announcement;
+    if (!optionalStringField(payload,
+                             QStringLiteral("announcement"),
+                             &announcement,
+                             QStringLiteral("invalid_announcement"),
+                             op,
+                             reqId)) {
+        return;
+    }
     sendBoolAck(op,
                 reqId,
                 m_bridge->client()->createPrivateServerGroup(groupName,
-                                                            payload.value(QStringLiteral("announcement")).toString(),
+                                                            announcement,
                                                             memberIdsFromPayload(payload)),
                 QStringLiteral("create_group_failed"),
                 QStringLiteral("Group creation requires an active server connection."));
@@ -617,10 +626,19 @@ void QQNTEngineCommandRouter::handleE2EPinIdentity(const QString& op, const QStr
     if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
         return;
     }
+    QString fingerprint;
+    if (!optionalStringField(payload,
+                             QStringLiteral("fingerprint"),
+                             &fingerprint,
+                             QStringLiteral("invalid_fingerprint"),
+                             op,
+                             reqId)) {
+        return;
+    }
     QString rejectReason;
     sendBoolAck(op,
                 reqId,
-                m_bridge->client()->pinE2EPeerIdentity(peerId, payload.value(QStringLiteral("fingerprint")).toString(), &rejectReason),
+                m_bridge->client()->pinE2EPeerIdentity(peerId, fingerprint, &rejectReason),
                 QStringLiteral("e2e_pin_failed"),
                 rejectReason.isEmpty() ? QStringLiteral("E2E identity pin failed.") : rejectReason);
 }
@@ -639,8 +657,24 @@ void QQNTEngineCommandRouter::handleE2ERequestRotation(const QString& op, const 
 }
 
 void QQNTEngineCommandRouter::handleProfileUpdate(const QString& op, const QString& reqId, const QJsonObject& payload) {
-    const QString userName = payload.value(QStringLiteral("userName")).toString().trimmed();
-    const QString avatarBase64 = payload.value(QStringLiteral("avatarBase64")).toString().trimmed();
+    QString userName;
+    QString avatarBase64;
+    if (!optionalStringField(payload,
+                             QStringLiteral("userName"),
+                             &userName,
+                             QStringLiteral("invalid_profile_field"),
+                             op,
+                             reqId)
+        || !optionalStringField(payload,
+                                QStringLiteral("avatarBase64"),
+                                &avatarBase64,
+                                QStringLiteral("invalid_profile_field"),
+                                op,
+                                reqId)) {
+        return;
+    }
+    userName = userName.trimmed();
+    avatarBase64 = avatarBase64.trimmed();
     if (!userName.isEmpty()) {
         m_bridge->client()->setUserInfo(m_bridge->client()->currentUserId(), userName);
     }
@@ -790,11 +824,12 @@ bool QQNTEngineCommandRouter::requireTcpPort(const QJsonObject& payload,
     return true;
 }
 
-bool QQNTEngineCommandRouter::optionalTargetString(const QJsonObject& payload,
-                                                   const QString& field,
-                                                   QString* value,
-                                                   const QString& op,
-                                                   const QString& reqId) const {
+bool QQNTEngineCommandRouter::optionalStringField(const QJsonObject& payload,
+                                                  const QString& field,
+                                                  QString* value,
+                                                  const QString& errorCode,
+                                                  const QString& op,
+                                                  const QString& reqId) const {
     const QJsonValue fieldValue = payload.value(field);
     if (fieldValue.isUndefined() || fieldValue.isNull()) {
         value->clear();
@@ -803,11 +838,24 @@ bool QQNTEngineCommandRouter::optionalTargetString(const QJsonObject& payload,
     if (!fieldValue.isString()) {
         m_bridge->sendErrorAck(op,
                                reqId,
-                               QStringLiteral("invalid_target"),
+                               errorCode,
                                QStringLiteral("payload.%1 must be a string when provided.").arg(field));
         return false;
     }
 
-    *value = fieldValue.toString().trimmed();
+    *value = fieldValue.toString();
+    return true;
+}
+
+bool QQNTEngineCommandRouter::optionalTargetString(const QJsonObject& payload,
+                                                   const QString& field,
+                                                   QString* value,
+                                                   const QString& op,
+                                                   const QString& reqId) const {
+    if (!optionalStringField(payload, field, value, QStringLiteral("invalid_target"), op, reqId)) {
+        return false;
+    }
+
+    *value = value->trimmed();
     return true;
 }

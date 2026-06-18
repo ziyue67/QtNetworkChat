@@ -395,6 +395,8 @@ int main(int argc, char* argv[]) {
                 "e2e_status command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
                 "e2e_announce_identity missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-invalid-fingerprint\",\"payload\":{\"peerId\":\"10001\",\"fingerprint\":false}}\n"),
+                "e2e_pin_identity invalid fingerprint command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-missing\",\"payload\":{}}\n"),
                 "cancel_transfer missing field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
@@ -413,6 +415,8 @@ int main(int argc, char* argv[]) {
                 "query_resume invalid target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-field\",\"payload\":{\"avatarBase64\":42}}\n"),
+                "profile_update invalid field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
                 "settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
@@ -427,6 +431,8 @@ int main(int argc, char* argv[]) {
                 "update_group_announcement missing announcement command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-members\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":\"10001\"}}\n"),
                 "create_group invalid members command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-announcement\",\"payload\":{\"groupName\":\"Smoke Group\",\"announcement\":true}}\n"),
+                "create_group invalid announcement command should be written") && ok;
 
     QSet<QString> contractAckReqIds;
     for (const QString& command : contractCommands) {
@@ -446,6 +452,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-connect-invalid-port"),
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-e2e-announce-missing"),
+        QStringLiteral("smoke-e2e-pin-invalid-fingerprint"),
         QStringLiteral("smoke-cancel-missing"),
         QStringLiteral("smoke-cancel-inactive"),
         QStringLiteral("smoke-file-missing-target"),
@@ -455,13 +462,15 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-resume-ambiguous-target"),
         QStringLiteral("smoke-resume-invalid-target"),
         QStringLiteral("smoke-profile"),
+        QStringLiteral("smoke-profile-invalid-field"),
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field"),
         QStringLiteral("smoke-friend-response-missing-accepted"),
         QStringLiteral("smoke-group-announcement-missing"),
-        QStringLiteral("smoke-create-group-invalid-members")
+        QStringLiteral("smoke-create-group-invalid-members"),
+        QStringLiteral("smoke-create-group-invalid-announcement")
     };
     expectedAckReqIds.unite(contractAckReqIds);
 
@@ -565,6 +574,11 @@ int main(int argc, char* argv[]) {
                         "e2e_announce_identity missing peerId should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "e2e_announce_identity missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-pin-invalid-fingerprint")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_pin_identity with non-string fingerprint should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_fingerprint"),
+                        "e2e_pin_identity with non-string fingerprint should use invalid_fingerprint code") && ok;
         } else if (reqId == QLatin1String("smoke-cancel-missing")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "cancel_transfer missing transferId should return error ack") && ok;
@@ -610,6 +624,11 @@ int main(int argc, char* argv[]) {
                         "profile_update should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("userName")).toString() == QLatin1String("Smoke User"),
                         "profile_update payload should echo updated user name") && ok;
+        } else if (reqId == QLatin1String("smoke-profile-invalid-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "profile_update with non-string optional field should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_profile_field"),
+                        "profile_update with non-string optional field should use invalid_profile_field code") && ok;
         } else if (reqId == QLatin1String("smoke-settings")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "settings_sync should return ok ack") && ok;
@@ -649,6 +668,11 @@ int main(int argc, char* argv[]) {
                         "create_group with non-array members should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
                         "create_group with non-array members should use invalid_members code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-announcement")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with non-string announcement should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_announcement"),
+                        "create_group with non-string announcement should use invalid_announcement code") && ok;
         }
 
         if (contractAckReqIds.contains(reqId)) {

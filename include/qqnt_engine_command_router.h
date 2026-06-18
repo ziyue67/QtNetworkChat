@@ -67,6 +67,12 @@ private:
                         quint16* value,
                         const QString& op,
                         const QString& reqId) const;
+    bool optionalStringField(const QJsonObject& payload,
+                             const QString& field,
+                             QString* value,
+                             const QString& errorCode,
+                             const QString& op,
+                             const QString& reqId) const;
     bool optionalTargetString(const QJsonObject& payload,
                               const QString& field,
                               QString* value,
