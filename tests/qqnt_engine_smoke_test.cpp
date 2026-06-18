@@ -381,6 +381,8 @@ int main(int argc, char* argv[]) {
 
     ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"reqId\":\"smoke-ready\",\"payload\":{}}\n"),
                 "ready command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"reqId\":\"smoke-ready-extra-payload\",\"payload\":{\"unexpected\":true}}\n"),
+                "ready command with extra payload should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"get_user_list\",\"reqId\":\"smoke-users\",\"payload\":{}}\n"),
                 "get_user_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"get_friend_list\",\"reqId\":\"smoke-friends\",\"payload\":{}}\n"),
@@ -549,6 +551,7 @@ int main(int argc, char* argv[]) {
 
     QSet<QString> expectedAckReqIds = {
         QStringLiteral("smoke-ready"),
+        QStringLiteral("smoke-ready-extra-payload"),
         QStringLiteral("smoke-users"),
         QStringLiteral("smoke-friends"),
         QStringLiteral("smoke-groups"),
@@ -700,6 +703,11 @@ int main(int argc, char* argv[]) {
                         "ready payload should include Qt version") && ok;
             ok = expect(!payload.value(QStringLiteral("e2eStatus")).toString().isEmpty(),
                         "ready payload should include E2E status") && ok;
+        } else if (reqId == QLatin1String("smoke-ready-extra-payload")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "ready command with extra payload should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "ready command with extra payload should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-users")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "get_user_list should return ok ack") && ok;

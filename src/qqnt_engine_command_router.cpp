@@ -224,6 +224,15 @@ bool applyDownloadDirSetting(const QString& requestedDir, QString* appliedDownlo
     }
     return true;
 }
+
+bool isEmptyPayloadCommand(const QString& op) {
+    return op == QLatin1String("ready")
+        || op == QLatin1String("disconnect")
+        || op == QLatin1String("logout")
+        || op == QLatin1String("get_user_list")
+        || op == QLatin1String("get_friend_list")
+        || op == QLatin1String("get_group_list");
+}
 }
 
 QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
@@ -256,6 +265,13 @@ void QQNTEngineCommandRouter::route(const QJsonObject& command) {
     }
 
     const QJsonObject payload = payloadValue.toObject();
+    if (isEmptyPayloadCommand(op) && !payload.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_payload"),
+                               QStringLiteral("Command payload for %1 must be empty.").arg(op));
+        return;
+    }
 
     if (op == QLatin1String("ready")) {
         handleReady(op, reqId);

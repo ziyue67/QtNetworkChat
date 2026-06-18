@@ -738,7 +738,7 @@ fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> 
     let op = op.trim();
     match op {
         "ready" | "disconnect" | "logout" | "get_user_list" | "get_friend_list"
-        | "get_group_list" => Ok(()),
+        | "get_group_list" => require_empty_command_payload(op, payload),
         "connect" => validate_connect_command_payload(payload),
         "login" => validate_login_like_command_payload(payload, false),
         "register" => validate_login_like_command_payload(payload, true),
@@ -766,6 +766,17 @@ fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> 
             format!("Unsupported command: {op}."),
         )),
     }
+}
+
+fn require_empty_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
+    if payload.as_object().is_some_and(|object| object.is_empty()) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        "invalid_payload",
+        format!("Command payload for {op} must be empty."),
+    ))
 }
 
 fn validate_connect_command_payload(payload: &Value) -> Result<(), QQNTError> {
@@ -1397,6 +1408,29 @@ mod tests {
             "reqId": "req-ready"
         }))
         .expect("generic command may omit payload");
+    }
+
+    #[test]
+    fn generic_command_rejects_non_empty_empty_payload_command() {
+        for op in [
+            "ready",
+            "disconnect",
+            "logout",
+            "get_user_list",
+            "get_friend_list",
+            "get_group_list",
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": op,
+                "reqId": format!("req-{op}"),
+                "payload": {
+                    "unexpected": true
+                }
+            }))
+            .expect_err("generic command should reject extra fields on empty payload commands");
+
+            assert_eq!(error.code, "invalid_payload");
+        }
     }
 
     #[test]

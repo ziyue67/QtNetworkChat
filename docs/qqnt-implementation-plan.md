@@ -249,6 +249,8 @@ int main(int argc, char* argv[]) {
 
 ### 5.4 命令路由表 V1
 
+表中 payload 为 `{}` 的命令不得携带额外字段；省略 payload 与传 `{}` 等价。
+
 | op | payload | 说明 |
 |---|---|---|
 | `ready` | `{}` | 返回协议版本、Qt 版本、E2E 状态 |

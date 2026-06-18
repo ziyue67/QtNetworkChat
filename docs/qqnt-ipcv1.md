@@ -30,6 +30,8 @@
 | `reqId` | string | 是 | 前端生成的请求 ID，建议 `crypto.randomUUID()` |
 | `payload` | object | 否 | 命令参数；无参数时可省略或传 `{}` |
 
+命令表中标注为 `{}` 的命令不得携带额外字段；省略 `payload` 与传 `{}` 等价。
+
 ## 3. 响应与事件包络
 
 `ack` 用于响应某个 `reqId`，`event` 用于主动推送。
