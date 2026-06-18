@@ -209,6 +209,23 @@ fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
 
 async fn handle_ack(state: &Arc<AppState>, req_id: &str, packet: Value) {
     if let Some(request) = state.engine.pending.lock().await.remove(req_id) {
+        let expected_op = request.op;
+        let ack_op = packet.get("op").and_then(Value::as_str).unwrap_or_default();
+        if ack_op != expected_op {
+            let _ = request.sender.send(json!({
+                "type": "ack",
+                "op": expected_op,
+                "reqId": req_id,
+                "status": "error",
+                "error": {
+                    "code": "unexpected_ack",
+                    "message": format!("QQNTEngine returned an unexpected ack for {expected_op}."),
+                    "source": "rust"
+                }
+            }));
+            return;
+        }
+
         let _ = request.sender.send(packet);
     }
 }
@@ -708,6 +725,77 @@ mod tests {
 
         let packet = receiver.await.expect("pending receiver should resolve");
         assert_eq!(packet["reqId"], "req-42");
+        assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn handle_ack_rejects_mismatched_op_for_pending_request() {
+        let state = Arc::new(AppState::new());
+        let (sender, receiver) = oneshot::channel();
+        state.engine.pending.lock().await.insert(
+            "req-42".to_string(),
+            PendingEngineRequest {
+                op: "connect".to_string(),
+                sender,
+            },
+        );
+
+        handle_ack(
+            &state,
+            "req-42",
+            json!({
+                "type": "ack",
+                "op": "login",
+                "reqId": "req-42",
+                "status": "ok",
+                "payload": { "accepted": true }
+            }),
+        )
+        .await;
+
+        let packet = receiver
+            .await
+            .expect("pending receiver should resolve with protocol error");
+        assert_eq!(packet["type"], "ack");
+        assert_eq!(packet["op"], "connect");
+        assert_eq!(packet["reqId"], "req-42");
+        assert_eq!(packet["status"], "error");
+        assert_eq!(packet["error"]["code"], "unexpected_ack");
+        assert_eq!(packet["error"]["source"], "rust");
+        assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn handle_ack_rejects_missing_op_for_pending_request() {
+        let state = Arc::new(AppState::new());
+        let (sender, receiver) = oneshot::channel();
+        state.engine.pending.lock().await.insert(
+            "req-43".to_string(),
+            PendingEngineRequest {
+                op: "ready".to_string(),
+                sender,
+            },
+        );
+
+        handle_ack(
+            &state,
+            "req-43",
+            json!({
+                "type": "ack",
+                "reqId": "req-43",
+                "status": "ok",
+                "payload": { "protocolVersion": 1 }
+            }),
+        )
+        .await;
+
+        let packet = receiver
+            .await
+            .expect("pending receiver should resolve with protocol error");
+        assert_eq!(packet["op"], "ready");
+        assert_eq!(packet["reqId"], "req-43");
+        assert_eq!(packet["status"], "error");
+        assert_eq!(packet["error"]["code"], "unexpected_ack");
         assert!(state.engine.pending.lock().await.is_empty());
     }
 
