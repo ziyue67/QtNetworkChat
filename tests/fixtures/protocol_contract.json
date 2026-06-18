@@ -46,7 +46,7 @@
     "respond_friend_request": "{senderId, accepted}",
     "send_private_message": "{receiverId, content}",
     "send_group_message": "{groupId, content}",
-    "create_group": "{groupName, members?, announcement?}",
+    "create_group": "{groupName, members?: string[]/memberRef[], announcement?}",
     "update_group_announcement": "{groupId, announcement}",
     "update_group_member": "{groupId, memberId, action=add/remove/promote_admin/demote_admin}",
     "send_file": "{receiverId xor groupId, filePath}",

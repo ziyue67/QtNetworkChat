@@ -111,7 +111,7 @@
 | `respond_friend_request` | `{senderId, accepted}` | 接受或拒绝好友申请 |
 | `send_private_message` | `{receiverId, content}` | 发送私聊文本 |
 | `send_group_message` | `{groupId, content}` | 发送群聊文本 |
-| `create_group` | `{groupName, members?, announcement?}` | 创建私有群聊；`members` 为初始成员账号数组，服务端加入已存在账号 |
+| `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 创建私有群聊；`members` 为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId`，服务端加入已存在账号 |
 | `update_group_announcement` | `{groupId, announcement}` | 更新群公告 |
 | `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 管理群成员 |
 | `send_file` | `{receiverId xor groupId, filePath}` | 发送文件；必须且只能提供一个目标，缺失返回 `missing_target`，同时提供返回 `ambiguous_target` |

@@ -943,7 +943,7 @@ fn validate_create_group_members(payload: &Value) -> Result<(), QQNTError> {
             ));
         };
         let mut candidate = None;
-        for field in ["userId", "account", "id"] {
+        for field in ["userId", "account", "id", "memberId"] {
             let Some(value) = member_object.get(field) else {
                 continue;
             };
@@ -1842,7 +1842,8 @@ mod tests {
                 "members": [
                     "10001",
                     { "account": "10002" },
-                    { "id": "10003" }
+                    { "id": "10003" },
+                    { "memberId": "10004" }
                 ],
                 "announcement": ""
             }

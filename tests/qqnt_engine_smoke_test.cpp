@@ -525,7 +525,7 @@ int main(int argc, char* argv[]) {
                 "create_group invalid members command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-entry\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[10001]}}\n"),
                 "create_group invalid member entry command should be written") && ok;
-    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-member-objects\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[\"10001\",{\"account\":\"10002\"},{\"id\":\"10003\"}],\"announcement\":\"\"}}\n"),
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-member-objects\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[\"10001\",{\"account\":\"10002\"},{\"id\":\"10003\"},{\"memberId\":\"10004\"}],\"announcement\":\"\"}}\n"),
                 "create_group member object command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-object\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[{\"userId\":10001}]}}\n"),
                 "create_group invalid member object command should be written") && ok;

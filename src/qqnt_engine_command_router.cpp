@@ -162,6 +162,7 @@ bool memberIdsFromPayload(const QJsonObject& payload, QStringList* memberIds, QS
                 QStringLiteral("userId"),
                 QStringLiteral("account"),
                 QStringLiteral("id"),
+                QStringLiteral("memberId"),
             };
             for (const QString& candidateField : candidateFields) {
                 const QJsonValue candidateValue = memberObject.value(candidateField);
