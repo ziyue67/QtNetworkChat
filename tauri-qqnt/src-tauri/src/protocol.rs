@@ -21,6 +21,10 @@ pub fn validate_ready_payload(payload: &Value) -> QQNTResult<()> {
         ));
     }
 
+    require_non_empty_string_field(payload, "version", "ready")?;
+    require_non_empty_string_field(payload, "qtVersion", "ready")?;
+    require_non_empty_string_field(payload, "e2eStatus", "ready")?;
+
     Ok(())
 }
 
@@ -722,7 +726,7 @@ mod tests {
                 "protocolVersion": EXPECTED_PROTOCOL_VERSION,
                 "version": "test",
                 "qtVersion": "6.8.0",
-                "e2eStatus": {}
+                "e2eStatus": "uninitialized"
             }),
             "connect" => json!({
                 "connected": true,
@@ -798,7 +802,7 @@ mod tests {
                 "protocolVersion": EXPECTED_PROTOCOL_VERSION,
                 "version": "test",
                 "qtVersion": "6.8.0",
-                "e2eStatus": {}
+                "e2eStatus": "uninitialized"
             }),
             "connection_state" => json!({
                 "connected": true,
@@ -947,8 +951,13 @@ mod tests {
 
     #[test]
     fn ready_payload_accepts_expected_protocol_version() {
-        validate_ready_payload(&json!({ "protocolVersion": EXPECTED_PROTOCOL_VERSION }))
-            .expect("matching protocol version should pass");
+        validate_ready_payload(&json!({
+            "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+            "version": "test",
+            "qtVersion": "6.8.0",
+            "e2eStatus": "uninitialized"
+        }))
+        .expect("matching protocol version should pass");
     }
 
     #[test]
@@ -966,6 +975,35 @@ mod tests {
             validate_ready_payload(&json!({})).expect_err("missing protocol version should fail");
 
         assert_eq!(error.code, "missing_protocol_version");
+    }
+
+    #[test]
+    fn ready_payload_requires_version_metadata() {
+        let missing_version = validate_ready_payload(&json!({
+            "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+            "qtVersion": "6.8.0",
+            "e2eStatus": "uninitialized"
+        }))
+        .expect_err("missing version metadata should fail");
+        assert_eq!(missing_version.code, "invalid_ready_payload");
+
+        let empty_e2e_status = validate_ready_payload(&json!({
+            "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+            "version": "test",
+            "qtVersion": "6.8.0",
+            "e2eStatus": ""
+        }))
+        .expect_err("empty e2e status should fail");
+        assert_eq!(empty_e2e_status.code, "invalid_ready_payload");
+
+        let object_e2e_status = validate_ready_payload(&json!({
+            "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+            "version": "test",
+            "qtVersion": "6.8.0",
+            "e2eStatus": {}
+        }))
+        .expect_err("object e2e status should fail");
+        assert_eq!(object_e2e_status.code, "invalid_ready_payload");
     }
 
     #[test]

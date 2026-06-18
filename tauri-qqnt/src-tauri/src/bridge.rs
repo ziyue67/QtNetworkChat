@@ -258,6 +258,9 @@ mod tests {
         match event_name {
             "ready" => json!({
                 "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION,
+                "version": "test",
+                "qtVersion": "6.8.0",
+                "e2eStatus": "uninitialized",
                 "contractProbe": true
             }),
             "connection_state" => json!({
