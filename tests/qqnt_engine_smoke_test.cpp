@@ -461,6 +461,10 @@ int main(int argc, char* argv[]) {
                 "respond_friend_request missing accepted command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing\",\"payload\":{\"groupId\":\"public\"}}\n"),
                 "update_group_announcement missing announcement command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-missing-group\",\"payload\":{\"memberId\":\"10001\",\"action\":\"add\"}}\n"),
+                "update_group_member missing groupId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-missing-member\",\"payload\":{\"groupId\":\"public\",\"action\":\"add\"}}\n"),
+                "update_group_member missing memberId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-invalid-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"ban\"}}\n"),
                 "update_group_member invalid action command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-members\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":\"10001\"}}\n"),
@@ -521,6 +525,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-missing-field"),
         QStringLiteral("smoke-friend-response-missing-accepted"),
         QStringLiteral("smoke-group-announcement-missing"),
+        QStringLiteral("smoke-group-member-missing-group"),
+        QStringLiteral("smoke-group-member-missing-member"),
         QStringLiteral("smoke-group-member-invalid-action"),
         QStringLiteral("smoke-create-group-invalid-members"),
         QStringLiteral("smoke-create-group-invalid-member-entry"),
@@ -803,6 +809,16 @@ int main(int argc, char* argv[]) {
                         "update_group_announcement missing announcement should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "update_group_announcement missing announcement should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-missing-group")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member missing groupId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_member missing groupId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-missing-member")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member missing memberId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_member missing memberId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-group-member-invalid-action")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "update_group_member with invalid action should return error ack") && ok;
