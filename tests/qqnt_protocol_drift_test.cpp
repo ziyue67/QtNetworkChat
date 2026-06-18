@@ -338,13 +338,52 @@ bool validateReadyFixture(const QJsonObject& envelope) {
                 QStringLiteral("ready fixture should include E2E status")) && ok;
     return ok;
 }
+
+bool validateStrictCommandValidation(const QString& markdown,
+                                     const QString& routerSource,
+                                     const QString& rustCommandsSource) {
+    bool ok = true;
+    ok = expectContains(markdown,
+                        QStringLiteral("命令包络是严格白名单"),
+                        QStringLiteral("protocol doc command envelope validation")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("只允许 `op`、`reqId`、`payload`"),
+                        QStringLiteral("protocol doc command envelope fields")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("命令 payload 也按命令表字段严格白名单"),
+                        QStringLiteral("protocol doc command payload validation")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("返回 `invalid_payload`"),
+                        QStringLiteral("protocol doc command payload error")) && ok;
+
+    ok = expectContains(routerSource,
+                        QStringLiteral("requireOnlyFields"),
+                        QStringLiteral("C++ router strict payload validator")) && ok;
+    ok = expectContains(routerSource,
+                        QStringLiteral("Command payload for %1 contains unsupported field: %2."),
+                        QStringLiteral("C++ router unsupported payload field error")) && ok;
+
+    ok = expectContains(rustCommandsSource,
+                        QStringLiteral("fn require_command_envelope_fields"),
+                        QStringLiteral("Rust command envelope validator")) && ok;
+    ok = expectContains(rustCommandsSource,
+                        QStringLiteral("[\"op\", \"reqId\", \"payload\"]"),
+                        QStringLiteral("Rust command envelope whitelist")) && ok;
+    ok = expectContains(rustCommandsSource,
+                        QStringLiteral("fn require_command_payload_fields"),
+                        QStringLiteral("Rust command payload validator")) && ok;
+    ok = expectContains(rustCommandsSource,
+                        QStringLiteral("Command payload for {op} contains unsupported field: {field}."),
+                        QStringLiteral("Rust unsupported payload field error")) && ok;
+    return ok;
+}
 }
 
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     const QStringList arguments = app.arguments();
-    if (arguments.size() < 6) {
-        std::fprintf(stderr, "usage: %s <ready fixture> <protocol doc> <protocol contract fixture> <router source> <bridge source> [implementation plan]\n", argv[0]);
+    if (arguments.size() < 7) {
+        std::fprintf(stderr, "usage: %s <ready fixture> <protocol doc> <protocol contract fixture> <router source> <bridge source> <rust command source> [implementation plan]\n", argv[0]);
         return 2;
     }
 
@@ -366,11 +405,13 @@ int main(int argc, char* argv[]) {
     const QString markdown = QString::fromUtf8(protocolDoc.readAll());
     QString routerSource;
     QString bridgeSource;
+    QString rustCommandsSource;
     QString implementationPlan;
     ok = readTextFile(arguments.at(4), &routerSource, QStringLiteral("router source")) && ok;
     ok = readTextFile(arguments.at(5), &bridgeSource, QStringLiteral("bridge source")) && ok;
-    if (arguments.size() >= 7) {
-        ok = readTextFile(arguments.at(6), &implementationPlan, QStringLiteral("implementation plan")) && ok;
+    ok = readTextFile(arguments.at(6), &rustCommandsSource, QStringLiteral("rust command source")) && ok;
+    if (arguments.size() >= 8) {
+        ok = readTextFile(arguments.at(7), &implementationPlan, QStringLiteral("implementation plan")) && ok;
     }
     if (!ok) {
         return 1;
@@ -403,6 +444,7 @@ int main(int argc, char* argv[]) {
         : extractMarkdownPayloads(implementationPlan, QStringLiteral("### 5.5 主动事件表 V1"), QStringLiteral("event"));
 
     ok = validateReadyFixture(readyFixture) && ok;
+    ok = validateStrictCommandValidation(markdown, routerSource, rustCommandsSource) && ok;
     ok = expect(contractFixture.value(QStringLiteral("protocolVersion")).toInt() == 1,
                 QStringLiteral("protocol contract fixture should pin protocol version 1")) && ok;
     ok = expectUnique(expectedCommands, QStringLiteral("protocol contract commands")) && ok;

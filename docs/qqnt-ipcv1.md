@@ -30,6 +30,10 @@
 | `reqId` | string | 是 | 前端生成的请求 ID，建议 `crypto.randomUUID()` |
 | `payload` | object | 否 | 命令参数；无参数时可省略或传 `{}` |
 
+命令包络是严格白名单：只允许 `op`、`reqId`、`payload` 三个字段；Rust `qqnt_command` 遇到其他包络字段返回 `invalid_command`，不会转发给 sidecar。
+
+命令 payload 也按命令表字段严格白名单；未列出的字段在 Rust 和 C++ router 均返回 `invalid_payload`，不会静默忽略。
+
 命令表中标注为 `{}` 的命令不得携带额外字段；省略 `payload` 与传 `{}` 等价。
 
 ## 3. 响应与事件包络
