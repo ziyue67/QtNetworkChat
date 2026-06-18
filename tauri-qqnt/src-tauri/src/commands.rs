@@ -69,10 +69,7 @@ pub async fn connect_server(
         state.inner(),
         "connect",
         req_id,
-        json!({
-            "host": host,
-            "port": port
-        }),
+        connect_payload(host, json!(port))?,
     )
     .await?;
 
@@ -143,16 +140,9 @@ pub async fn set_user_info(
     user_id: String,
     user_name: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "set_user_info",
-        req_id,
-        json!({
-            "userId": user_id,
-            "userName": user_name
-        }),
-    )
-    .await
+    let payload = set_user_info_payload(user_id, user_name)?;
+
+    call_engine_payload(state.inner(), "set_user_info", req_id, payload).await
 }
 
 #[tauri::command]
@@ -185,13 +175,9 @@ pub async fn search_friend(
     req_id: String,
     account: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "search_friend",
-        req_id,
-        json!({ "account": account }),
-    )
-    .await
+    let payload = search_friend_payload(account)?;
+
+    call_engine_payload(state.inner(), "search_friend", req_id, payload).await
 }
 
 #[tauri::command]
@@ -200,13 +186,9 @@ pub async fn send_friend_request(
     req_id: String,
     receiver_id: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "send_friend_request",
-        req_id,
-        json!({ "receiverId": receiver_id }),
-    )
-    .await
+    let payload = send_friend_request_payload(receiver_id)?;
+
+    call_engine_payload(state.inner(), "send_friend_request", req_id, payload).await
 }
 
 #[tauri::command]
@@ -216,16 +198,9 @@ pub async fn respond_friend_request(
     sender_id: String,
     accepted: bool,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "respond_friend_request",
-        req_id,
-        json!({
-            "senderId": sender_id,
-            "accepted": accepted
-        }),
-    )
-    .await
+    let payload = respond_friend_request_payload(sender_id, json!(accepted))?;
+
+    call_engine_payload(state.inner(), "respond_friend_request", req_id, payload).await
 }
 
 #[tauri::command]
@@ -235,16 +210,9 @@ pub async fn send_private_message(
     receiver_id: String,
     content: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "send_private_message",
-        req_id,
-        json!({
-            "receiverId": receiver_id,
-            "content": content
-        }),
-    )
-    .await
+    let payload = send_private_message_payload(receiver_id, content)?;
+
+    call_engine_payload(state.inner(), "send_private_message", req_id, payload).await
 }
 
 #[tauri::command]
@@ -341,13 +309,9 @@ pub async fn cancel_transfer(
     req_id: String,
     transfer_id: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "cancel_transfer",
-        req_id,
-        cancel_transfer_payload(transfer_id),
-    )
-    .await
+    let payload = cancel_transfer_payload(transfer_id)?;
+
+    call_engine_payload(state.inner(), "cancel_transfer", req_id, payload).await
 }
 
 #[tauri::command]
@@ -475,17 +439,8 @@ async fn login_like(
     password: String,
     user_name: Option<String>,
 ) -> Result<LoginResponse, QQNTError> {
-    let payload = call_engine_payload(
-        state,
-        op,
-        req_id,
-        json!({
-            "account": account,
-            "password": password,
-            "userName": user_name
-        }),
-    )
-    .await?;
+    let command_payload = login_like_payload(account, password, user_name)?;
+    let payload = call_engine_payload(state, op, req_id, command_payload).await?;
 
     Ok(LoginResponse {
         accepted: payload
@@ -502,6 +457,69 @@ async fn login_like(
             .unwrap_or(op)
             .to_string(),
     })
+}
+
+fn connect_payload(host: String, port: Value) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "host": host,
+        "port": port
+    });
+    validate_connect_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn login_like_payload(
+    account: String,
+    password: String,
+    user_name: Option<String>,
+) -> Result<Value, QQNTError> {
+    let register_mode = user_name.is_some();
+    let payload = compact_payload(json!({
+        "account": account,
+        "password": password,
+        "userName": user_name
+    }));
+    validate_login_like_command_payload(&payload, register_mode)?;
+    Ok(payload)
+}
+
+fn set_user_info_payload(user_id: String, user_name: String) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "userId": user_id,
+        "userName": user_name
+    });
+    validate_set_user_info_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn search_friend_payload(account: String) -> Result<Value, QQNTError> {
+    let payload = json!({ "account": account });
+    validate_search_friend_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn send_friend_request_payload(receiver_id: String) -> Result<Value, QQNTError> {
+    let payload = json!({ "receiverId": receiver_id });
+    validate_send_friend_request_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn respond_friend_request_payload(sender_id: String, accepted: Value) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "senderId": sender_id,
+        "accepted": accepted
+    });
+    validate_respond_friend_request_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn send_private_message_payload(receiver_id: String, content: String) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "receiverId": receiver_id,
+        "content": content
+    });
+    validate_send_private_message_command_payload(&payload)?;
+    Ok(payload)
 }
 
 async fn send_file_like(
@@ -531,8 +549,10 @@ fn send_file_like_payload(
     Ok(payload)
 }
 
-fn cancel_transfer_payload(transfer_id: String) -> Value {
-    json!({ "transferId": transfer_id })
+fn cancel_transfer_payload(transfer_id: String) -> Result<Value, QQNTError> {
+    let payload = json!({ "transferId": transfer_id });
+    validate_cancel_transfer_command_payload(&payload)?;
+    Ok(payload)
 }
 
 fn send_group_message_payload(group_id: String, content: String) -> Result<Value, QQNTError> {
@@ -704,14 +724,74 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
 
 fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
     match op.trim() {
+        "connect" => validate_connect_command_payload(payload),
+        "login" => validate_login_like_command_payload(payload, false),
+        "register" => validate_login_like_command_payload(payload, true),
+        "set_user_info" => validate_set_user_info_command_payload(payload),
+        "search_friend" => validate_search_friend_command_payload(payload),
+        "send_friend_request" => validate_send_friend_request_command_payload(payload),
+        "respond_friend_request" => validate_respond_friend_request_command_payload(payload),
+        "send_private_message" => validate_send_private_message_command_payload(payload),
         "send_group_message" => validate_send_group_message_command_payload(payload),
         "create_group" => validate_create_group_command_payload(payload),
         "update_group_announcement" => validate_update_group_announcement_command_payload(payload),
         "send_file" | "send_image" => validate_file_transfer_command_payload(payload),
+        "cancel_transfer" => validate_cancel_transfer_command_payload(payload),
         "query_resume" => validate_query_resume_command_payload(payload),
         "update_group_member" => validate_update_group_member_command_payload(payload),
         _ => Ok(()),
     }
+}
+
+fn validate_connect_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "host")?;
+    require_command_tcp_port(payload, "port")?;
+    Ok(())
+}
+
+fn validate_login_like_command_payload(
+    payload: &Value,
+    register_mode: bool,
+) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "account")?;
+    require_non_empty_command_string_field(payload, "password")?;
+    if register_mode {
+        require_non_empty_command_string_field(payload, "userName")?;
+    }
+    Ok(())
+}
+
+fn validate_set_user_info_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "userId")?;
+    require_non_empty_command_string_field(payload, "userName")?;
+    Ok(())
+}
+
+fn validate_search_friend_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "account")?;
+    Ok(())
+}
+
+fn validate_send_friend_request_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "receiverId")?;
+    Ok(())
+}
+
+fn validate_respond_friend_request_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "senderId")?;
+    require_command_bool_field(payload, "accepted")?;
+    Ok(())
+}
+
+fn validate_send_private_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "receiverId")?;
+    require_non_empty_command_string_field(payload, "content")?;
+    Ok(())
+}
+
+fn validate_cancel_transfer_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "transferId")?;
+    Ok(())
 }
 
 fn validate_send_group_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
@@ -900,6 +980,16 @@ fn require_command_string_field<'a>(payload: &'a Value, field: &str) -> Result<&
     }
 }
 
+fn require_command_bool_field(payload: &Value, field: &str) -> Result<bool, QQNTError> {
+    match payload.get(field).and_then(Value::as_bool) {
+        Some(value) => Ok(value),
+        None => Err(QQNTError::rust(
+            "missing_field",
+            format!("payload.{field} is required."),
+        )),
+    }
+}
+
 fn require_non_empty_command_string_field<'a>(
     payload: &'a Value,
     field: &str,
@@ -911,6 +1001,34 @@ fn require_non_empty_command_string_field<'a>(
             format!("payload.{field} is required."),
         )),
     }
+}
+
+fn require_command_tcp_port(payload: &Value, field: &str) -> Result<u16, QQNTError> {
+    let Some(number) = payload.get(field).and_then(Value::as_number) else {
+        return Err(QQNTError::rust(
+            "missing_field",
+            format!("payload.{field} is required."),
+        ));
+    };
+
+    if let Some(port) = number.as_u64() {
+        if (1..=65535).contains(&port) {
+            return Ok(port as u16);
+        }
+    } else if let Some(port) = number.as_i64() {
+        if (1..=65535).contains(&port) {
+            return Ok(port as u16);
+        }
+    } else if let Some(port) = number.as_f64() {
+        if port.fract() == 0.0 && (1.0..=65535.0).contains(&port) {
+            return Ok(port as u16);
+        }
+    }
+
+    Err(QQNTError::rust(
+        "invalid_target",
+        "connect requires a valid host and port.",
+    ))
 }
 
 fn validate_generic_ack_packet(
@@ -1174,6 +1292,97 @@ mod tests {
         .expect_err("generic command payload must be an object");
 
         assert_eq!(error.code, "invalid_payload");
+    }
+
+    #[test]
+    fn generic_command_rejects_connect_missing_port() {
+        let error = validate_generic_command(&json!({
+            "op": "connect",
+            "reqId": "req-connect",
+            "payload": {
+                "host": "127.0.0.1"
+            }
+        }))
+        .expect_err("generic connect should require a port");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_connect_invalid_port() {
+        for port in [json!(0), json!(65536), json!(8888.5)] {
+            let error = validate_generic_command(&json!({
+                "op": "connect",
+                "reqId": "req-connect",
+                "payload": {
+                    "host": "127.0.0.1",
+                    "port": port
+                }
+            }))
+            .expect_err("generic connect should reject invalid TCP ports");
+
+            assert_eq!(error.code, "invalid_target");
+        }
+    }
+
+    #[test]
+    fn generic_command_rejects_login_missing_credentials() {
+        let error = validate_generic_command(&json!({
+            "op": "login",
+            "reqId": "req-login",
+            "payload": {
+                "account": "10001",
+                "password": " "
+            }
+        }))
+        .expect_err("generic login should require non-empty credentials");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_register_missing_user_name() {
+        let error = validate_generic_command(&json!({
+            "op": "register",
+            "reqId": "req-register",
+            "payload": {
+                "account": "10001",
+                "password": "secret"
+            }
+        }))
+        .expect_err("generic register should require userName");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_friend_response_non_bool_accepted() {
+        let error = validate_generic_command(&json!({
+            "op": "respond_friend_request",
+            "reqId": "req-friend-response",
+            "payload": {
+                "senderId": "10001",
+                "accepted": "true"
+            }
+        }))
+        .expect_err("generic friend response should require accepted boolean");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_private_message_empty_content() {
+        let error = validate_generic_command(&json!({
+            "op": "send_private_message",
+            "reqId": "req-private-message",
+            "payload": {
+                "receiverId": "10001",
+                "content": ""
+            }
+        }))
+        .expect_err("generic private message should require content");
+
+        assert_eq!(error.code, "missing_field");
     }
 
     #[test]
@@ -1551,9 +1760,90 @@ mod tests {
 
     #[test]
     fn cancel_transfer_payload_requires_transfer_id() {
-        let payload = cancel_transfer_payload("transfer-1".to_string());
+        let payload = cancel_transfer_payload("transfer-1".to_string())
+            .expect("valid cancel_transfer payload should pass");
 
         assert_eq!(payload["transferId"], "transfer-1");
+    }
+
+    #[test]
+    fn connect_payload_rejects_invalid_port() {
+        let error = connect_payload("127.0.0.1".to_string(), json!(70000))
+            .expect_err("typed connect payload should reject invalid TCP port");
+
+        assert_eq!(error.code, "invalid_target");
+    }
+
+    #[test]
+    fn login_like_payload_rejects_empty_password() {
+        let error = login_like_payload("10001".to_string(), "".to_string(), None)
+            .expect_err("typed login payload should require password");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn register_payload_preserves_user_name() {
+        let packet = command_packet(
+            "register",
+            "req-register".to_string(),
+            login_like_payload(
+                "10001".to_string(),
+                "secret".to_string(),
+                Some("Alice".to_string()),
+            )
+            .expect("valid register payload should pass"),
+        );
+
+        assert_eq!(packet["payload"]["account"], "10001");
+        assert_eq!(packet["payload"]["password"], "secret");
+        assert_eq!(packet["payload"]["userName"], "Alice");
+    }
+
+    #[test]
+    fn set_user_info_payload_rejects_empty_user_name() {
+        let error = set_user_info_payload("10001".to_string(), " ".to_string())
+            .expect_err("typed set_user_info payload should require userName");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn friend_command_payloads_require_targets() {
+        let search_error = search_friend_payload(" ".to_string())
+            .expect_err("typed search_friend should require account");
+        let request_error = send_friend_request_payload("".to_string())
+            .expect_err("typed send_friend_request should require receiverId");
+        let response_error = respond_friend_request_payload("".to_string(), json!(true))
+            .expect_err("typed respond_friend_request should require senderId");
+
+        assert_eq!(search_error.code, "missing_field");
+        assert_eq!(request_error.code, "missing_field");
+        assert_eq!(response_error.code, "missing_field");
+    }
+
+    #[test]
+    fn respond_friend_request_payload_rejects_non_bool_accepted() {
+        let error = respond_friend_request_payload("10001".to_string(), json!("true"))
+            .expect_err("typed respond_friend_request should require boolean accepted");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn send_private_message_payload_requires_content() {
+        let error = send_private_message_payload("10001".to_string(), "".to_string())
+            .expect_err("typed send_private_message payload should require content");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn cancel_transfer_payload_rejects_empty_transfer_id() {
+        let error = cancel_transfer_payload(" ".to_string())
+            .expect_err("typed cancel_transfer payload should require transferId");
+
+        assert_eq!(error.code, "missing_field");
     }
 
     #[test]
