@@ -872,6 +872,21 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_invalid_error_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"error","payload":{"message":"connection reset","source":"engine"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_error_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn dispatches_invalid_json_as_error_event() {
         let dispatch = dispatch_stdout_line(br#"{"type":"event""#);
 

@@ -642,7 +642,7 @@ fn validate_notification_payload(payload: &Value) -> QQNTResult<()> {
 
 fn validate_error_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "message", "error")?;
-    require_non_empty_string_field(payload, "source", "error")?;
+    require_one_of_string_field(payload, "source", &["client"], "error")?;
 
     Ok(())
 }
@@ -1271,7 +1271,7 @@ mod tests {
             }),
             "error" => json!({
                 "message": "contract error",
-                "source": "engine"
+                "source": "client"
             }),
             _ => panic!("missing event contract sample for {event_name}"),
         }
@@ -2211,6 +2211,32 @@ mod tests {
         .expect_err("notification without body should fail");
 
         assert_eq!(error.code, "invalid_notification_payload");
+    }
+
+    #[test]
+    fn error_payload_accepts_client_source() {
+        validate_event_payload(
+            "error",
+            &json!({
+                "message": "connection reset",
+                "source": "client"
+            }),
+        )
+        .expect("error with client source should pass");
+    }
+
+    #[test]
+    fn error_payload_rejects_unknown_source() {
+        let error = validate_event_payload(
+            "error",
+            &json!({
+                "message": "connection reset",
+                "source": "engine"
+            }),
+        )
+        .expect_err("error with unknown source should fail");
+
+        assert_eq!(error.code, "invalid_error_payload");
     }
 
     #[test]

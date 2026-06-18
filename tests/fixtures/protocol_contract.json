@@ -136,6 +136,6 @@
     "e2e_rotation_response": "{peerId, agreement, accepted, reason?}",
     "settings_synced": "{accepted, revision, settings, appliedDownloadDir?}",
     "notification": "{title, body}",
-    "error": "{message, source}"
+    "error": "{message, source=client}"
   }
 }

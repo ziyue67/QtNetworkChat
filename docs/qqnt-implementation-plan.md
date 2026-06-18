@@ -307,7 +307,7 @@ int main(int argc, char* argv[]) {
 | `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | E2E 会话轮换回应 |
 | `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步；`revision` 从 1 开始递增；文件下载目录可影响 engine 接收文件保存位置 |
 | `notification` | `{title, body}` | 需要前端通知 |
-| `error` | `{message, source}` | 通用错误 |
+| `error` | `{message, source=client}` | 通用客户端错误 |
 
 ### 5.6 `QQNTServer` 与 Redis 服务封装
 
