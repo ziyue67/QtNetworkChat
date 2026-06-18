@@ -6,6 +6,7 @@ interface MessageState {
   addMessage: (sessionId: string, message: Message) => void
   setMessages: (sessionId: string, messages: Message[]) => void
   updateMessageStatus: (sessionId: string, id: string, status: Message['status']) => void
+  updateFileMessage: (transferId: string, patch: Partial<Message['fileInfo']>, status?: Message['status']) => void
 }
 
 function sameMessage(left: Message, right: Message) {
@@ -58,5 +59,21 @@ export const useMessageStore = create<MessageState>((set) => ({
           message.id === id ? { ...message, status } : message
         )
       }
+    })),
+  updateFileMessage: (transferId, patch, status) =>
+    set((state) => ({
+      messages: Object.fromEntries(
+        Object.entries(state.messages).map(([sessionId, sessionMessages]) => [
+          sessionId,
+          sessionMessages.map((message) => {
+            if (message.fileInfo?.id !== transferId) return message
+            return {
+              ...message,
+              status: status ?? message.status,
+              fileInfo: { ...message.fileInfo, ...patch, id: transferId }
+            }
+          })
+        ])
+      )
     }))
 }))

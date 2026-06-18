@@ -332,6 +332,11 @@ export interface RawMessage {
   senderName: string
   contentType: ContentType
   content: string
+  fileName?: string
+  fileSize?: number
+  filePath?: string
+  transferId?: string
+  transferProgress?: number
   timestamp: number
   status: MessageStatus
 }

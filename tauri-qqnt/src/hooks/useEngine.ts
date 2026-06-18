@@ -53,11 +53,12 @@ function asContact(userId: string, userName: string, online = false): Contact {
 function rawToMessage(raw: RawMessage): Message {
   const fileInfo = raw.contentType === 'file' || raw.contentType === 'image'
     ? {
-        id: raw.clientMessageId || raw.messageId,
-        name: raw.content,
-        size: 0,
+        id: raw.transferId || raw.clientMessageId || raw.messageId,
+        name: raw.fileName || raw.content,
+        size: raw.fileSize ?? 0,
         mime: raw.contentType === 'image' ? 'image/*' : 'application/octet-stream',
-        progress: raw.status === 'sent' || raw.status === 'received' || raw.status === 'read' ? 100 : 0
+        progress: raw.transferProgress ?? (raw.status === 'sent' || raw.status === 'received' || raw.status === 'read' ? 100 : 0),
+        path: raw.filePath
       }
     : undefined
 
@@ -116,6 +117,12 @@ function handleFileProgress(payload: FileProgressPayload) {
     size: payload.total,
     mime: 'application/octet-stream'
   })
+  useMessageStore.getState().updateFileMessage(payload.transferId, {
+    name: payload.fileName,
+    size: payload.total,
+    progress,
+    mime: 'application/octet-stream'
+  }, payload.direction === 'upload' ? 'sending' : undefined)
 }
 
 function handleFileDone(payload: FileDonePayload) {
@@ -124,10 +131,19 @@ function handleFileDone(payload: FileDonePayload) {
     path: payload.filePath,
     mime: 'application/octet-stream'
   })
+  useMessageStore.getState().updateFileMessage(payload.transferId, {
+    name: payload.fileName,
+    path: payload.filePath,
+    progress: 100,
+    mime: 'application/octet-stream'
+  }, payload.direction === 'upload' ? 'sent' : 'received')
 }
 
 function handleFileError(payload: FileErrorPayload) {
   useFileStore.getState().failTransfer(payload.transferId, payload.reason)
+  useMessageStore.getState().updateFileMessage(payload.transferId, {
+    error: payload.reason
+  }, 'failed')
 }
 
 function handleUserList(payload: UserListPayload) {

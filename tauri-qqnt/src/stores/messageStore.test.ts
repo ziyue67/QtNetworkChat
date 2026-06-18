@@ -44,4 +44,32 @@ describe('messageStore', () => {
     expect(useMessageStore.getState().messages['10001']).toHaveLength(1)
     expect(useMessageStore.getState().messages['10001'][0]).toMatchObject({ id: 'server-1', status: 'sent' })
   })
+
+  it('updates file message metadata by transfer id', () => {
+    useMessageStore.getState().setMessages('10001', [
+      {
+        ...message,
+        id: 'client-file-1',
+        type: 'file',
+        content: 'report.zip',
+        fileInfo: {
+          id: 'transfer-1',
+          name: 'report.zip',
+          size: 0,
+          mime: 'application/octet-stream',
+          progress: 0
+        }
+      }
+    ])
+
+    useMessageStore.getState().updateFileMessage('transfer-1', {
+      size: 2048,
+      progress: 50
+    }, 'sending')
+
+    expect(useMessageStore.getState().messages['10001'][0]).toMatchObject({
+      status: 'sending',
+      fileInfo: { id: 'transfer-1', size: 2048, progress: 50 }
+    })
+  })
 })
