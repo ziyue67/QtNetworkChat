@@ -106,6 +106,12 @@ export interface RegisterPayload {
   userName: string
 }
 
+export interface AuthAckPayload {
+  accepted: boolean
+  requiresConnect: boolean
+  mode: 'login' | 'register'
+}
+
 export interface LogoutPayload {}
 
 export interface SendPrivateMessagePayload {
@@ -130,12 +136,69 @@ export interface SendImagePayload {
   groupId?: string
 }
 
-export interface QueryResumePayload {
+export interface FriendSearchPayload {
+  account: string
+}
+
+export interface SendFriendRequestPayload {
+  receiverId: string
+}
+
+export interface RespondFriendRequestPayload {
+  senderId: string
+  accepted: boolean
+}
+
+export interface CreateGroupPayload {
+  groupName: string
+  members: string[]
+  announcement?: string
+}
+
+export interface UpdateGroupAnnouncementPayload {
+  groupId: string
+  announcement: string
+}
+
+export interface UpdateGroupMemberPayload {
+  groupId: string
+  memberId: string
+  action: 'join' | 'leave' | 'kick' | 'set_admin' | 'unset_admin'
+}
+
+export interface CancelTransferPayload {
   transferId: string
-  filePath?: string
+}
+
+export interface QueryResumePayload {
+  filePath: string
+  transferId?: string
   receiverId?: string
-  groupId?: string
-  contentType?: 'file' | 'image'
+}
+
+export interface ProfileUpdatePayload {
+  userName?: string
+  avatarBase64?: string
+  signature?: string
+}
+
+export type SettingsSyncPayload = Record<string, unknown>
+
+export interface E2EStatusPayload {
+  peerId: string
+}
+
+export interface E2EAnnouncePayload {
+  peerId: string
+}
+
+export interface E2EPinPayload {
+  peerId: string
+  fingerprint?: string
+}
+
+export interface E2ERotationPayload {
+  peerId: string
 }
 
 // 事件 payload
@@ -232,6 +295,32 @@ export interface FileErrorPayload {
   reason: string
 }
 
+export interface E2ESessionStatePayload {
+  peerId: string
+  rotationRequired: boolean
+}
+
+export interface E2EIdentityStatePayload {
+  peerId: string
+  trusted: boolean
+  fingerprint?: string
+}
+
+export interface E2ERotationRequestPayload {
+  peerId: string
+  reason?: string
+}
+
+export interface E2ERotationResponsePayload {
+  peerId: string
+  accepted: boolean
+}
+
+export interface NotificationPayload {
+  title: string
+  body: string
+}
+
 export interface ServerFatalPayload {
   message: string
   error?: QQNTError
@@ -249,6 +338,11 @@ export interface RawMessage {
   senderName: string
   contentType: ContentType
   content: string
+  fileName?: string
+  fileSize?: number
+  filePath?: string
+  transferId?: string
+  transferProgress?: number
   timestamp: number
   status: MessageStatus
 }
@@ -261,8 +355,19 @@ export interface User {
   signature?: string
 }
 
+export interface QQNTAppEntry {
+  id: string
+  icon: string
+  label: string
+  path: string
+  mock: boolean
+}
+
 export interface Contact extends User {
   remark?: string
+  announcement?: string
+  memberCount?: number
+  members?: Contact[]
 }
 
 export interface Session {
@@ -279,6 +384,8 @@ export interface Session {
 
 export interface Message {
   id: string
+  messageId?: string
+  clientMessageId?: string
   sessionId: string
   senderId: string
   senderName: string
@@ -296,6 +403,7 @@ export interface FileInfo {
   mime: string
   progress: number
   path?: string
+  error?: string
 }
 
 export interface EngineState {

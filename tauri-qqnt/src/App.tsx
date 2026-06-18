@@ -1,5 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { LogicalSize } from '@tauri-apps/api/dpi'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAuthStore } from '@/stores/authStore'
 import { useTheme } from '@/hooks/useTheme'
 import { useEngine } from '@/hooks/useEngine'
@@ -21,10 +23,10 @@ import { WalletView } from '@/views/WalletView'
 import './styles/index.css'
 import type { UseEngineReturn } from '@/hooks/useEngine'
 
-const LOGIN_SIZE = { width: 300, height: 460 }
-const LOGIN_MIN_SIZE = { width: 300, height: 460 }
-const MAIN_SIZE = { width: 1100, height: 740 }
-const MAIN_MIN_SIZE = { width: 860, height: 540 }
+export const LOGIN_SIZE = { width: 300, height: 460 }
+export const LOGIN_MIN_SIZE = { width: 300, height: 460 }
+export const MAIN_SIZE = { width: 1100, height: 740 }
+export const MAIN_MIN_SIZE = { width: 860, height: 540 }
 
 function useResizeForAuth(isAuthenticated: boolean) {
   useEffect(() => {
@@ -32,10 +34,6 @@ function useResizeForAuth(isAuthenticated: boolean) {
 
     async function resize() {
       try {
-        const [{ getCurrentWindow }, { LogicalSize }] = await Promise.all([
-          import('@tauri-apps/api/window'),
-          import('@tauri-apps/api/dpi')
-        ])
         const win = getCurrentWindow()
         const size = isAuthenticated ? MAIN_SIZE : LOGIN_SIZE
         const minSize = isAuthenticated ? MAIN_MIN_SIZE : LOGIN_MIN_SIZE
@@ -105,6 +103,19 @@ function App() {
   )
 }
 
+export async function submitLogin(engine: UseEngineReturn, account: string, password: string) {
+  const auth = await engine.login(account, password)
+  if (!auth.ok || !auth.requiresConnect) return
+  await engine.connect()
+}
+
+export async function submitRegister(engine: UseEngineReturn, account: string, password: string) {
+  const auth = await engine.register(account, password, account)
+  if (!auth.ok) return false
+  if (!auth.requiresConnect) return true
+  return engine.connect()
+}
+
 function LoginScreen({ engine }: { engine: UseEngineReturn }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   if (isAuthenticated) {
@@ -117,14 +128,8 @@ function LoginScreen({ engine }: { engine: UseEngineReturn }) {
       <LoginView
         loading={engine.engine.connecting || engine.engine.loggingIn}
         error={engine.engine.error}
-        onLogin={async (account, password) => {
-          const ok = await engine.connect()
-          if (!ok) return
-          await engine.login(account, password)
-        }}
-        onRegister={async (account, password) => {
-          return engine.register(account, password, account)
-        }}
+        onLogin={(account, password) => submitLogin(engine, account, password)}
+        onRegister={(account, password) => submitRegister(engine, account, password)}
       />
     </div>
   )

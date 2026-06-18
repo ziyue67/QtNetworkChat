@@ -23,7 +23,7 @@ export function MockPlaceholder({ title, icon, className, children }: MockPlaceh
       <div>
         <h2 className="text-lg font-semibold text-[var(--qq-text)]">{title}</h2>
         <p className="mt-1 text-sm text-[var(--qq-text-secondary)]">
-          该页面为 Phase 2 占位实现，后续版本接入真实后端逻辑。
+          功能正在准备中，保持 QQ NT 风格的轻量入口，稍后即可继续使用。
         </p>
       </div>
       {children}

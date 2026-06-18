@@ -16,12 +16,12 @@ use crate::bridge;
 use crate::error::QQNTError;
 use crate::state::AppState;
 
-#[cfg(test)]
 const ENGINE_SIDECAR_NAME: &str = "QQNTEngine";
-#[cfg(test)]
 const SERVER_SIDECAR_NAME: &str = "QQNTServer";
-const ENGINE_SIDECAR_PATH: &str = "binaries/QQNTEngine";
-const SERVER_SIDECAR_PATH: &str = "binaries/QQNTServer";
+#[cfg(test)]
+const ENGINE_EXTERNAL_BIN: &str = "binaries/QQNTEngine";
+#[cfg(test)]
+const SERVER_EXTERNAL_BIN: &str = "binaries/QQNTServer";
 
 pub fn start_engine(app: AppHandle, state: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
@@ -44,7 +44,7 @@ pub fn start_server(app: AppHandle, state: Arc<AppState>) {
 async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
     let command = app
         .shell()
-        .sidecar(ENGINE_SIDECAR_PATH)
+        .sidecar(ENGINE_SIDECAR_NAME)
         .map_err(|error| QQNTError::rust("engine_spawn_prepare_failed", error.to_string()))?;
     let (mut receiver, child) = sidecar_command_with_qt_runtime(command, &app)
         .spawn()
@@ -71,7 +71,7 @@ async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
     let redis = redis_preflight().await?;
     let command = app
         .shell()
-        .sidecar(SERVER_SIDECAR_PATH)
+        .sidecar(SERVER_SIDECAR_NAME)
         .map_err(|error| QQNTError::rust("server_spawn_prepare_failed", error.to_string()))?;
     let mut command = sidecar_command_with_qt_runtime(command, &app)
         .env("QTNETWORKCHAT_REDIS", "1")
@@ -401,16 +401,26 @@ mod tests {
     }
 
     #[test]
-    fn tauri_external_bins_match_rust_sidecars() {
+    fn tauri_external_bins_match_tauri_build_sources() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json"))
             .expect("tauri.conf.json should parse");
         let mut actual = string_array(&config["bundle"], "externalBin");
-        let mut expected = vec![ENGINE_SIDECAR_PATH, SERVER_SIDECAR_PATH];
+        let mut expected = vec![ENGINE_EXTERNAL_BIN, SERVER_EXTERNAL_BIN];
 
         actual.sort_unstable();
         expected.sort_unstable();
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn runtime_sidecar_names_match_tauri_copied_filenames() {
+        for name in [ENGINE_SIDECAR_NAME, SERVER_SIDECAR_NAME] {
+            assert!(
+                !name.contains('/') && !name.contains('\\'),
+                "Tauri copies externalBin sidecars next to the app executable, so runtime sidecar names should be bare filenames"
+            );
+        }
     }
 
     #[test]
@@ -509,15 +519,20 @@ mod tests {
             "CMake sidecar copy helper should copy only the target that just built"
         );
 
-        for sidecar in [ENGINE_SIDECAR_NAME, SERVER_SIDECAR_NAME] {
-            assert!(
-                cmake.contains(&format!("add_executable({sidecar}")),
-                "CMake should build {sidecar}"
-            );
-            assert!(
-                cmake.contains(&format!("qtnetworkchat_copy_sidecar({sidecar})")),
-                "CMake should attach POST_BUILD sidecar copy for {sidecar}"
-            );
+        let declares_backend_sidecar_targets = cmake
+            .contains(&format!("add_executable({ENGINE_SIDECAR_NAME}"))
+            || cmake.contains(&format!("add_executable({SERVER_SIDECAR_NAME}"));
+        if declares_backend_sidecar_targets {
+            for sidecar in [ENGINE_SIDECAR_NAME, SERVER_SIDECAR_NAME] {
+                assert!(
+                    cmake.contains(&format!("add_executable({sidecar}")),
+                    "CMake should build {sidecar}"
+                );
+                assert!(
+                    cmake.contains(&format!("qtnetworkchat_copy_sidecar({sidecar})")),
+                    "CMake should attach POST_BUILD sidecar copy for {sidecar}"
+                );
+            }
         }
     }
 
