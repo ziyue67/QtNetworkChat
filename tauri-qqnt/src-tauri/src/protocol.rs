@@ -663,6 +663,31 @@ mod tests {
         "settings_sync",
     ];
 
+    const VALIDATED_EVENT_NAMES: &[&str] = &[
+        "ready",
+        "connection_state",
+        "login_result",
+        "user_list",
+        "user_joined",
+        "user_left",
+        "friend_list",
+        "friend_event",
+        "friend_search_result",
+        "message",
+        "group_snapshot",
+        "group_member_updated",
+        "file_progress",
+        "file_done",
+        "file_error",
+        "e2e_session_state",
+        "e2e_identity_state",
+        "e2e_rotation_request",
+        "e2e_rotation_response",
+        "settings_synced",
+        "notification",
+        "error",
+    ];
+
     fn protocol_contract() -> Value {
         serde_json::from_str(include_str!(
             "../../../tests/fixtures/protocol_contract.json"
@@ -767,6 +792,109 @@ mod tests {
         }
     }
 
+    fn contract_event_payload(event_name: &str) -> Value {
+        match event_name {
+            "ready" => json!({
+                "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+                "version": "test",
+                "qtVersion": "6.8.0",
+                "e2eStatus": {}
+            }),
+            "connection_state" => json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 8888
+            }),
+            "login_result" => json!({
+                "success": true,
+                "userId": "10001",
+                "userName": "Alice",
+                "registered": false
+            }),
+            "user_list" => json!({ "users": [] }),
+            "user_joined" | "user_left" => json!({
+                "userId": "10002",
+                "userName": "Bob"
+            }),
+            "friend_list" => json!({ "friends": [] }),
+            "friend_event" => json!({
+                "type": "request_received",
+                "senderId": "10002",
+                "senderName": "Bob"
+            }),
+            "friend_search_result" => json!({
+                "found": true,
+                "userId": "10002",
+                "userName": "Bob",
+                "online": true
+            }),
+            "message" => json!({
+                "sessionId": "10002",
+                "message": {}
+            }),
+            "group_snapshot" => json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+            "group_member_updated" => json!({
+                "groupId": "group-1",
+                "memberId": "10002",
+                "action": "add"
+            }),
+            "file_progress" => json!({
+                "transferId": "transfer-1",
+                "fileName": "contract.bin",
+                "bytes": "128",
+                "total": "256",
+                "direction": "outgoing"
+            }),
+            "file_done" => json!({
+                "transferId": "transfer-1",
+                "fileName": "contract.bin",
+                "filePath": "C:/tmp/contract.bin",
+                "direction": "incoming"
+            }),
+            "file_error" => json!({
+                "transferId": "transfer-1",
+                "reason": "cancelled"
+            }),
+            "e2e_session_state" => json!({
+                "peerId": "10002",
+                "rotationRequired": false
+            }),
+            "e2e_identity_state" => json!({
+                "peerId": "10002",
+                "configured": true,
+                "trusted": true,
+                "publicKeyFingerprintSha256": "abcdef"
+            }),
+            "e2e_rotation_request" => json!({
+                "peerId": "10002",
+                "agreement": {}
+            }),
+            "e2e_rotation_response" => json!({
+                "peerId": "10002",
+                "agreement": {},
+                "accepted": true
+            }),
+            "settings_synced" => json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": {}
+            }),
+            "notification" => json!({
+                "title": "QQ NT",
+                "body": "Contract notification"
+            }),
+            "error" => json!({
+                "message": "contract error",
+                "source": "engine"
+            }),
+            _ => panic!("missing event contract sample for {event_name}"),
+        }
+    }
+
     #[test]
     fn command_ack_contract_covers_protocol_commands() {
         let contract = protocol_contract();
@@ -789,6 +917,31 @@ mod tests {
             let payload = contract_command_ack_payload(op);
             validate_command_ack_payload(op, &payload)
                 .unwrap_or_else(|error| panic!("{op} ack sample should pass: {error:?}"));
+        }
+    }
+
+    #[test]
+    fn event_payload_contract_covers_protocol_events() {
+        let contract = protocol_contract();
+        let mut events = string_array(&contract, "events");
+        let mut event_payloads = object_keys(&contract, "eventPayloads");
+        let mut validated = VALIDATED_EVENT_NAMES.to_vec();
+
+        events.sort_unstable();
+        event_payloads.sort_unstable();
+        validated.sort_unstable();
+
+        assert_eq!(event_payloads, events);
+        assert_eq!(validated, events);
+    }
+
+    #[test]
+    fn event_contract_payload_samples_pass_validator() {
+        let contract = protocol_contract();
+        for event_name in string_array(&contract, "events") {
+            let payload = contract_event_payload(event_name);
+            validate_event_payload(event_name, &payload)
+                .unwrap_or_else(|error| panic!("{event_name} event sample should pass: {error:?}"));
         }
     }
 
