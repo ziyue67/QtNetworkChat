@@ -27,32 +27,40 @@ pub fn validate_ready_payload(payload: &Value) -> QQNTResult<()> {
 pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<()> {
     match event_name {
         "ready" => validate_ready_payload(payload),
-        "group_snapshot" => validate_group_snapshot_payload(payload),
+        "group_snapshot" => validate_group_collection_payload(payload, "group_snapshot"),
         _ => Ok(()),
     }
 }
 
-fn validate_group_snapshot_payload(payload: &Value) -> QQNTResult<()> {
-    require_array_field(payload, "groups", "group_snapshot")?;
-    require_array_field(payload, "removedGroups", "group_snapshot")?;
+pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()> {
+    match op {
+        "ready" => validate_ready_payload(payload),
+        "get_group_list" => validate_group_collection_payload(payload, "get_group_list"),
+        _ => Ok(()),
+    }
+}
+
+fn validate_group_collection_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_array_field(payload, "groups", contract_name)?;
+    require_array_field(payload, "removedGroups", contract_name)?;
     if !matches!(payload.get("hasSnapshot"), Some(Value::Bool(_))) {
         return Err(QQNTError::rust(
-            "invalid_group_snapshot_payload",
-            "QQNTEngine group_snapshot payload must include hasSnapshot boolean.",
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload must include hasSnapshot boolean."),
         ));
     }
 
     Ok(())
 }
 
-fn require_array_field(payload: &Value, field: &str, event_name: &str) -> QQNTResult<()> {
+fn require_array_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
     if matches!(payload.get(field), Some(Value::Array(_))) {
         return Ok(());
     }
 
     Err(QQNTError::rust(
-        format!("invalid_{event_name}_payload"),
-        format!("QQNTEngine {event_name} payload must include {field} array."),
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} array."),
     ))
 }
 
@@ -124,5 +132,32 @@ mod tests {
         .expect_err("group_snapshot without boolean hasSnapshot should fail");
 
         assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn get_group_list_ack_payload_accepts_contract_fields() {
+        validate_command_ack_payload(
+            "get_group_list",
+            &json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": false
+            }),
+        )
+        .expect("get_group_list ack with contract fields should pass");
+    }
+
+    #[test]
+    fn get_group_list_ack_payload_requires_removed_groups() {
+        let error = validate_command_ack_payload(
+            "get_group_list",
+            &json!({
+                "groups": [],
+                "hasSnapshot": false
+            }),
+        )
+        .expect_err("get_group_list ack without removedGroups should fail");
+
+        assert_eq!(error.code, "invalid_get_group_list_payload");
     }
 }

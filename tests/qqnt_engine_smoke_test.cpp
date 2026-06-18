@@ -360,6 +360,10 @@ int main(int argc, char* argv[]) {
                         "get_group_list should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("groups")).isArray(),
                         "get_group_list payload should include groups array") && ok;
+            ok = expect(payload.value(QStringLiteral("removedGroups")).isArray(),
+                        "get_group_list payload should include removedGroups array") && ok;
+            ok = expect(payload.value(QStringLiteral("hasSnapshot")).isBool(),
+                        "get_group_list payload should include hasSnapshot boolean") && ok;
         } else if (reqId == QLatin1String("smoke-e2e")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "e2e_status should return ok ack") && ok;

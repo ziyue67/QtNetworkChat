@@ -614,9 +614,7 @@ fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
     }
 
     let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
-    if op == "ready" {
-        protocol::validate_ready_payload(&payload)?;
-    }
+    protocol::validate_command_ack_payload(op, &payload)?;
 
     Ok(payload)
 }
@@ -799,6 +797,47 @@ mod tests {
         .expect_err("ready ack protocol mismatch should fail");
 
         assert_eq!(error.code, "protocol_version_mismatch");
+    }
+
+    #[test]
+    fn ack_payload_validates_group_list_contract_fields() {
+        let payload = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "get_group_list",
+                "reqId": "req-groups",
+                "status": "ok",
+                "payload": {
+                    "groups": [],
+                    "removedGroups": [],
+                    "hasSnapshot": true
+                }
+            }),
+            "get_group_list",
+        )
+        .expect("get_group_list ack with contract fields should pass");
+
+        assert_eq!(payload["hasSnapshot"], true);
+    }
+
+    #[test]
+    fn ack_payload_rejects_group_list_without_removed_groups() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "get_group_list",
+                "reqId": "req-groups",
+                "status": "ok",
+                "payload": {
+                    "groups": [],
+                    "hasSnapshot": true
+                }
+            }),
+            "get_group_list",
+        )
+        .expect_err("get_group_list ack without removedGroups should fail");
+
+        assert_eq!(error.code, "invalid_get_group_list_payload");
     }
 
     #[test]
