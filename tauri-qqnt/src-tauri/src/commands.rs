@@ -1326,7 +1326,7 @@ fn validate_generic_ack_packet(
             let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
             protocol::validate_command_ack_payload(expected_op, &payload)
         }
-        Some("error") => validate_generic_error_ack(packet),
+        Some("error") => validate_generic_error_ack(packet, expected_op),
         _ => Err(QQNTError::rust(
             "invalid_ack_status",
             "QQNTEngine ack status must be ok or error.",
@@ -1334,7 +1334,7 @@ fn validate_generic_ack_packet(
     }
 }
 
-fn validate_generic_error_ack(packet: &Value) -> Result<(), QQNTError> {
+fn validate_generic_error_ack(packet: &Value, expected_op: &str) -> Result<(), QQNTError> {
     let Some(error) = packet.get("error").and_then(Value::as_object) else {
         return Err(QQNTError::rust(
             "invalid_ack_error",
@@ -1365,7 +1365,49 @@ fn validate_generic_error_ack(packet: &Value) -> Result<(), QQNTError> {
         ));
     }
 
+    validate_target_error_details(expected_op, error)?;
+
     Ok(())
+}
+
+fn validate_target_error_details(
+    expected_op: &str,
+    error: &serde_json::Map<String, Value>,
+) -> Result<(), QQNTError> {
+    let code = error
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let requires_target_fields = match expected_op {
+        "send_file" | "send_image" => matches!(code, "missing_target" | "ambiguous_target"),
+        "query_resume" => matches!(
+            code,
+            "missing_target" | "ambiguous_target" | "invalid_target"
+        ),
+        _ => false,
+    };
+    if !requires_target_fields {
+        return Ok(());
+    }
+
+    let target_fields = error
+        .get("details")
+        .and_then(Value::as_object)
+        .and_then(|details| details.get("targetFields"))
+        .and_then(Value::as_array);
+    let has_target_field_contract = target_fields.is_some_and(|fields| {
+        fields.len() == 2
+            && fields[0].as_str() == Some("receiverId")
+            && fields[1].as_str() == Some("groupId")
+    });
+    if has_target_field_contract {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        "invalid_ack_error",
+        "QQNTEngine target error ack must include details.targetFields [\"receiverId\", \"groupId\"].",
+    ))
 }
 
 #[cfg(test)]
@@ -2477,6 +2519,56 @@ mod tests {
             "req-file",
         )
         .expect("matching generic error ack should pass through");
+    }
+
+    #[test]
+    fn generic_ack_packet_requires_file_target_error_details() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "send_image",
+                "reqId": "req-file",
+                "status": "error",
+                "error": {
+                    "code": "ambiguous_target",
+                    "message": "File target is ambiguous.",
+                    "source": "engine",
+                    "details": {
+                        "targetFields": ["groupId", "receiverId"]
+                    }
+                }
+            }),
+            "send_image",
+            "req-file",
+        )
+        .expect_err("target validation error ack must include canonical target fields");
+
+        assert_eq!(error.code, "invalid_ack_error");
+        assert!(error.message.contains("details.targetFields"));
+    }
+
+    #[test]
+    fn generic_ack_packet_requires_query_resume_target_error_details() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "query_resume",
+                "reqId": "req-resume",
+                "status": "error",
+                "error": {
+                    "code": "invalid_target",
+                    "message": "Resume target requires filePath.",
+                    "source": "engine",
+                    "details": {}
+                }
+            }),
+            "query_resume",
+            "req-resume",
+        )
+        .expect_err("query_resume target error ack must include target fields");
+
+        assert_eq!(error.code, "invalid_ack_error");
+        assert!(error.message.contains("details.targetFields"));
     }
 
     #[test]
