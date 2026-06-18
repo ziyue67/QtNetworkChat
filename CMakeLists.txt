@@ -1430,6 +1430,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_infra_config.cmake
     )
     add_test(
+        NAME RuntimeArtifactHygiene
+        COMMAND powershell -ExecutionPolicy Bypass -File
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-runtime-artifact-hygiene.ps1
+            -RepoRoot ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
         NAME AutomationStatus
         COMMAND powershell -ExecutionPolicy Bypass -File
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-automation-status.ps1

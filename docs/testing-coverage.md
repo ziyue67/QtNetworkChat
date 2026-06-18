@@ -11,6 +11,7 @@ This branch validates the QQNT backend through focused CTest targets, Rust bridg
 - `cargo test` under `tauri-qqnt/src-tauri` verifies Rust command wrappers, bridge parsing, event forwarding, and protocol-version guards.
 - `npm run tauri build` verifies the Tauri bundle path and produces the local NSIS installer after the sidecars are built.
 - Packaging and information-architecture tests verify that release packages include `README.md` and that documentation links remain discoverable; `ReadmeInformationArchitecture` also keeps the backend quick-start commands, B14/BM6 Tauri packaging contract, and backend/frontend branch ownership wording aligned with `package.json`, `tauri.conf.json`, and the branch plan.
+- `RuntimeArtifactHygiene` verifies that Phase 8.4 runtime databases, histories, offline attachment payloads, Tauri generated output, sidecar executables, and local package/build artifacts remain ignored and untracked.
 
 ## Current Scope
 

@@ -178,6 +178,8 @@ Assert-Contains $coverage "npm run tauri build"
 Assert-Contains $coverage "ReadmeInformationArchitecture"
 Assert-Contains $coverage 'details.targetFields'
 Assert-Contains $coverage "target-validation errors"
+Assert-Contains $coverage "RuntimeArtifactHygiene"
+Assert-Contains $coverage "Phase 8.4 runtime databases"
 Assert-Contains $coverage "Backend validation should stay scoped"
 Assert-Contains $coverage 'Frontend rendering and mock UI behavior belong to `codex/qqnt-frontend`'
 
