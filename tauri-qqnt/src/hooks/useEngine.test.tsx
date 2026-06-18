@@ -104,6 +104,7 @@ describe('useEngine', () => {
 
     expect(apiLogin).toHaveBeenCalledWith('10001', 'secret')
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
+    expect(result.current.engine.loggingIn).toBe(true)
   })
 
   it('returns the register handshake ack before the connect step', async () => {
@@ -116,6 +117,7 @@ describe('useEngine', () => {
 
     expect(apiRegister).toHaveBeenCalledWith('10002', 'secret', 'Alice')
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
+    expect(result.current.engine.loggingIn).toBe(false)
   })
 
   it('maps auth-before-connect failures to the Chinese login error', async () => {

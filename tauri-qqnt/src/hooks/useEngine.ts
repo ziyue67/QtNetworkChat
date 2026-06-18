@@ -397,9 +397,7 @@ export function useEngine(): UseEngineReturn {
           ok: ack.payload?.accepted ?? true,
           requiresConnect: ack.payload?.requiresConnect ?? true
         }
-        if (!result.ok || !result.requiresConnect) {
-          setEngine((prev) => ({ ...prev, loggingIn: false }))
-        }
+        setEngine((prev) => ({ ...prev, loggingIn: false }))
         return result
       } catch (err) {
         const message = err instanceof Error ? err.message : '注册请求失败'
