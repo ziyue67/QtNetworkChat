@@ -310,11 +310,14 @@ int main(int argc, char* argv[]) {
     const QStringList documentedEvents = extractMarkdownTableKeys(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("`event`"));
     const QMap<QString, QString> documentedCommandPayloads =
         extractMarkdownPayloads(markdown, QStringLiteral("## 5. 命令表"), QStringLiteral("op"));
+    const QMap<QString, QString> documentedAckPayloads =
+        extractMarkdownPayloads(markdown, QStringLiteral("### 成功 ack payload 表"), QStringLiteral("op"));
     const QMap<QString, QString> documentedEventPayloads =
         extractMarkdownPayloads(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("event"));
     const QStringList expectedCommands = jsonStringArray(contractFixture, QStringLiteral("commands"));
     const QStringList expectedEvents = jsonStringArray(contractFixture, QStringLiteral("events"));
     const QMap<QString, QString> expectedCommandPayloads = jsonStringObject(contractFixture, QStringLiteral("commandPayloads"));
+    const QMap<QString, QString> expectedAckPayloads = jsonStringObject(contractFixture, QStringLiteral("ackPayloads"));
     const QMap<QString, QString> expectedEventPayloads = jsonStringObject(contractFixture, QStringLiteral("eventPayloads"));
     const QStringList routedCppCommands = extractCppCommandOps(routerSource);
     const QStringList emittedCppEvents = extractCppEventNames({routerSource, bridgeSource});
@@ -325,9 +328,11 @@ int main(int argc, char* argv[]) {
     ok = expectUnique(expectedCommands, QStringLiteral("protocol contract commands")) && ok;
     ok = expectUnique(expectedEvents, QStringLiteral("protocol contract events")) && ok;
     ok = expectSameSet(expectedCommandPayloads.keys(), expectedCommands, QStringLiteral("protocol contract command payloads")) && ok;
+    ok = expectSameSet(expectedAckPayloads.keys(), expectedCommands, QStringLiteral("protocol contract ack payloads")) && ok;
     ok = expectSameSet(expectedEventPayloads.keys(), expectedEvents, QStringLiteral("protocol contract event payloads")) && ok;
     ok = expectSameSet(documentedCommands, expectedCommands, QStringLiteral("documented commands")) && ok;
     ok = expectSameMap(documentedCommandPayloads, expectedCommandPayloads, QStringLiteral("documented command payloads")) && ok;
+    ok = expectSameMap(documentedAckPayloads, expectedAckPayloads, QStringLiteral("documented ack payloads")) && ok;
     ok = expectSameSet(documentedEvents, expectedEvents, QStringLiteral("documented events")) && ok;
     ok = expectSameMap(documentedEventPayloads, expectedEventPayloads, QStringLiteral("documented event payloads")) && ok;
     ok = expectSameSet(routedCppCommands, expectedCommands, QStringLiteral("C++ routed commands")) && ok;

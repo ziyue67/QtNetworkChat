@@ -125,6 +125,41 @@
 | `profile_update` | `{userName?, avatarBase64?}` | 更新个人资料 |
 | `settings_sync` | `{settings}` | 同步本地设置 |
 
+### 成功 ack payload 表
+
+`status: "ok"` 的 `ack.payload` 必须符合下表；失败时使用统一 `error` 对象，不使用本表字段。
+
+| `op` | `payload` | 说明 |
+|---|---|---|
+| `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 与 `ready` 事件一致 |
+| `connect` | `{connected, host, port}` | 连接目标与结果 |
+| `disconnect` | `{}` | 空成功回包 |
+| `login` | `{accepted, requiresConnect, mode=login}` | 登录凭据已接收 |
+| `register` | `{accepted, requiresConnect, mode=register}` | 注册凭据已接收 |
+| `logout` | `{}` | 空成功回包 |
+| `set_user_info` | `{}` | 空成功回包 |
+| `get_user_list` | `{users}` | 在线用户列表快照 |
+| `get_friend_list` | `{friends}` | 好友列表快照 |
+| `get_group_list` | `{groups, removedGroups, hasSnapshot}` | 群组列表快照 |
+| `search_friend` | `{accepted}` | 命令已发送到服务端 |
+| `send_friend_request` | `{accepted}` | 命令已发送到服务端 |
+| `respond_friend_request` | `{accepted}` | 命令已发送到服务端 |
+| `send_private_message` | `{receiverId}` | 私聊发送目标 |
+| `send_group_message` | `{accepted}` | 命令已发送到服务端 |
+| `create_group` | `{accepted}` | 命令已发送到服务端 |
+| `update_group_announcement` | `{accepted}` | 命令已发送到服务端 |
+| `update_group_member` | `{accepted}` | 命令已发送到服务端 |
+| `send_file` | `{accepted}` | 文件发送任务已接收 |
+| `send_image` | `{accepted}` | 图片发送任务已接收 |
+| `cancel_transfer` | `{cancelled, transferId}` | 当前活动传输已取消 |
+| `query_resume` | `{canResume, transferId, confirmedBytes, nextChunkIndex, fileSize, chunkSize, chunkCount, fileHash, receivedChunks, resumed, mode}` | 断点续传状态；计数字段和 `receivedChunks` 项以无符号整数字符串表示，`mode` 为 `query` 或 `resume` |
+| `e2e_status` | `{localIdentity, peerId?, session?, identity?}` | 省略 `peerId` 时仅返回本地身份；提供 `peerId` 时同时返回会话与对端身份 |
+| `e2e_announce_identity` | `{accepted}` | 命令已发送到服务端 |
+| `e2e_pin_identity` | `{accepted}` | 本地身份信任状态已更新 |
+| `e2e_request_rotation` | `{accepted}` | 命令已发送到服务端 |
+| `profile_update` | `{accepted, avatarSent, userName}` | 个人资料更新结果 |
+| `settings_sync` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步结果；下载目录实际应用时返回 `appliedDownloadDir` |
+
 ## 6. 主动事件表
 
 Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
