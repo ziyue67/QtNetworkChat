@@ -525,6 +525,10 @@ int main(int argc, char* argv[]) {
                 "update_group_member missing memberId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-invalid-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"ban\"}}\n"),
                 "update_group_member invalid action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-uppercase-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"ADD\"}}\n"),
+                "update_group_member uppercase action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-spaced-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\" add \"}}\n"),
+                "update_group_member spaced action command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-legacy-set-admin\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"set_admin\"}}\n"),
                 "update_group_member legacy set_admin action command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-legacy-unset-admin\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"unset_admin\"}}\n"),
@@ -614,6 +618,10 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-group-member-missing-group"),
         QStringLiteral("smoke-group-member-missing-member"),
         QStringLiteral("smoke-group-member-invalid-action"),
+        QStringLiteral("smoke-group-member-uppercase-action"),
+        QStringLiteral("smoke-group-member-spaced-action"),
+        QStringLiteral("smoke-group-member-legacy-set-admin"),
+        QStringLiteral("smoke-group-member-legacy-unset-admin"),
         QStringLiteral("smoke-create-group-invalid-members"),
         QStringLiteral("smoke-create-group-invalid-member-entry"),
         QStringLiteral("smoke-create-group-member-objects"),
@@ -1055,6 +1063,16 @@ int main(int argc, char* argv[]) {
                         "update_group_member with invalid action should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
                         "update_group_member with invalid action should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-uppercase-action")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with uppercase action should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with uppercase action should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-spaced-action")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with spaced action should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with spaced action should use invalid_action code") && ok;
         } else if (reqId == QLatin1String("smoke-group-member-legacy-set-admin")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "update_group_member with set_admin should return error ack") && ok;

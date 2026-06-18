@@ -270,7 +270,7 @@ int main(int argc, char* argv[]) {
 | `send_group_message` | `{groupId, content}` | 群聊 |
 | `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 建私有群；`members` 可为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId` |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
-| `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 成员管理 |
+| `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 成员管理；`action` 必须精确匹配小写枚举值 |
 | `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
 | `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
@@ -297,7 +297,7 @@ int main(int argc, char* argv[]) {
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
-| `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更 |
+| `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更；`action` 为精确小写枚举值 |
 | `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件进度 |
 | `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件完成 |
 | `file_error` | `{transferId, reason}` | 文件失败 |

@@ -191,7 +191,7 @@ bool memberIdsFromPayload(const QJsonObject& payload, QStringList* memberIds, QS
 }
 
 bool normalizeGroupMemberAction(const QString& action, QString* normalizedAction) {
-    const QString text = action.trimmed().toLower();
+    const QString text = action;
     if (text == QLatin1String("add")
         || text == QLatin1String("remove")
         || text == QLatin1String("promote_admin")
@@ -560,10 +560,20 @@ void QQNTEngineCommandRouter::handleUpdateGroupAnnouncement(const QString& op, c
 void QQNTEngineCommandRouter::handleUpdateGroupMember(const QString& op, const QString& reqId, const QJsonObject& payload) {
     QString groupId;
     QString memberId;
-    QString action;
     if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
-        || !requireString(payload, QStringLiteral("memberId"), &memberId, op, reqId)
-        || !requireString(payload, QStringLiteral("action"), &action, op, reqId)) {
+        || !requireString(payload, QStringLiteral("memberId"), &memberId, op, reqId)) {
+        return;
+    }
+
+    QString action;
+    if (!requireStringField(payload, QStringLiteral("action"), &action, op, reqId)) {
+        return;
+    }
+    if (action.trimmed().isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("missing_field"),
+                               QStringLiteral("payload.action is required."));
         return;
     }
     if (!normalizeGroupMemberAction(action, &action)) {

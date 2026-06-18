@@ -1872,6 +1872,24 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_update_group_member_non_canonical_action() {
+        for action in ["ADD", " add "] {
+            let error = validate_generic_command(&json!({
+                "op": "update_group_member",
+                "reqId": "req-group-member",
+                "payload": {
+                    "groupId": "group-1",
+                    "memberId": "10002",
+                    "action": action
+                }
+            }))
+            .expect_err("generic update_group_member action must match protocol enum exactly");
+
+            assert_eq!(error.code, "invalid_action");
+        }
+    }
+
+    #[test]
     fn generic_command_accepts_create_group_member_objects() {
         validate_generic_command(&json!({
             "op": "create_group",
@@ -2745,6 +2763,20 @@ mod tests {
             .expect_err(
                 "typed update_group_member should reject unsupported actions before engine call",
             );
+
+            assert_eq!(error.code, "invalid_action");
+        }
+    }
+
+    #[test]
+    fn update_group_member_payload_rejects_non_canonical_action() {
+        for action in ["ADD", " add "] {
+            let error = update_group_member_payload(
+                "group-1".to_string(),
+                "10002".to_string(),
+                action.to_string(),
+            )
+            .expect_err("typed update_group_member should require canonical action enum");
 
             assert_eq!(error.code, "invalid_action");
         }

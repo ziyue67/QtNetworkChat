@@ -115,7 +115,7 @@
 | `send_group_message` | `{groupId, content}` | 发送群聊文本 |
 | `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 创建私有群聊；`members` 为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId`，服务端加入已存在账号 |
 | `update_group_announcement` | `{groupId, announcement}` | 更新群公告 |
-| `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 管理群成员 |
+| `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 管理群成员；`action` 必须精确匹配小写枚举值 |
 | `send_file` | `{receiverId xor groupId, filePath}` | 发送文件；必须且只能提供一个目标，缺失返回 `missing_target`，同时提供返回 `ambiguous_target` |
 | `send_image` | `{receiverId xor groupId, filePath}` | 发送图片；必须且只能提供一个目标，缺失返回 `missing_target`，同时提供返回 `ambiguous_target` |
 | `cancel_transfer` | `{transferId}` | 取消当前活动文件传输；`transferId` 必须匹配当前发送任务，成功返回 `{cancelled, transferId}`，无活动返回 `transfer_not_active`，不匹配返回 `transfer_mismatch` |
@@ -179,7 +179,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
-| `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变化 |
+| `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变化；`action` 为精确小写枚举值 |
 | `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件传输进度 |
 | `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件传输完成 |
 | `file_error` | `{transferId, reason}` | 文件传输失败 |
