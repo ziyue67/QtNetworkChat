@@ -188,8 +188,8 @@ QMap<QString, QString> extractMarkdownPayloads(const QString& markdown, const QS
         const QString line = rawLine.trimmed();
         if (!inTable) {
             if (line.startsWith(QLatin1Char('|'))
-                && line.contains(QStringLiteral("`%1`").arg(keyColumnName))
-                && line.contains(QStringLiteral("`payload`"))) {
+                && line.contains(keyColumnName)
+                && line.contains(QStringLiteral("payload"))) {
                 const QStringList headers = splitMarkdownTableRow(line);
                 for (int index = 0; index < headers.size(); ++index) {
                     const QString header = untickCell(headers.at(index));
@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     const QStringList arguments = app.arguments();
     if (arguments.size() < 6) {
-        std::fprintf(stderr, "usage: %s <ready fixture> <protocol doc> <protocol contract fixture> <router source> <bridge source>\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <ready fixture> <protocol doc> <protocol contract fixture> <router source> <bridge source> [implementation plan]\n", argv[0]);
         return 2;
     }
 
@@ -300,8 +300,12 @@ int main(int argc, char* argv[]) {
     const QString markdown = QString::fromUtf8(protocolDoc.readAll());
     QString routerSource;
     QString bridgeSource;
+    QString implementationPlan;
     ok = readTextFile(arguments.at(4), &routerSource, QStringLiteral("router source")) && ok;
     ok = readTextFile(arguments.at(5), &bridgeSource, QStringLiteral("bridge source")) && ok;
+    if (arguments.size() >= 7) {
+        ok = readTextFile(arguments.at(6), &implementationPlan, QStringLiteral("implementation plan")) && ok;
+    }
     if (!ok) {
         return 1;
     }
@@ -321,6 +325,9 @@ int main(int argc, char* argv[]) {
     const QMap<QString, QString> expectedEventPayloads = jsonStringObject(contractFixture, QStringLiteral("eventPayloads"));
     const QStringList routedCppCommands = extractCppCommandOps(routerSource);
     const QStringList emittedCppEvents = extractCppEventNames({routerSource, bridgeSource});
+    const QMap<QString, QString> implementationCommandPayloads = implementationPlan.isEmpty()
+        ? QMap<QString, QString>()
+        : extractMarkdownPayloads(implementationPlan, QStringLiteral("### 5.4 命令路由表 V1"), QStringLiteral("op"));
 
     ok = validateReadyFixture(readyFixture) && ok;
     ok = expect(contractFixture.value(QStringLiteral("protocolVersion")).toInt() == 1,
@@ -337,6 +344,11 @@ int main(int argc, char* argv[]) {
     ok = expectSameMap(documentedEventPayloads, expectedEventPayloads, QStringLiteral("documented event payloads")) && ok;
     ok = expectSameSet(routedCppCommands, expectedCommands, QStringLiteral("C++ routed commands")) && ok;
     ok = expectSameSet(emittedCppEvents, expectedEvents, QStringLiteral("C++ emitted events")) && ok;
+    if (!implementationPlan.isEmpty()) {
+        ok = expect(implementationCommandPayloads.value(QStringLiteral("create_group"))
+                        == expectedCommandPayloads.value(QStringLiteral("create_group")),
+                    QStringLiteral("implementation plan create_group payload should match protocol contract")) && ok;
+    }
     ok = expect(!routerSource.contains(QStringLiteral("QStringLiteral(\"messageType\")")),
                 QStringLiteral("C++ IPC router should use documented contentType instead of legacy messageType")) && ok;
 

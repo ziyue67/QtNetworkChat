@@ -266,7 +266,7 @@ int main(int argc, char* argv[]) {
 | `respond_friend_request` | `{senderId, accepted}` | 接受/拒绝 |
 | `send_private_message` | `{receiverId, content}` | 私聊 |
 | `send_group_message` | `{groupId, content}` | 群聊 |
-| `create_group` | `{groupName, members?, announcement?}` | 建私有群；初始成员账号存在时随群创建加入 |
+| `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 建私有群；`members` 可为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId` |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
 | `update_group_member` | `{groupId, memberId, action}` | 成员管理 |
 | `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
@@ -759,7 +759,7 @@ npm run tauri build
 | 5.3 | Engine 群列表/建群/群消息/群成员管理 | GPT5.5 | 群聊消息同步 |
 | 5.4 | 前端群聊列表与群成员面板 | Kimi | 群消息收发正常 |
 
-> 后端已支持 `create_group.members[]` 作为可选初始成员账号数组；服务端建私有群时会把已存在账号加入群，向本实例在线成员直接推送 `server_group_snapshot`，并通过 Redis 内部刷新事件通知其他实例上的在线初始成员。
+> 后端已支持 `create_group.members[]` 作为可选初始成员账号或成员对象数组；服务端建私有群时会把已存在账号加入群，向本实例在线成员直接推送 `server_group_snapshot`，并通过 Redis 内部刷新事件通知其他实例上的在线初始成员。
 > 私有群文本消息已接入 Redis 跨实例路由；远端实例会按 SQLite 群成员关系只推送给本实例在线成员，非成员不会收到。
 > 私有群小文件/图片已接入 Redis 跨实例路由；远端实例会按群成员关系把 Pub/Sub 负载分片发送给本实例在线成员，非成员不会收到。
 > 私有群大文件/图片已接入 Redis 对象路由；发送实例写入 object store 并发布 `large_file_offer`，远端实例按群成员关系投递给本实例在线成员，群 fanout 不发送一对一 delivered 清理回执，对象保留到 TTL 清理。
