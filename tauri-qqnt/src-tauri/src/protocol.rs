@@ -4,6 +4,21 @@ use crate::error::{QQNTError, QQNTResult};
 
 pub const EXPECTED_PROTOCOL_VERSION: u64 = 1;
 
+#[derive(Clone, Copy)]
+enum GroupMembershipState {
+    Active,
+    Removed,
+}
+
+impl GroupMembershipState {
+    fn as_str(self) -> &'static str {
+        match self {
+            GroupMembershipState::Active => "active",
+            GroupMembershipState::Removed => "removed",
+        }
+    }
+}
+
 pub fn validate_ready_payload(payload: &Value) -> QQNTResult<()> {
     let Some(protocol_version) = payload.get("protocolVersion").and_then(Value::as_u64) else {
         return Err(QQNTError::rust(
@@ -191,14 +206,163 @@ fn validate_profile_update_ack_payload(payload: &Value) -> QQNTResult<()> {
 }
 
 fn validate_group_collection_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
-    require_array_field(payload, "groups", contract_name)?;
-    require_array_field(payload, "removedGroups", contract_name)?;
-    if !matches!(payload.get("hasSnapshot"), Some(Value::Bool(_))) {
+    require_group_array_field(
+        payload,
+        "groups",
+        contract_name,
+        GroupMembershipState::Active,
+    )?;
+    require_group_array_field(
+        payload,
+        "removedGroups",
+        contract_name,
+        GroupMembershipState::Removed,
+    )?;
+    require_bool_field(payload, "hasSnapshot", contract_name)?;
+
+    Ok(())
+}
+
+fn require_group_array_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+    expected_state: GroupMembershipState,
+) -> QQNTResult<()> {
+    let Some(items) = payload.get(field).and_then(Value::as_array) else {
         return Err(QQNTError::rust(
             format!("invalid_{contract_name}_payload"),
-            format!("QQNTEngine {contract_name} payload must include hasSnapshot boolean."),
+            format!("QQNTEngine {contract_name} payload must include {field} array."),
+        ));
+    };
+
+    for item in items {
+        validate_group_item_payload(item, contract_name, expected_state)?;
+    }
+
+    Ok(())
+}
+
+fn validate_group_item_payload(
+    payload: &Value,
+    contract_name: &str,
+    expected_state: GroupMembershipState,
+) -> QQNTResult<()> {
+    if !payload.is_object() {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload group entries must be objects."),
         ));
     }
+
+    require_non_empty_string_field(payload, "groupId", contract_name)?;
+    require_string_field(payload, "groupName", contract_name)?;
+    require_string_field(payload, "announcement", contract_name)?;
+    require_string_field(payload, "ownerId", contract_name)?;
+    require_one_of_string_field(payload, "groupType", &["public", "private"], contract_name)?;
+    require_string_value_field(
+        payload,
+        "membershipState",
+        expected_state.as_str(),
+        contract_name,
+    )?;
+    require_string_field(payload, "historyPolicy", contract_name)?;
+    require_string_field(payload, "filePolicy", contract_name)?;
+    require_bool_field(payload, "canSend", contract_name)?;
+    require_bool_field(payload, "canSendFiles", contract_name)?;
+    require_bool_field(payload, "canReadHistory", contract_name)?;
+    require_string_field(payload, "historyVisibility", contract_name)?;
+    require_bool_field(payload, "historyReadOnly", contract_name)?;
+    require_bool_field(payload, "historyRetainedAfterRemoval", contract_name)?;
+
+    match expected_state {
+        GroupMembershipState::Active => {
+            require_group_member_array_field(payload, "members", contract_name)?;
+            require_group_audit_event_array_field(payload, "auditEvents", contract_name)?;
+        }
+        GroupMembershipState::Removed => {
+            require_string_field(payload, "removedBy", contract_name)?;
+            require_string_field(payload, "removedByName", contract_name)?;
+            require_string_field(payload, "removedAt", contract_name)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn require_group_member_array_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    let Some(items) = payload.get(field).and_then(Value::as_array) else {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload must include {field} array."),
+        ));
+    };
+
+    for item in items {
+        validate_group_member_item_payload(item, contract_name)?;
+    }
+
+    Ok(())
+}
+
+fn validate_group_member_item_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    if !payload.is_object() {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload group member entries must be objects."),
+        ));
+    }
+
+    require_non_empty_string_field(payload, "userId", contract_name)?;
+    require_string_field(payload, "userName", contract_name)?;
+    require_one_of_string_field(
+        payload,
+        "role",
+        &["owner", "admin", "member"],
+        contract_name,
+    )?;
+
+    Ok(())
+}
+
+fn require_group_audit_event_array_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    let Some(items) = payload.get(field).and_then(Value::as_array) else {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload must include {field} array."),
+        ));
+    };
+
+    for item in items {
+        validate_group_audit_event_item_payload(item, contract_name)?;
+    }
+
+    Ok(())
+}
+
+fn validate_group_audit_event_item_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    if !payload.is_object() {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload group audit entries must be objects."),
+        ));
+    }
+
+    require_non_empty_string_field(payload, "action", contract_name)?;
+    require_string_field(payload, "actorId", contract_name)?;
+    require_string_field(payload, "actorName", contract_name)?;
+    require_string_field(payload, "targetUserId", contract_name)?;
+    require_string_field(payload, "targetUserName", contract_name)?;
+    require_object_field(payload, "details", contract_name)?;
+    require_string_field(payload, "createdAt", contract_name)?;
 
     Ok(())
 }
@@ -464,17 +628,6 @@ fn validate_error_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "source", "error")?;
 
     Ok(())
-}
-
-fn require_array_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
-    if matches!(payload.get(field), Some(Value::Array(_))) {
-        return Ok(());
-    }
-
-    Err(QQNTError::rust(
-        format!("invalid_{contract_name}_payload"),
-        format!("QQNTEngine {contract_name} payload must include {field} array."),
-    ))
 }
 
 fn require_bool_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
@@ -828,6 +981,61 @@ mod tests {
         })
     }
 
+    fn group_contract_item() -> Value {
+        json!({
+            "groupId": "private-1",
+            "groupName": "Backend Group",
+            "announcement": "ship it",
+            "ownerId": "10001",
+            "groupType": "private",
+            "membershipState": "active",
+            "historyPolicy": "member-and-removed-readonly",
+            "filePolicy": "members-only",
+            "canSend": true,
+            "canSendFiles": true,
+            "canReadHistory": true,
+            "historyVisibility": "active-members-and-removed-readonly",
+            "historyReadOnly": false,
+            "historyRetainedAfterRemoval": true,
+            "members": [{
+                "userId": "10001",
+                "userName": "Alice",
+                "role": "owner"
+            }],
+            "auditEvents": [{
+                "action": "create_group",
+                "actorId": "10001",
+                "actorName": "Alice",
+                "targetUserId": "",
+                "targetUserName": "",
+                "details": { "groupName": "Backend Group" },
+                "createdAt": "2026-06-18T10:00:00Z"
+            }]
+        })
+    }
+
+    fn removed_group_contract_item() -> Value {
+        json!({
+            "groupId": "private-2",
+            "groupName": "Archive Group",
+            "announcement": "",
+            "ownerId": "10001",
+            "groupType": "private",
+            "membershipState": "removed",
+            "historyPolicy": "member-and-removed-readonly",
+            "filePolicy": "members-only",
+            "canSend": false,
+            "canSendFiles": false,
+            "canReadHistory": true,
+            "historyVisibility": "removed-member-readonly",
+            "historyReadOnly": true,
+            "historyRetainedAfterRemoval": true,
+            "removedBy": "10001",
+            "removedByName": "Alice",
+            "removedAt": "2026-06-18T10:30:00Z"
+        })
+    }
+
     fn contract_command_ack_payload(op: &str) -> Value {
         match op {
             "ready" => json!({
@@ -871,8 +1079,8 @@ mod tests {
                 }]
             }),
             "get_group_list" => json!({
-                "groups": [],
-                "removedGroups": [],
+                "groups": [group_contract_item()],
+                "removedGroups": [removed_group_contract_item()],
                 "hasSnapshot": false
             }),
             "search_friend"
@@ -986,8 +1194,8 @@ mod tests {
                 }
             }),
             "group_snapshot" => json!({
-                "groups": [],
-                "removedGroups": [],
+                "groups": [group_contract_item()],
+                "removedGroups": [removed_group_contract_item()],
                 "hasSnapshot": true
             }),
             "group_member_updated" => json!({
@@ -1583,12 +1791,25 @@ mod tests {
         validate_event_payload(
             "group_snapshot",
             &json!({
+                "groups": [group_contract_item()],
+                "removedGroups": [removed_group_contract_item()],
+                "hasSnapshot": true
+            }),
+        )
+        .expect("group_snapshot with contract fields should pass");
+    }
+
+    #[test]
+    fn group_snapshot_payload_accepts_empty_collections() {
+        validate_event_payload(
+            "group_snapshot",
+            &json!({
                 "groups": [],
                 "removedGroups": [],
                 "hasSnapshot": true
             }),
         )
-        .expect("group_snapshot with contract fields should pass");
+        .expect("group_snapshot with empty collections should pass");
     }
 
     #[test]
@@ -1844,6 +2065,162 @@ mod tests {
     }
 
     #[test]
+    fn group_snapshot_payload_rejects_non_object_group_item() {
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": ["private-1"],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with non-object group should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_empty_group_id() {
+        let mut group = group_contract_item();
+        group["groupId"] = json!(" ");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with empty groupId should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_unknown_group_type() {
+        let mut group = group_contract_item();
+        group["groupType"] = json!("secret");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with unknown groupType should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_wrong_membership_bucket() {
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [removed_group_contract_item()],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with removed group in active bucket should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_active_group_without_members() {
+        let mut group = group_contract_item();
+        group.as_object_mut().unwrap().remove("members");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot active group without members should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_bad_member_role() {
+        let mut group = group_contract_item();
+        group["members"][0]["role"] = json!("moderator");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with bad member role should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_bad_audit_details() {
+        let mut group = group_contract_item();
+        group["auditEvents"][0]["details"] = json!("created");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with bad audit details should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_removed_group_without_removed_at() {
+        let mut group = removed_group_contract_item();
+        group.as_object_mut().unwrap().remove("removedAt");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "removedGroups": [group],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot removed group without removedAt should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_bad_permission_boolean() {
+        let mut group = removed_group_contract_item();
+        group["canSend"] = json!("no");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "removedGroups": [group],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with bad permission flag should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
     fn connect_ack_payload_accepts_contract_fields() {
         validate_command_ack_payload(
             "connect",
@@ -2043,12 +2420,25 @@ mod tests {
         validate_command_ack_payload(
             "get_group_list",
             &json!({
+                "groups": [group_contract_item()],
+                "removedGroups": [removed_group_contract_item()],
+                "hasSnapshot": false
+            }),
+        )
+        .expect("get_group_list ack with contract fields should pass");
+    }
+
+    #[test]
+    fn get_group_list_ack_payload_accepts_empty_collections() {
+        validate_command_ack_payload(
+            "get_group_list",
+            &json!({
                 "groups": [],
                 "removedGroups": [],
                 "hasSnapshot": false
             }),
         )
-        .expect("get_group_list ack with contract fields should pass");
+        .expect("get_group_list ack with empty collections should pass");
     }
 
     #[test]
@@ -2104,6 +2494,24 @@ mod tests {
             }),
         )
         .expect_err("get_group_list ack without removedGroups should fail");
+
+        assert_eq!(error.code, "invalid_get_group_list_payload");
+    }
+
+    #[test]
+    fn get_group_list_ack_payload_rejects_bad_removed_group_item() {
+        let mut group = removed_group_contract_item();
+        group["membershipState"] = json!("active");
+
+        let error = validate_command_ack_payload(
+            "get_group_list",
+            &json!({
+                "groups": [],
+                "removedGroups": [group],
+                "hasSnapshot": false
+            }),
+        )
+        .expect_err("get_group_list ack with bad removed group item should fail");
 
         assert_eq!(error.code, "invalid_get_group_list_payload");
     }

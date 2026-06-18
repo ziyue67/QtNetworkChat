@@ -142,7 +142,7 @@
 | `set_user_info` | `{}` | 空成功回包 |
 | `get_user_list` | `{users: UserSummary[]}` | 在线用户列表快照 |
 | `get_friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
-| `get_group_list` | `{groups, removedGroups, hasSnapshot}` | 群组列表快照 |
+| `get_group_list` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群组列表快照 |
 | `search_friend` | `{accepted}` | 命令已发送到服务端 |
 | `send_friend_request` | `{accepted}` | 命令已发送到服务端 |
 | `respond_friend_request` | `{accepted}` | 命令已发送到服务端 |
@@ -178,7 +178,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请发送、收到或回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
-| `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
+| `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变化；`action` 为精确小写枚举值 |
 | `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件传输进度 |
 | `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件传输完成 |
@@ -213,7 +213,92 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `online` | boolean | 当前在线状态 |
 | `lastActive` | string | ISO 时间字符串；未知时可为空字符串 |
 
-## 8. 消息模型最小字段
+## 8. 群组模型最小字段
+
+`group_snapshot.groups` 与 `get_group_list` ack 中的 `groups` 使用 `GroupSummary`；`removedGroups` 使用 `RemovedGroupSummary`，保留被移出群后的只读历史能力标记。
+
+```json
+{
+  "groupId": "private-1",
+  "groupName": "Backend Group",
+  "announcement": "ship it",
+  "ownerId": "10001",
+  "groupType": "private",
+  "membershipState": "active",
+  "historyPolicy": "member-and-removed-readonly",
+  "filePolicy": "members-only",
+  "canSend": true,
+  "canSendFiles": true,
+  "canReadHistory": true,
+  "historyVisibility": "active-members-and-removed-readonly",
+  "historyReadOnly": false,
+  "historyRetainedAfterRemoval": true,
+  "members": [
+    {
+      "userId": "10001",
+      "userName": "Alice",
+      "role": "owner"
+    }
+  ],
+  "auditEvents": [
+    {
+      "action": "create_group",
+      "actorId": "10001",
+      "actorName": "Alice",
+      "targetUserId": "",
+      "targetUserName": "",
+      "details": {},
+      "createdAt": "2026-06-18T10:00:00Z"
+    }
+  ]
+}
+```
+
+```json
+{
+  "groupId": "private-2",
+  "groupName": "Archive Group",
+  "announcement": "",
+  "ownerId": "10001",
+  "groupType": "private",
+  "membershipState": "removed",
+  "historyPolicy": "member-and-removed-readonly",
+  "filePolicy": "members-only",
+  "canSend": false,
+  "canSendFiles": false,
+  "canReadHistory": true,
+  "historyVisibility": "removed-member-readonly",
+  "historyReadOnly": true,
+  "historyRetainedAfterRemoval": true,
+  "removedBy": "10001",
+  "removedByName": "Alice",
+  "removedAt": "2026-06-18T10:30:00Z"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `groupId` | non-empty string | 群 ID；公群为 `public`，私群通常为 `private-*` |
+| `groupName` | string | 群名称，可为空字符串 |
+| `announcement` | string | 群公告，可为空字符串 |
+| `ownerId` | string | 群主账号/ID，可为空字符串 |
+| `groupType` | `public` \| `private` | 群类型 |
+| `membershipState` | `active` \| `removed` | 当前用户在该群的成员状态 |
+| `historyPolicy` | string | 历史策略标识 |
+| `filePolicy` | string | 文件策略标识 |
+| `canSend` | boolean | 当前用户是否可发送消息 |
+| `canSendFiles` | boolean | 当前用户是否可发送文件 |
+| `canReadHistory` | boolean | 当前用户是否可读历史 |
+| `historyVisibility` | string | 历史可见性标识 |
+| `historyReadOnly` | boolean | 历史是否只读 |
+| `historyRetainedAfterRemoval` | boolean | 被移出后是否保留历史可读 |
+| `members` | GroupMember[] | 仅 `active` 项包含，成员条目需包含 `userId`、`userName`、`role=owner/admin/member` |
+| `auditEvents` | GroupAuditEvent[] | 仅 `active` 项包含，审计条目需包含 `action`、`actorId`、`actorName`、`targetUserId`、`targetUserName`、`details`、`createdAt` |
+| `removedBy` | string | 仅 `removed` 项包含，移出操作者账号/ID，可为空字符串 |
+| `removedByName` | string | 仅 `removed` 项包含，移出操作者显示名，可为空字符串 |
+| `removedAt` | string | 仅 `removed` 项包含，移出时间 |
+
+## 9. 消息模型最小字段
 
 ```json
 {
@@ -237,7 +322,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `contentType` | `text` \| `image` \| `file` \| `system` | 消息类型 |
 | `status` | `sending` \| `sent` \| `failed` \| `received` | 消息状态 |
 
-## 9. Tauri 事件与命令约定
+## 10. Tauri 事件与命令约定
 
 - 前端命令入口固定为 `invoke('qqnt_command', { payload })`。
 - Engine 事件固定为 `listen('qqnt://engine/<event>', handler)`。

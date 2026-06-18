@@ -296,7 +296,7 @@ int main(int argc, char* argv[]) {
 | `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请/回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
-| `group_snapshot` | `{groups, removedGroups, hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
+| `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更；`action` 为精确小写枚举值 |
 | `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件进度 |
 | `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件完成 |

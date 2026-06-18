@@ -279,6 +279,61 @@ mod tests {
             .collect()
     }
 
+    fn group_contract_item() -> Value {
+        json!({
+            "groupId": "private-1",
+            "groupName": "Backend Group",
+            "announcement": "ship it",
+            "ownerId": "10001",
+            "groupType": "private",
+            "membershipState": "active",
+            "historyPolicy": "member-and-removed-readonly",
+            "filePolicy": "members-only",
+            "canSend": true,
+            "canSendFiles": true,
+            "canReadHistory": true,
+            "historyVisibility": "active-members-and-removed-readonly",
+            "historyReadOnly": false,
+            "historyRetainedAfterRemoval": true,
+            "members": [{
+                "userId": "10001",
+                "userName": "Alice",
+                "role": "owner"
+            }],
+            "auditEvents": [{
+                "action": "create_group",
+                "actorId": "10001",
+                "actorName": "Alice",
+                "targetUserId": "",
+                "targetUserName": "",
+                "details": { "groupName": "Backend Group" },
+                "createdAt": "2026-06-18T10:00:00Z"
+            }]
+        })
+    }
+
+    fn removed_group_contract_item() -> Value {
+        json!({
+            "groupId": "private-2",
+            "groupName": "Archive Group",
+            "announcement": "",
+            "ownerId": "10001",
+            "groupType": "private",
+            "membershipState": "removed",
+            "historyPolicy": "member-and-removed-readonly",
+            "filePolicy": "members-only",
+            "canSend": false,
+            "canSendFiles": false,
+            "canReadHistory": true,
+            "historyVisibility": "removed-member-readonly",
+            "historyReadOnly": true,
+            "historyRetainedAfterRemoval": true,
+            "removedBy": "10001",
+            "removedByName": "Alice",
+            "removedAt": "2026-06-18T10:30:00Z"
+        })
+    }
+
     fn contract_event_payload(event_name: &str) -> Value {
         match event_name {
             "ready" => json!({
@@ -360,8 +415,8 @@ mod tests {
                 "contractProbe": true
             }),
             "group_snapshot" => json!({
-                "groups": [],
-                "removedGroups": [],
+                "groups": [group_contract_item()],
+                "removedGroups": [removed_group_contract_item()],
                 "hasSnapshot": true,
                 "contractProbe": true
             }),
@@ -547,6 +602,21 @@ mod tests {
     fn dispatches_invalid_group_snapshot_payload_as_error() {
         let dispatch = dispatch_stdout_line(
             br#"{"type":"event","event":"group_snapshot","payload":{"groups":[],"hasSnapshot":true}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_group_snapshot_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_group_snapshot_item_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"group_snapshot","payload":{"groups":["private-1"],"removedGroups":[],"hasSnapshot":true}}"#,
         );
 
         match dispatch {
