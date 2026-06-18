@@ -340,21 +340,18 @@ mod tests {
                 "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION,
                 "version": "test",
                 "qtVersion": "6.8.0",
-                "e2eStatus": "uninitialized",
-                "contractProbe": true
+                "e2eStatus": "uninitialized"
             }),
             "connection_state" => json!({
                 "connected": true,
                 "host": "127.0.0.1",
-                "port": 12345,
-                "contractProbe": true
+                "port": 12345
             }),
             "login_result" => json!({
                 "success": true,
                 "userId": "10001",
                 "userName": "Alice",
-                "registered": false,
-                "contractProbe": true
+                "registered": false
             }),
             "friend_search_result" => json!({
                 "found": true,
@@ -405,8 +402,7 @@ mod tests {
                     "contentType": "text",
                     "content": "hello",
                     "status": "received"
-                },
-                "contractProbe": true
+                }
             }),
             "group_snapshot" => json!({
                 "groups": [group_contract_item()],
@@ -441,45 +437,38 @@ mod tests {
             }),
             "e2e_session_state" => json!({
                 "peerId": "10002",
-                "rotationRequired": false,
-                "contractProbe": true
+                "rotationRequired": false
             }),
             "e2e_identity_state" => json!({
                 "peerId": "10002",
                 "configured": true,
                 "trusted": true,
-                "publicKeyFingerprintSha256": "abcdef",
-                "contractProbe": true
+                "publicKeyFingerprintSha256": "abcdef"
             }),
             "e2e_rotation_request" => json!({
                 "peerId": "10002",
-                "agreement": {},
-                "contractProbe": true
+                "agreement": {}
             }),
             "e2e_rotation_response" => json!({
                 "peerId": "10002",
                 "agreement": {},
                 "accepted": true,
-                "reason": "",
-                "contractProbe": true
+                "reason": ""
             }),
             "settings_synced" => json!({
                 "accepted": true,
                 "revision": 1,
-                "settings": { "notifications": { "desktop": true } },
-                "contractProbe": true
+                "settings": { "notifications": { "desktop": true } }
             }),
             "notification" => json!({
                 "title": "QQ NT",
-                "body": "Contract notification",
-                "contractProbe": true
+                "body": "Contract notification"
             }),
             "error" => json!({
                 "message": "contract error",
-                "source": "client",
-                "contractProbe": true
+                "source": "client"
             }),
-            _ => json!({ "contractProbe": true }),
+            _ => json!({}),
         }
     }
 

@@ -39,6 +39,11 @@ pub fn validate_ready_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "version", "ready")?;
     require_non_empty_string_field(payload, "qtVersion", "ready")?;
     require_non_empty_string_field(payload, "e2eStatus", "ready")?;
+    require_exact_object_fields(
+        payload,
+        &["protocolVersion", "version", "qtVersion", "e2eStatus"],
+        "ready",
+    )?;
 
     Ok(())
 }
@@ -113,6 +118,7 @@ fn validate_connect_ack_payload(payload: &Value) -> QQNTResult<()> {
     require_true_bool_field(payload, "connected", "connect")?;
     require_non_empty_string_field(payload, "host", "connect")?;
     require_tcp_port_field(payload, "port", "connect")?;
+    require_exact_object_fields(payload, &["connected", "host", "port"], "connect")?;
 
     Ok(())
 }
@@ -125,6 +131,11 @@ fn validate_login_ack_payload(
     require_true_bool_field(payload, "accepted", contract_name)?;
     require_bool_field(payload, "requiresConnect", contract_name)?;
     require_string_value_field(payload, "mode", expected_mode, contract_name)?;
+    require_exact_object_fields(
+        payload,
+        &["accepted", "requiresConnect", "mode"],
+        contract_name,
+    )?;
 
     Ok(())
 }
@@ -149,6 +160,7 @@ fn validate_empty_object_ack_payload(payload: &Value, contract_name: &str) -> QQ
 
 fn validate_send_private_message_ack_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "receiverId", "send_private_message")?;
+    require_exact_object_fields(payload, &["receiverId"], "send_private_message")?;
 
     Ok(())
 }
@@ -212,6 +224,11 @@ fn validate_e2e_status_ack_payload(payload: &Value) -> QQNTResult<()> {
         require_object_field(payload, "session", "e2e_status")?;
         require_object_field(payload, "identity", "e2e_status")?;
     }
+    require_only_object_fields(
+        payload,
+        &["localIdentity", "peerId", "session", "identity"],
+        "e2e_status",
+    )?;
 
     Ok(())
 }
@@ -220,6 +237,11 @@ fn validate_profile_update_ack_payload(payload: &Value) -> QQNTResult<()> {
     require_true_bool_field(payload, "accepted", "profile_update")?;
     require_bool_field(payload, "avatarSent", "profile_update")?;
     require_string_field(payload, "userName", "profile_update")?;
+    require_exact_object_fields(
+        payload,
+        &["accepted", "avatarSent", "userName"],
+        "profile_update",
+    )?;
 
     Ok(())
 }
@@ -454,6 +476,7 @@ fn validate_connection_state_payload(payload: &Value) -> QQNTResult<()> {
     require_bool_field(payload, "connected", "connection_state")?;
     require_string_field(payload, "host", "connection_state")?;
     require_unsigned_number_field(payload, "port", "connection_state")?;
+    require_exact_object_fields(payload, &["connected", "host", "port"], "connection_state")?;
 
     Ok(())
 }
@@ -462,13 +485,18 @@ fn validate_login_result_payload(payload: &Value) -> QQNTResult<()> {
     require_bool_field(payload, "success", "login_result")?;
     if payload.get("success").and_then(Value::as_bool) == Some(false) {
         require_non_empty_string_field(payload, "error", "login_result")?;
+        require_exact_object_fields(payload, &["success", "error"], "login_result")?;
         return Ok(());
     }
 
     require_non_empty_string_field(payload, "userId", "login_result")?;
     require_string_field(payload, "userName", "login_result")?;
     require_bool_field(payload, "registered", "login_result")?;
-    require_optional_string_field(payload, "error", "login_result")?;
+    require_exact_object_fields(
+        payload,
+        &["success", "userId", "userName", "registered"],
+        "login_result",
+    )?;
 
     Ok(())
 }
@@ -639,6 +667,7 @@ fn validate_message_payload(payload: &Value) -> QQNTResult<()> {
         "message",
     )?;
     require_optional_string_field(message, "clientMessageId", "message")?;
+    require_exact_object_fields(payload, &["sessionId", "message"], "message")?;
 
     Ok(())
 }
@@ -674,6 +703,7 @@ fn validate_e2e_identity_state_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_e2e_rotation_request_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "peerId", "e2e_rotation_request")?;
     require_object_field(payload, "agreement", "e2e_rotation_request")?;
+    require_exact_object_fields(payload, &["peerId", "agreement"], "e2e_rotation_request")?;
 
     Ok(())
 }
@@ -683,6 +713,11 @@ fn validate_e2e_rotation_response_payload(payload: &Value) -> QQNTResult<()> {
     require_object_field(payload, "agreement", "e2e_rotation_response")?;
     require_bool_field(payload, "accepted", "e2e_rotation_response")?;
     require_optional_string_field(payload, "reason", "e2e_rotation_response")?;
+    require_only_object_fields(
+        payload,
+        &["peerId", "agreement", "accepted", "reason"],
+        "e2e_rotation_response",
+    )?;
 
     Ok(())
 }
@@ -772,6 +807,11 @@ fn validate_settings_synced_payload(payload: &Value, contract_name: &str) -> QQN
     require_positive_unsigned_number_field(payload, "revision", contract_name)?;
     require_object_field(payload, "settings", contract_name)?;
     require_optional_non_empty_string_field(payload, "appliedDownloadDir", contract_name)?;
+    require_only_object_fields(
+        payload,
+        &["accepted", "revision", "settings", "appliedDownloadDir"],
+        contract_name,
+    )?;
 
     Ok(())
 }
@@ -779,6 +819,7 @@ fn validate_settings_synced_payload(payload: &Value, contract_name: &str) -> QQN
 fn validate_notification_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "title", "notification")?;
     require_non_empty_string_field(payload, "body", "notification")?;
+    require_exact_object_fields(payload, &["title", "body"], "notification")?;
 
     Ok(())
 }
@@ -786,6 +827,7 @@ fn validate_notification_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_error_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "message", "error")?;
     require_one_of_string_field(payload, "source", &["client"], "error")?;
+    require_exact_object_fields(payload, &["message", "source"], "error")?;
 
     Ok(())
 }
@@ -1599,6 +1641,20 @@ mod tests {
     }
 
     #[test]
+    fn ready_payload_rejects_extra_fields() {
+        let error = validate_ready_payload(&json!({
+            "protocolVersion": EXPECTED_PROTOCOL_VERSION,
+            "version": "test",
+            "qtVersion": "6.8.0",
+            "e2eStatus": "uninitialized",
+            "debug": true
+        }))
+        .expect_err("ready with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_ready_payload");
+    }
+
+    #[test]
     fn connection_state_payload_accepts_contract_fields() {
         validate_event_payload(
             "connection_state",
@@ -1621,6 +1677,22 @@ mod tests {
             }),
         )
         .expect_err("connection_state without connected should fail");
+
+        assert_eq!(error.code, "invalid_connection_state_payload");
+    }
+
+    #[test]
+    fn connection_state_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "connection_state",
+            &json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 12345,
+                "debug": true
+            }),
+        )
+        .expect_err("connection_state with extra fields should fail");
 
         assert_eq!(error.code, "invalid_connection_state_payload");
     }
@@ -1691,6 +1763,38 @@ mod tests {
             }),
         )
         .expect_err("successful login_result without userId should fail");
+
+        assert_eq!(error.code, "invalid_login_result_payload");
+    }
+
+    #[test]
+    fn login_result_payload_rejects_extra_success_fields() {
+        let error = validate_event_payload(
+            "login_result",
+            &json!({
+                "success": true,
+                "userId": "10001",
+                "userName": "Alice",
+                "registered": false,
+                "error": ""
+            }),
+        )
+        .expect_err("successful login_result with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_login_result_payload");
+    }
+
+    #[test]
+    fn login_result_payload_rejects_extra_failure_fields() {
+        let error = validate_event_payload(
+            "login_result",
+            &json!({
+                "success": false,
+                "error": "invalid-password",
+                "userId": "10001"
+            }),
+        )
+        .expect_err("failed login_result with extra fields should fail");
 
         assert_eq!(error.code, "invalid_login_result_payload");
     }
@@ -2118,6 +2222,55 @@ mod tests {
     }
 
     #[test]
+    fn message_payload_rejects_extra_outer_fields() {
+        let error = validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10001",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": "1710000000000",
+                    "contentType": "text",
+                    "content": "hello",
+                    "status": "received"
+                },
+                "debug": true
+            }),
+        )
+        .expect_err("message event with extra outer fields should fail");
+
+        assert_eq!(error.code, "invalid_message_payload");
+    }
+
+    #[test]
+    fn message_payload_allows_runtime_message_extensions() {
+        validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10001",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": "1710000000000",
+                    "contentType": "file",
+                    "content": "",
+                    "status": "received",
+                    "receiverId": "10001",
+                    "fileName": "report.zip",
+                    "transferId": "transfer-1",
+                    "fileSize": "1024"
+                }
+            }),
+        )
+        .expect("message event should allow C++ runtime message extension fields");
+    }
+
+    #[test]
     fn message_payload_rejects_unknown_content_type() {
         let error = validate_event_payload(
             "message",
@@ -2164,6 +2317,22 @@ mod tests {
     }
 
     #[test]
+    fn e2e_session_state_payload_allows_runtime_status_fields() {
+        validate_event_payload(
+            "e2e_session_state",
+            &json!({
+                "peerId": "10002",
+                "rotationRequired": false,
+                "configured": true,
+                "ready": true,
+                "state": "ready",
+                "backendId": "draft"
+            }),
+        )
+        .expect("e2e_session_state should allow runtime status fields");
+    }
+
+    #[test]
     fn e2e_identity_state_payload_accepts_public_key_fingerprint() {
         validate_event_payload(
             "e2e_identity_state",
@@ -2191,6 +2360,38 @@ mod tests {
     }
 
     #[test]
+    fn e2e_identity_state_payload_allows_runtime_status_fields() {
+        validate_event_payload(
+            "e2e_identity_state",
+            &json!({
+                "peerId": "10002",
+                "configured": true,
+                "trusted": true,
+                "publicKeyFingerprintSha256": "abcdef",
+                "trustState": "trusted",
+                "verificationCode": "123456",
+                "pinPersisted": true
+            }),
+        )
+        .expect("e2e_identity_state should allow runtime status fields");
+    }
+
+    #[test]
+    fn e2e_rotation_request_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "e2e_rotation_request",
+            &json!({
+                "peerId": "10002",
+                "agreement": {},
+                "debug": true
+            }),
+        )
+        .expect_err("e2e_rotation_request with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_e2e_rotation_request_payload");
+    }
+
+    #[test]
     fn e2e_rotation_response_payload_requires_accepted() {
         let error = validate_event_payload(
             "e2e_rotation_response",
@@ -2200,6 +2401,22 @@ mod tests {
             }),
         )
         .expect_err("e2e_rotation_response without accepted should fail");
+
+        assert_eq!(error.code, "invalid_e2e_rotation_response_payload");
+    }
+
+    #[test]
+    fn e2e_rotation_response_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "e2e_rotation_response",
+            &json!({
+                "peerId": "10002",
+                "agreement": {},
+                "accepted": true,
+                "debug": true
+            }),
+        )
+        .expect_err("e2e_rotation_response with extra fields should fail");
 
         assert_eq!(error.code, "invalid_e2e_rotation_response_payload");
     }
@@ -2551,6 +2768,22 @@ mod tests {
     }
 
     #[test]
+    fn settings_synced_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "settings_synced",
+            &json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": {},
+                "debug": true
+            }),
+        )
+        .expect_err("settings_synced with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_settings_synced_payload");
+    }
+
+    #[test]
     fn notification_payload_accepts_contract_fields() {
         validate_event_payload(
             "notification",
@@ -2571,6 +2804,21 @@ mod tests {
             }),
         )
         .expect_err("notification without body should fail");
+
+        assert_eq!(error.code, "invalid_notification_payload");
+    }
+
+    #[test]
+    fn notification_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "notification",
+            &json!({
+                "title": "Alice",
+                "body": "hello",
+                "debug": true
+            }),
+        )
+        .expect_err("notification with extra fields should fail");
 
         assert_eq!(error.code, "invalid_notification_payload");
     }
@@ -2597,6 +2845,21 @@ mod tests {
             }),
         )
         .expect_err("error with unknown source should fail");
+
+        assert_eq!(error.code, "invalid_error_payload");
+    }
+
+    #[test]
+    fn error_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "error",
+            &json!({
+                "message": "connection reset",
+                "source": "client",
+                "debug": true
+            }),
+        )
+        .expect_err("error event with extra fields should fail");
 
         assert_eq!(error.code, "invalid_error_payload");
     }
@@ -2887,6 +3150,22 @@ mod tests {
     }
 
     #[test]
+    fn connect_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "connect",
+            &json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 8888,
+                "debug": true
+            }),
+        )
+        .expect_err("connect ack with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_connect_payload");
+    }
+
+    #[test]
     fn login_ack_payload_requires_login_mode() {
         let error = validate_command_ack_payload(
             "login",
@@ -2912,6 +3191,22 @@ mod tests {
             }),
         )
         .expect("register ack with register mode should pass");
+    }
+
+    #[test]
+    fn login_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "login",
+            &json!({
+                "accepted": true,
+                "requiresConnect": false,
+                "mode": "login",
+                "debug": true
+            }),
+        )
+        .expect_err("login ack with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_login_payload");
     }
 
     #[test]
@@ -2945,6 +3240,20 @@ mod tests {
     fn send_private_message_ack_payload_requires_receiver_id() {
         let error = validate_command_ack_payload("send_private_message", &json!({}))
             .expect_err("send_private_message ack without receiverId should fail");
+
+        assert_eq!(error.code, "invalid_send_private_message_payload");
+    }
+
+    #[test]
+    fn send_private_message_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "send_private_message",
+            &json!({
+                "receiverId": "10001",
+                "debug": true
+            }),
+        )
+        .expect_err("send_private_message ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_send_private_message_payload");
     }
@@ -3093,6 +3402,20 @@ mod tests {
     }
 
     #[test]
+    fn e2e_status_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "e2e_status",
+            &json!({
+                "localIdentity": {},
+                "debug": true
+            }),
+        )
+        .expect_err("e2e_status ack with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_e2e_status_payload");
+    }
+
+    #[test]
     fn profile_update_ack_payload_requires_avatar_sent() {
         let error = validate_command_ack_payload(
             "profile_update",
@@ -3102,6 +3425,22 @@ mod tests {
             }),
         )
         .expect_err("profile_update ack without avatarSent should fail");
+
+        assert_eq!(error.code, "invalid_profile_update_payload");
+    }
+
+    #[test]
+    fn profile_update_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "profile_update",
+            &json!({
+                "accepted": true,
+                "avatarSent": false,
+                "userName": "Alice",
+                "debug": true
+            }),
+        )
+        .expect_err("profile_update ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_profile_update_payload");
     }
@@ -3289,6 +3628,22 @@ mod tests {
             }),
         )
         .expect_err("settings_sync ack with zero revision should fail");
+
+        assert_eq!(error.code, "invalid_settings_sync_payload");
+    }
+
+    #[test]
+    fn settings_sync_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "settings_sync",
+            &json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": {},
+                "debug": true
+            }),
+        )
+        .expect_err("settings_sync ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_settings_sync_payload");
     }
