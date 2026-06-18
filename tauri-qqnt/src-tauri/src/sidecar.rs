@@ -294,6 +294,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cmake_post_build_copy_sidecars_is_wired_for_backend_targets() {
+        let cmake = include_str!("../../../CMakeLists.txt");
+
+        assert!(
+            cmake.contains("function(qtnetworkchat_copy_sidecar target_name)"),
+            "CMake should define the sidecar copy helper"
+        );
+        assert!(
+            cmake.contains("scripts/copy-sidecars.ps1"),
+            "CMake sidecar copy helper should invoke copy-sidecars.ps1"
+        );
+        assert!(
+            cmake.contains("-BuildDir $<TARGET_FILE_DIR:${target_name}>"),
+            "CMake sidecar copy helper should copy from the built target directory"
+        );
+        assert!(
+            cmake.contains("-Sidecars ${target_name}"),
+            "CMake sidecar copy helper should copy only the target that just built"
+        );
+
+        for sidecar in [ENGINE_SIDECAR_NAME, SERVER_SIDECAR_NAME] {
+            assert!(
+                cmake.contains(&format!("add_executable({sidecar}")),
+                "CMake should build {sidecar}"
+            );
+            assert!(
+                cmake.contains(&format!("qtnetworkchat_copy_sidecar({sidecar})")),
+                "CMake should attach POST_BUILD sidecar copy for {sidecar}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn redis_ping_preflight_sends_auth_then_ping() {
         let listener = TcpListener::bind(("127.0.0.1", 0))
