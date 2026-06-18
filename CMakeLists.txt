@@ -214,6 +214,7 @@ function(qtnetworkchat_copy_sidecar target_name)
         COMMAND powershell -ExecutionPolicy Bypass -File
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/copy-sidecars.ps1
             -BuildDir $<TARGET_FILE_DIR:${target_name}>
+            -QtBinDir $<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -Sidecars ${target_name}
         COMMENT "Copying ${target_name} sidecar into Tauri binaries"
         VERBATIM

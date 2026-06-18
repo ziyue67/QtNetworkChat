@@ -33,7 +33,7 @@
 | `tauri-qqnt/src-tauri/src/main.rs` | 调用 `tauri_qqnt_lib::run()` 进入 Rust 主进程 |
 | `tauri-qqnt/src-tauri/src/lib.rs` | 初始化 shell/opener plugin，启动 `QQNTServer` 与 `QQNTEngine` sidecar，并注册 Tauri commands |
 | `tauri-qqnt/src-tauri/capabilities/default.json` | 默认 capability |
-| `scripts/copy-sidecars.ps1` | 将 `QQNTEngine` / `QQNTServer` 复制到 `tauri-qqnt/src-tauri/binaries/` 的 sidecar 同步脚本 |
+| `scripts/copy-sidecars.ps1` | 将 `QQNTEngine` / `QQNTServer` 和 Qt sidecar runtime 复制到 `tauri-qqnt/src-tauri/binaries/` 的同步脚本 |
 | `dev/redis-compose.yml` | Redis compose |
 | `docs/qqnt-ipcv1.md` | 协议 v1 文档框架 |
 
@@ -86,7 +86,7 @@ tauri-qqnt/src-tauri/
 |---|---|---|---|
 | B0 | 基线已完成 | `codex/qqnt-base` | 见基线验收 |
 | B1 | CMake 目标改造 | `CMakeLists.txt` | `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功 |
-| B2 | sidecar 同步脚本 | `scripts/copy-sidecars.ps1` | 编译后自动拷贝 exe 到 `tauri-qqnt/src-tauri/binaries/` |
+| B2 | sidecar 同步脚本 | `scripts/copy-sidecars.ps1` | 编译后自动拷贝 exe 与 Qt runtime 到 `tauri-qqnt/src-tauri/binaries/` |
 | B3 | QQNTEngine 入口 + 日志隔离 | `tools/qqnt_engine.cpp` | `stdout` 仅含 NDJSON；`stderr` 输出日志 |
 | B4 | NDJSON 桥接核心 | `src/qqnt_client_bridge.cpp` `include/qqnt_client_bridge.h` | 能读写 NDJSON；命令与事件格式正确 |
 | B5 | 命令路由 | `src/qqnt_engine_command_router.cpp` `include/qqnt_engine_command_router.h` | `ready/connect/login/send_private_message` 可用 |

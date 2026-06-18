@@ -117,6 +117,8 @@ Assert-Equals $tauriConfig.build.beforeBuildCommand "npm run build" "Tauri befor
 Assert-Equals $tauriConfig.build.frontendDist "../dist" "Tauri frontendDist"
 Assert-Equals $tauriConfig.bundle.active $true "Tauri bundle.active"
 Assert-ArrayContains @($tauriConfig.bundle.targets) "nsis" "Tauri bundle target"
+Assert-ArrayContains @($tauriConfig.bundle.resources) "binaries/*.dll" "Tauri bundle resources"
+Assert-ArrayContains @($tauriConfig.bundle.resources) "binaries/**/*.dll" "Tauri bundle resources"
 Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTEngine" "Tauri externalBin"
 Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTServer" "Tauri externalBin"
 
@@ -128,6 +130,9 @@ $ipcContract = Read-Utf8Text $ipcContractPath
 Assert-Contains $implementationPlan 'cmake -S . -B build-qt6-mingw'
 Assert-Contains $implementationPlan 'cmake --build build-qt6-mingw --target QQNTEngine QQNTServer'
 Assert-Contains $implementationPlan '.\scripts\copy-sidecars.ps1 -BuildDir build-qt6-mingw'
+Assert-Contains $implementationPlan 'Qt6Core.dll'
+Assert-Contains $implementationPlan 'sqldrivers/qsqlite.dll'
+Assert-Contains $implementationPlan 'binaries/**/*.dll'
 Assert-Contains $implementationPlan 'ctest --test-dir build-qt6-mingw --output-on-failure'
 Assert-Contains $implementationPlan 'tauri_qqnt_lib::run()'
 Assert-Contains $implementationPlan '`ServerState`'
@@ -150,6 +155,7 @@ Assert-Contains $branchPlan 'tauri_qqnt_lib::run()'
 Assert-Contains $branchPlan 'shell/opener plugin'
 Assert-Contains $branchPlan 'sidecar'
 Assert-Contains $branchPlan 'tauri-qqnt/src-tauri/binaries/'
+Assert-Contains $branchPlan 'Qt sidecar runtime'
 Assert-Contains $branchPlan 'npm run tauri build'
 Assert-Contains $branchPlan "| BM6 | B14 |"
 Assert-Contains $branchPlan '`codex/qqnt-backend`'

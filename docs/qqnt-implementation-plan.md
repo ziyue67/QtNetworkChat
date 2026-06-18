@@ -631,6 +631,8 @@ cmake --build build-qt6-mingw --target QQNTEngine QQNTServer
 .\scripts\copy-sidecars.ps1 -BuildDir build-qt6-mingw -OutDir tauri-qqnt\src-tauri\binaries
 ```
 
+脚本会把 `QQNTEngine` / `QQNTServer` 复制为 Tauri target triplet 后缀的 external bin，并把 `Qt6Core.dll`、`Qt6Network.dll`、`Qt6Sql.dll` 与 `sqldrivers/qsqlite.dll` 部署到同一 `binaries` 运行时目录。`tauri.conf.json` 通过 `binaries/*.dll` 与 `binaries/**/*.dll` 把这些 sidecar runtime 文件纳入 NSIS 包，避免 Tauri dev/build 启动 sidecar 时弹出 Qt DLL 缺失错误。
+
 CMake POST_BUILD 接入：
 
 ```cmake

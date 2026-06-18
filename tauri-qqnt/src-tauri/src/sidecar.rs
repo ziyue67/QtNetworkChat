@@ -315,6 +315,10 @@ mod tests {
         assert_eq!(config["build"]["frontendDist"], "../dist");
         assert_eq!(config["bundle"]["active"], true);
         assert_eq!(string_array(&config["bundle"], "targets"), vec!["nsis"]);
+        assert_eq!(
+            string_array(&config["bundle"], "resources"),
+            vec!["binaries/*.dll", "binaries/**/*.dll"]
+        );
 
         assert_eq!(package["scripts"]["build"], "tsc && vite build");
         assert_eq!(package["scripts"]["tauri"], "tauri");
@@ -347,6 +351,26 @@ mod tests {
             script.contains("$sidecar-$Triplet.exe"),
             "copy-sidecars.ps1 should emit Tauri triplet-suffixed sidecar executables"
         );
+        assert!(
+            script.contains("[string]$QtBinDir"),
+            "copy-sidecars.ps1 should accept the Qt binary directory for sidecar runtime deployment"
+        );
+        assert!(
+            script.contains("Deploy-SidecarRuntime"),
+            "copy-sidecars.ps1 should deploy Qt runtime files next to sidecars"
+        );
+        for runtime_file in [
+            "Qt6Core.dll",
+            "Qt6Network.dll",
+            "Qt6Sql.dll",
+            "sqldrivers\\qsqlite.dll",
+            "windeployqt.exe",
+        ] {
+            assert!(
+                script.contains(runtime_file),
+                "copy-sidecars.ps1 should copy {runtime_file} for QQNT sidecars"
+            );
+        }
     }
 
     #[test]
@@ -364,6 +388,10 @@ mod tests {
         assert!(
             cmake.contains("-BuildDir $<TARGET_FILE_DIR:${target_name}>"),
             "CMake sidecar copy helper should copy from the built target directory"
+        );
+        assert!(
+            cmake.contains("-QtBinDir $<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"),
+            "CMake sidecar copy helper should pass the Qt runtime directory"
         );
         assert!(
             cmake.contains("-Sidecars ${target_name}"),
