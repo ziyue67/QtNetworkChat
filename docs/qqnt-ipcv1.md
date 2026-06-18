@@ -91,6 +91,8 @@
 | `source` | non-empty string | 是 | 错误来源，如 `rust`、`engine`、`server` |
 | `details` | object | 否 | 结构化诊断信息；Rust 会在 typed command 错误返回中原样透传 |
 
+文件目标校验错误细节：`send_file`、`send_image` 与恢复模式 `query_resume` 在返回 `missing_target`、`ambiguous_target` 或目标字段缺少 `filePath` 的 `invalid_target` 时，Engine 必须包含 `details.targetFields: ["receiverId", "groupId"]`，方便前端把错误定位到目标输入组。
+
 ## 4. Ready 握手
 
 `QQNTEngine` 启动完成后必须主动发出 `ready` 事件；收到 `ready` 命令时也必须返回同等信息的 `ack`。

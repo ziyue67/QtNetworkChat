@@ -355,6 +355,12 @@ bool validateStrictCommandValidation(const QString& markdown,
     ok = expectContains(markdown,
                         QStringLiteral("返回 `invalid_payload`"),
                         QStringLiteral("protocol doc command payload error")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("details.targetFields"),
+                        QStringLiteral("protocol doc target validation error details")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("[\"receiverId\", \"groupId\"]"),
+                        QStringLiteral("protocol doc target validation field names")) && ok;
 
     ok = expectContains(routerSource,
                         QStringLiteral("requireOnlyFields"),
@@ -362,6 +368,12 @@ bool validateStrictCommandValidation(const QString& markdown,
     ok = expectContains(routerSource,
                         QStringLiteral("Command payload for %1 contains unsupported field: %2."),
                         QStringLiteral("C++ router unsupported payload field error")) && ok;
+    ok = expectContains(routerSource,
+                        QStringLiteral("targetFieldsErrorDetails"),
+                        QStringLiteral("C++ router target validation error details helper")) && ok;
+    ok = expectContains(routerSource,
+                        QStringLiteral("targetFields"),
+                        QStringLiteral("C++ router target validation field names")) && ok;
 
     ok = expectContains(rustCommandsSource,
                         QStringLiteral("fn require_command_envelope_fields"),
@@ -462,6 +474,12 @@ int main(int argc, char* argv[]) {
     ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("query_resume")),
                         QStringLiteral("仅在提供 `filePath` 的恢复模式下有效"),
                         QStringLiteral("query_resume command description")) && ok;
+    ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("send_file")),
+                        QStringLiteral("缺失返回 `missing_target`"),
+                        QStringLiteral("send_file target validation command description")) && ok;
+    ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("send_image")),
+                        QStringLiteral("同时提供返回 `ambiguous_target`"),
+                        QStringLiteral("send_image target validation command description")) && ok;
     ok = expectContains(documentedCommandDescriptions.value(QStringLiteral("settings_sync")),
                         QStringLiteral("其他已提供字段仍需保持合法"),
                         QStringLiteral("settings_sync command description")) && ok;
@@ -481,6 +499,9 @@ int main(int argc, char* argv[]) {
     }
     ok = expect(!routerSource.contains(QStringLiteral("QStringLiteral(\"messageType\")")),
                 QStringLiteral("C++ IPC router should use documented contentType instead of legacy messageType")) && ok;
+    ok = expectContains(bridgeSource,
+                        QStringLiteral("\"details\""),
+                        QStringLiteral("C++ bridge error ack should emit optional details")) && ok;
 
     return ok ? 0 : 1;
 }
