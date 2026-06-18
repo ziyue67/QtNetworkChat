@@ -841,6 +841,23 @@ mod tests {
     }
 
     #[test]
+    fn ack_payload_rejects_settings_sync_without_revision() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "settings_sync",
+                "reqId": "req-settings",
+                "status": "ok",
+                "payload": { "accepted": true, "settings": {} }
+            }),
+            "settings_sync",
+        )
+        .expect_err("settings_sync ack without revision should fail");
+
+        assert_eq!(error.code, "invalid_settings_sync_payload");
+    }
+
+    #[test]
     fn ack_payload_rejects_mismatched_op() {
         let error = ack_payload(
             json!({

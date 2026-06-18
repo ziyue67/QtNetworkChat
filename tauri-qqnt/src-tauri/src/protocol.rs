@@ -31,6 +31,8 @@ pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<(
         "file_progress" => validate_file_progress_payload(payload),
         "file_done" => validate_file_done_payload(payload),
         "file_error" => validate_file_error_payload(payload),
+        "settings_synced" => validate_settings_synced_payload(payload, "settings_synced"),
+        "notification" => validate_notification_payload(payload),
         _ => Ok(()),
     }
 }
@@ -39,6 +41,7 @@ pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()>
     match op {
         "ready" => validate_ready_payload(payload),
         "get_group_list" => validate_group_collection_payload(payload, "get_group_list"),
+        "settings_sync" => validate_settings_synced_payload(payload, "settings_sync"),
         _ => Ok(()),
     }
 }
@@ -82,6 +85,22 @@ fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
     Ok(())
 }
 
+fn validate_settings_synced_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_bool_field(payload, "accepted", contract_name)?;
+    require_unsigned_number_field(payload, "revision", contract_name)?;
+    require_object_field(payload, "settings", contract_name)?;
+    require_optional_non_empty_string_field(payload, "appliedDownloadDir", contract_name)?;
+
+    Ok(())
+}
+
+fn validate_notification_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "title", "notification")?;
+    require_non_empty_string_field(payload, "body", "notification")?;
+
+    Ok(())
+}
+
 fn require_array_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
     if matches!(payload.get(field), Some(Value::Array(_))) {
         return Ok(());
@@ -90,6 +109,43 @@ fn require_array_field(payload: &Value, field: &str, contract_name: &str) -> QQN
     Err(QQNTError::rust(
         format!("invalid_{contract_name}_payload"),
         format!("QQNTEngine {contract_name} payload must include {field} array."),
+    ))
+}
+
+fn require_bool_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
+    if matches!(payload.get(field), Some(Value::Bool(_))) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} boolean."),
+    ))
+}
+
+fn require_unsigned_number_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    if payload.get(field).and_then(Value::as_u64).is_some() {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} unsigned number."),
+    ))
+}
+
+fn require_object_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
+    if matches!(payload.get(field), Some(Value::Object(_))) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} object."),
     ))
 }
 
@@ -120,6 +176,23 @@ fn require_string_field(payload: &Value, field: &str, contract_name: &str) -> QQ
         format!("invalid_{contract_name}_payload"),
         format!("QQNTEngine {contract_name} payload must include {field} string."),
     ))
+}
+
+fn require_optional_non_empty_string_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    match payload.get(field) {
+        None => Ok(()),
+        Some(Value::String(value)) if !value.trim().is_empty() => Ok(()),
+        _ => Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!(
+                "QQNTEngine {contract_name} payload must include {field} as a non-empty string when present."
+            ),
+        )),
+    }
 }
 
 fn require_string_or_number_field(
@@ -286,6 +359,76 @@ mod tests {
     }
 
     #[test]
+    fn settings_synced_payload_accepts_contract_fields() {
+        validate_event_payload(
+            "settings_synced",
+            &json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": { "notifications": { "desktop": true } },
+                "appliedDownloadDir": "C:/tmp/downloads"
+            }),
+        )
+        .expect("settings_synced with contract fields should pass");
+    }
+
+    #[test]
+    fn settings_synced_payload_requires_settings_object() {
+        let error = validate_event_payload(
+            "settings_synced",
+            &json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": "bad"
+            }),
+        )
+        .expect_err("settings_synced without settings object should fail");
+
+        assert_eq!(error.code, "invalid_settings_synced_payload");
+    }
+
+    #[test]
+    fn settings_synced_payload_rejects_empty_applied_download_dir() {
+        let error = validate_event_payload(
+            "settings_synced",
+            &json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": {},
+                "appliedDownloadDir": " "
+            }),
+        )
+        .expect_err("settings_synced with empty appliedDownloadDir should fail");
+
+        assert_eq!(error.code, "invalid_settings_synced_payload");
+    }
+
+    #[test]
+    fn notification_payload_accepts_contract_fields() {
+        validate_event_payload(
+            "notification",
+            &json!({
+                "title": "Alice",
+                "body": "hello"
+            }),
+        )
+        .expect("notification with contract fields should pass");
+    }
+
+    #[test]
+    fn notification_payload_requires_body() {
+        let error = validate_event_payload(
+            "notification",
+            &json!({
+                "title": "Alice"
+            }),
+        )
+        .expect_err("notification without body should fail");
+
+        assert_eq!(error.code, "invalid_notification_payload");
+    }
+
+    #[test]
     fn group_snapshot_payload_requires_removed_groups() {
         let error = validate_event_payload(
             "group_snapshot",
@@ -339,5 +482,32 @@ mod tests {
         .expect_err("get_group_list ack without removedGroups should fail");
 
         assert_eq!(error.code, "invalid_get_group_list_payload");
+    }
+
+    #[test]
+    fn settings_sync_ack_payload_accepts_contract_fields() {
+        validate_command_ack_payload(
+            "settings_sync",
+            &json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": { "files": { "autoDownload": false } }
+            }),
+        )
+        .expect("settings_sync ack with contract fields should pass");
+    }
+
+    #[test]
+    fn settings_sync_ack_payload_requires_revision() {
+        let error = validate_command_ack_payload(
+            "settings_sync",
+            &json!({
+                "accepted": true,
+                "settings": {}
+            }),
+        )
+        .expect_err("settings_sync ack without revision should fail");
+
+        assert_eq!(error.code, "invalid_settings_sync_payload");
     }
 }

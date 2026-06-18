@@ -228,6 +228,17 @@ mod tests {
                 "reason": "cancelled",
                 "contractProbe": true
             }),
+            "settings_synced" => json!({
+                "accepted": true,
+                "revision": 1,
+                "settings": { "notifications": { "desktop": true } },
+                "contractProbe": true
+            }),
+            "notification" => json!({
+                "title": "QQ NT",
+                "body": "Contract notification",
+                "contractProbe": true
+            }),
             _ => json!({ "contractProbe": true }),
         }
     }
@@ -353,6 +364,36 @@ mod tests {
         match dispatch {
             EngineDispatch::Error(error) => {
                 assert_eq!(error["code"], "invalid_file_error_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_settings_synced_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"settings_synced","payload":{"accepted":true,"settings":{}}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_settings_synced_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_notification_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"notification","payload":{"title":"QQ NT"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_notification_payload");
                 assert_eq!(error["source"], "rust");
             }
             other => panic!("expected error dispatch, got {other:?}"),
