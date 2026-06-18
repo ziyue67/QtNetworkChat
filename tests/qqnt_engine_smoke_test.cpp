@@ -417,6 +417,8 @@ int main(int argc, char* argv[]) {
                 "cancel_transfer missing field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
                 "cancel_transfer inactive command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-missing-path\",\"payload\":{\"receiverId\":\"10001\"}}\n"),
+                "send_file missing filePath command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-missing-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
                 "send_file missing target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-blank-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"   \"}}\n"),
@@ -425,6 +427,8 @@ int main(int argc, char* argv[]) {
                 "send_image ambiguous target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-invalid-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":10001}}\n"),
                 "send_file invalid target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-missing-transfer\",\"payload\":{}}\n"),
+                "query_resume missing transferId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-missing-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
                 "query_resume missing target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-blank-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"groupId\":\"   \"}}\n"),
@@ -519,10 +523,12 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-e2e-pin-invalid-fingerprint"),
         QStringLiteral("smoke-cancel-missing"),
         QStringLiteral("smoke-cancel-inactive"),
+        QStringLiteral("smoke-file-missing-path"),
         QStringLiteral("smoke-file-missing-target"),
         QStringLiteral("smoke-file-blank-target"),
         QStringLiteral("smoke-file-ambiguous-target"),
         QStringLiteral("smoke-file-invalid-target"),
+        QStringLiteral("smoke-resume-missing-transfer"),
         QStringLiteral("smoke-resume-missing-target"),
         QStringLiteral("smoke-resume-blank-target"),
         QStringLiteral("smoke-resume-ambiguous-target"),
@@ -719,6 +725,11 @@ int main(int argc, char* argv[]) {
                         "cancel_transfer without active transfer should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("transfer_not_active"),
                         "cancel_transfer without active transfer should use transfer_not_active code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-missing-path")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file without filePath should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_file without filePath should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-file-missing-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "send_file without target should return error ack") && ok;
@@ -739,6 +750,11 @@ int main(int argc, char* argv[]) {
                         "send_file with non-string target should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "send_file with non-string target should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-missing-transfer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume without transferId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "query_resume without transferId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-resume-missing-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "query_resume without target should return error ack") && ok;
