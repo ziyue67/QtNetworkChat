@@ -133,6 +133,55 @@ bool bufferHasRemovedGroupSnapshot(const QByteArray& buffer, const QString& expe
     return false;
 }
 
+bool bufferHasActiveGroupSnapshot(const QByteArray& buffer,
+                                  const QString& expectedGroupId,
+                                  const QString& expectedMemberId) {
+    const QList<QByteArray> lines = buffer.split('\n');
+    for (const QByteArray& line : lines) {
+        const QJsonDocument doc = QJsonDocument::fromJson(line.trimmed());
+        if (!doc.isObject()) continue;
+        const QJsonObject root = doc.object();
+        if (root.value("type").toString() != QLatin1String("server_group_snapshot")) continue;
+        const QJsonArray groups = root.value("groups").toArray();
+        for (const QJsonValue& groupValue : groups) {
+            const QJsonObject group = groupValue.toObject();
+            if (group.value("groupId").toString() != expectedGroupId
+                || group.value("membershipState").toString() != QLatin1String("active")
+                || !group.value("canSend").toBool(false)) {
+                continue;
+            }
+
+            const QJsonArray members = group.value("members").toArray();
+            for (const QJsonValue& memberValue : members) {
+                const QJsonObject member = memberValue.toObject();
+                if (member.value("userId").toString() == expectedMemberId) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool bufferHasGroupMemberUpdate(const QByteArray& buffer,
+                                const QString& expectedGroupId,
+                                const QString& expectedMemberId,
+                                const QString& expectedAction) {
+    const QList<QByteArray> lines = buffer.split('\n');
+    for (const QByteArray& line : lines) {
+        const QJsonDocument doc = QJsonDocument::fromJson(line.trimmed());
+        if (!doc.isObject()) continue;
+        const QJsonObject root = doc.object();
+        if (root.value("type").toString() == QLatin1String("server_group_member_updated")
+            && root.value("groupId").toString() == expectedGroupId
+            && root.value("memberId").toString() == expectedMemberId
+            && root.value("action").toString() == expectedAction) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool drainGroupFileChunks(QTcpSocket* socket,
                           QByteArray* buffer,
                           const QString& expectedGroupId,
@@ -391,6 +440,39 @@ int main(int argc, char** argv) {
     aliceBuffer.clear();
     bobBuffer.clear();
     carolBuffer.clear();
+    QJsonObject addBobToPrivateGroup;
+    addBobToPrivateGroup["type"] = "server_group_member_update";
+    addBobToPrivateGroup["groupId"] = privateGroupId;
+    addBobToPrivateGroup["memberId"] = "970002";
+    addBobToPrivateGroup["action"] = "add";
+    ok = expect(writeJsonLine(&alice, addBobToPrivateGroup),
+                "alice should add a remote private group member") && ok;
+    ok = expect(waitFor([&] {
+        bobBuffer.append(bob.readAll());
+        return bufferHasGroupMemberUpdate(bobBuffer, privateGroupId, QStringLiteral("970002"), QStringLiteral("add"))
+            && bufferHasActiveGroupSnapshot(bobBuffer, privateGroupId, QStringLiteral("970002"));
+    }, 5000), "added remote private group member should receive Redis-routed member update and active snapshot") && ok;
+
+    const QString postAddText = QStringLiteral("Redis private group text after add should reach remote member");
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject postAddGroupMessage;
+    postAddGroupMessage["type"] = "server_group_message";
+    postAddGroupMessage["groupId"] = privateGroupId;
+    postAddGroupMessage["content"] = postAddText;
+    ok = expect(writeJsonLine(&alice, postAddGroupMessage),
+                "alice should send a private group message after adding bob") && ok;
+    ok = expect(waitFor([&] {
+        bobBuffer.append(bob.readAll());
+        return bobBuffer.contains(QByteArrayLiteral("\"type\":\"server_group_message\""))
+            && bobBuffer.contains(privateGroupId.toUtf8())
+            && bobBuffer.contains(postAddText.toUtf8());
+    }, 5000), "added remote private group member should receive later private group messages") && ok;
+
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
     QJsonObject removeCarolFromPrivateGroup;
     removeCarolFromPrivateGroup["type"] = "server_group_member_update";
     removeCarolFromPrivateGroup["groupId"] = privateGroupId;
@@ -417,10 +499,12 @@ int main(int argc, char** argv) {
         carolBuffer.append(carol.readAll());
         return carolBuffer.contains(postRemovalText.toUtf8());
     }, 800), "removed remote private group member should not receive later private group messages") && ok;
-    ok = expect(!waitFor([&] {
+    ok = expect(waitFor([&] {
         bobBuffer.append(bob.readAll());
-        return bobBuffer.contains(postRemovalText.toUtf8());
-    }, 700), "unrelated non-member bob should still not receive private group messages") && ok;
+        return bobBuffer.contains(QByteArrayLiteral("\"type\":\"server_group_message\""))
+            && bobBuffer.contains(privateGroupId.toUtf8())
+            && bobBuffer.contains(postRemovalText.toUtf8());
+    }, 5000), "remaining remote private group member should still receive messages after another member is removed") && ok;
 
     alice.disconnectFromHost();
     bob.disconnectFromHost();
