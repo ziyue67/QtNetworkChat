@@ -1511,9 +1511,10 @@ void Server::onClientDisconnected() {
 
     ChatUser* user = findUserBySocket(socket);
     if (user) {
-        recordUserSessionToSqlite(*user, "logout");
-        QString userId = user->id;
-        QString userName = user->name;
+        const ChatUser disconnectedUser = *user;
+        recordUserSessionToSqlite(disconnectedUser, "logout");
+        const QString userId = disconnectedUser.id;
+        const QString userName = disconnectedUser.name;
         clearRedisPresence(userId);
         m_heartbeatMonitor->unregisterClient(userId);
         for (const QString& key : m_pendingFileTransfers.keys()) {
@@ -3242,14 +3243,34 @@ bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds,
 }
 
 void Server::refreshConnectedClientViews() {
+    struct ClientViewTarget {
+        QTcpSocket* socket = nullptr;
+        QString userId;
+    };
+
+    QVector<ClientViewTarget> targets;
+    targets.reserve(m_clients.size());
     for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
         QTcpSocket* clientSocket = it.key();
         if (!clientSocket || clientSocket->state() != QAbstractSocket::ConnectedState) {
             continue;
         }
-        sendUserList(clientSocket);
-        sendFriendListSnapshot(it.value().id, clientSocket);
-        sendServerGroupSnapshot(it.value().id, clientSocket);
+        targets.append({clientSocket, it.value().id});
+    }
+
+    for (const ClientViewTarget& target : targets) {
+        if (!target.socket || target.socket->state() != QAbstractSocket::ConnectedState) {
+            continue;
+        }
+        sendUserList(target.socket);
+        if (!target.socket || target.socket->state() != QAbstractSocket::ConnectedState) {
+            continue;
+        }
+        sendFriendListSnapshot(target.userId, target.socket);
+        if (!target.socket || target.socket->state() != QAbstractSocket::ConnectedState) {
+            continue;
+        }
+        sendServerGroupSnapshot(target.userId, target.socket);
     }
 }
 
