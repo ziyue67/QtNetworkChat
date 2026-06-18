@@ -821,6 +821,44 @@ mod tests {
     }
 
     #[test]
+    fn ack_payload_validates_user_list_contract_fields() {
+        let payload = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "get_user_list",
+                "reqId": "req-users",
+                "status": "ok",
+                "payload": {
+                    "users": []
+                }
+            }),
+            "get_user_list",
+        )
+        .expect("get_user_list ack with contract fields should pass");
+
+        assert!(payload["users"].is_array());
+    }
+
+    #[test]
+    fn ack_payload_rejects_friend_list_without_friends() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "get_friend_list",
+                "reqId": "req-friends",
+                "status": "ok",
+                "payload": {
+                    "users": []
+                }
+            }),
+            "get_friend_list",
+        )
+        .expect_err("get_friend_list ack without friends should fail");
+
+        assert_eq!(error.code, "invalid_get_friend_list_payload");
+    }
+
+    #[test]
     fn ack_payload_rejects_group_list_without_removed_groups() {
         let error = ack_payload(
             json!({

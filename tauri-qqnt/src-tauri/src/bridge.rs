@@ -223,6 +223,30 @@ mod tests {
                 "reason": "",
                 "contractProbe": true
             }),
+            "user_list" => json!({
+                "users": [],
+                "contractProbe": true
+            }),
+            "friend_list" => json!({
+                "friends": [],
+                "contractProbe": true
+            }),
+            "user_joined" => json!({
+                "userId": "10002",
+                "userName": "Bob",
+                "contractProbe": true
+            }),
+            "user_left" => json!({
+                "userId": "10002",
+                "userName": "Bob",
+                "contractProbe": true
+            }),
+            "friend_event" => json!({
+                "type": "request_received",
+                "senderId": "10002",
+                "senderName": "Bob",
+                "contractProbe": true
+            }),
             "message" => json!({
                 "sessionId": "10001",
                 "message": {},
@@ -232,6 +256,12 @@ mod tests {
                 "groups": [],
                 "removedGroups": [],
                 "hasSnapshot": true,
+                "contractProbe": true
+            }),
+            "group_member_updated" => json!({
+                "groupId": "group-1",
+                "memberId": "10002",
+                "action": "add",
                 "contractProbe": true
             }),
             "file_progress" => json!({
@@ -419,6 +449,50 @@ mod tests {
         match dispatch {
             EngineDispatch::Error(error) => {
                 assert_eq!(error["code"], "invalid_message_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_user_list_payload_as_error() {
+        let dispatch =
+            dispatch_stdout_line(br#"{"type":"event","event":"user_list","payload":{}}"#);
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_user_list_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_friend_event_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"friend_event","payload":{"type":"unknown"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_friend_event_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_group_member_updated_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"group_member_updated","payload":{"groupId":"group-1","memberId":"10002"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_group_member_updated_payload");
                 assert_eq!(error["source"], "rust");
             }
             other => panic!("expected error dispatch, got {other:?}"),

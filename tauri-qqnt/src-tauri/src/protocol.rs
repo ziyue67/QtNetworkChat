@@ -30,8 +30,14 @@ pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<(
         "connection_state" => validate_connection_state_payload(payload),
         "login_result" => validate_login_result_payload(payload),
         "friend_search_result" => validate_friend_search_result_payload(payload),
+        "user_list" => validate_user_list_payload(payload, "user_list"),
+        "friend_list" => validate_friend_list_payload(payload, "friend_list"),
+        "user_joined" => validate_user_presence_payload(payload, "user_joined"),
+        "user_left" => validate_user_presence_payload(payload, "user_left"),
+        "friend_event" => validate_friend_event_payload(payload),
         "message" => validate_message_payload(payload),
         "group_snapshot" => validate_group_collection_payload(payload, "group_snapshot"),
+        "group_member_updated" => validate_group_member_updated_payload(payload),
         "file_progress" => validate_file_progress_payload(payload),
         "file_done" => validate_file_done_payload(payload),
         "file_error" => validate_file_error_payload(payload),
@@ -49,6 +55,8 @@ pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<(
 pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()> {
     match op {
         "ready" => validate_ready_payload(payload),
+        "get_user_list" => validate_user_list_payload(payload, "get_user_list"),
+        "get_friend_list" => validate_friend_list_payload(payload, "get_friend_list"),
         "get_group_list" => validate_group_collection_payload(payload, "get_group_list"),
         "settings_sync" => validate_settings_synced_payload(payload, "settings_sync"),
         _ => Ok(()),
@@ -97,6 +105,53 @@ fn validate_friend_search_result_payload(payload: &Value) -> QQNTResult<()> {
     require_string_field(payload, "userName", "friend_search_result")?;
     require_bool_field(payload, "online", "friend_search_result")?;
     require_optional_string_field(payload, "reason", "friend_search_result")?;
+
+    Ok(())
+}
+
+fn validate_user_list_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_array_field(payload, "users", contract_name)?;
+
+    Ok(())
+}
+
+fn validate_friend_list_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_array_field(payload, "friends", contract_name)?;
+
+    Ok(())
+}
+
+fn validate_user_presence_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "userId", contract_name)?;
+    require_string_field(payload, "userName", contract_name)?;
+
+    Ok(())
+}
+
+fn validate_friend_event_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "type", "friend_event")?;
+
+    match payload.get("type").and_then(Value::as_str) {
+        Some("request_received") => {
+            require_non_empty_string_field(payload, "senderId", "friend_event")?;
+            require_string_field(payload, "senderName", "friend_event")?;
+        }
+        Some("request_sent") => {
+            require_non_empty_string_field(payload, "receiverId", "friend_event")?;
+            require_bool_field(payload, "delivered", "friend_event")?;
+        }
+        Some("response_received") => {
+            require_non_empty_string_field(payload, "senderId", "friend_event")?;
+            require_string_field(payload, "senderName", "friend_event")?;
+            require_bool_field(payload, "accepted", "friend_event")?;
+        }
+        _ => {
+            return Err(QQNTError::rust(
+                "invalid_friend_event_payload",
+                "QQNTEngine friend_event payload must include a supported type.",
+            ));
+        }
+    }
 
     Ok(())
 }
@@ -174,6 +229,14 @@ fn validate_file_done_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "transferId", "file_error")?;
     require_non_empty_string_field(payload, "reason", "file_error")?;
+
+    Ok(())
+}
+
+fn validate_group_member_updated_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "groupId", "group_member_updated")?;
+    require_non_empty_string_field(payload, "memberId", "group_member_updated")?;
+    require_non_empty_string_field(payload, "action", "group_member_updated")?;
 
     Ok(())
 }
@@ -451,6 +514,82 @@ mod tests {
             }),
         )
         .expect("friend_search_result should accept empty identity fields when not found");
+    }
+
+    #[test]
+    fn user_list_payload_accepts_users_array() {
+        validate_event_payload(
+            "user_list",
+            &json!({
+                "users": []
+            }),
+        )
+        .expect("user_list with users array should pass");
+    }
+
+    #[test]
+    fn friend_list_payload_accepts_friends_array() {
+        validate_event_payload(
+            "friend_list",
+            &json!({
+                "friends": []
+            }),
+        )
+        .expect("friend_list with friends array should pass");
+    }
+
+    #[test]
+    fn user_joined_payload_requires_user_id() {
+        let error = validate_event_payload(
+            "user_joined",
+            &json!({
+                "userName": "Bob"
+            }),
+        )
+        .expect_err("user_joined without userId should fail");
+
+        assert_eq!(error.code, "invalid_user_joined_payload");
+    }
+
+    #[test]
+    fn friend_event_payload_accepts_request_received() {
+        validate_event_payload(
+            "friend_event",
+            &json!({
+                "type": "request_received",
+                "senderId": "10002",
+                "senderName": "Bob"
+            }),
+        )
+        .expect("friend_event request_received should pass");
+    }
+
+    #[test]
+    fn friend_event_payload_requires_shape_for_type() {
+        let error = validate_event_payload(
+            "friend_event",
+            &json!({
+                "type": "request_sent",
+                "receiverId": "10002"
+            }),
+        )
+        .expect_err("request_sent without delivered should fail");
+
+        assert_eq!(error.code, "invalid_friend_event_payload");
+    }
+
+    #[test]
+    fn group_member_updated_payload_requires_action() {
+        let error = validate_event_payload(
+            "group_member_updated",
+            &json!({
+                "groupId": "group-1",
+                "memberId": "10002"
+            }),
+        )
+        .expect_err("group_member_updated without action should fail");
+
+        assert_eq!(error.code, "invalid_group_member_updated_payload");
     }
 
     #[test]
@@ -735,6 +874,30 @@ mod tests {
             }),
         )
         .expect("get_group_list ack with contract fields should pass");
+    }
+
+    #[test]
+    fn get_user_list_ack_payload_accepts_users_array() {
+        validate_command_ack_payload(
+            "get_user_list",
+            &json!({
+                "users": []
+            }),
+        )
+        .expect("get_user_list ack with users array should pass");
+    }
+
+    #[test]
+    fn get_friend_list_ack_payload_requires_friends_array() {
+        let error = validate_command_ack_payload(
+            "get_friend_list",
+            &json!({
+                "users": []
+            }),
+        )
+        .expect_err("get_friend_list ack without friends array should fail");
+
+        assert_eq!(error.code, "invalid_get_friend_list_payload");
     }
 
     #[test]
