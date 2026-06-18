@@ -795,7 +795,7 @@ npm run tauri build
 | 8.3 | 更新 README、IPC 文档 | Kimi | 新构建与运行方式说明 |
 | 8.4 | 清理运行时数据提交；`.gitignore` 检查 | 共同 | 无 accounts.sqlite3、histories、离线附件入仓 |
 
-> 后端 Phase 8 验证已覆盖后端 CTest 子集、`tauri-qqnt/src-tauri` 的 `cargo fmt --check` / `cargo test`、以及 `npm run tauri build` 打包；Vitest 渲染与 `*.test.ts(x)` 用例归 `codex/qqnt-frontend`，后端分支不补前端测试桩。
+> 后端 Phase 8 验证已覆盖 97 条 CTest（按 `-I 1,24`、`-I 25,54`、`-I 55,79`、`-I 80,97` 分片全过）、`tauri-qqnt/src-tauri` 的 `cargo fmt --check` / `cargo test`、以及 `npm run tauri build` 打包；Vitest 渲染与 `*.test.ts(x)` 用例归 `codex/qqnt-frontend`，后端分支不补前端测试桩。
 
 ### 立即并行启动
 - **Kimi**：Phase 2（前端脚手架 + 无边框窗口 + 11 入口）。

@@ -1,6 +1,6 @@
 # Testing Coverage
 
-This branch validates the QQNT backend through focused CTest targets, Rust bridge tests, protocol drift checks, and selected package/readme contract tests.
+This branch validates the QQNT backend through CTest, Rust bridge tests, protocol drift checks, and selected package/readme contract tests.
 
 ## Core Lanes
 
@@ -16,5 +16,7 @@ This branch validates the QQNT backend through focused CTest targets, Rust bridg
 ## Current Scope
 
 Backend validation should stay scoped to C++ sidecars, Redis/service behavior, Tauri Rust bridge code, protocol fixtures, and packaging scripts. Frontend rendering and mock UI behavior belong to `codex/qqnt-frontend`.
+
+On 2026-06-19, the backend branch completed the 97-test CTest suite in numbered slices (`-I 1,24`, `-I 25,54`, `-I 55,79`, `-I 80,97`). Slicing avoids the local 5-minute command timeout while preserving coverage of every configured CTest entry.
 
 Running `npm test -- --run` in the backend branch is not a BM5/BM6 gate because the current Vitest suite is owned by `codex/qqnt-frontend`; with no `*.test.ts(x)` files present, Vitest exits with `No test files found` and should be interpreted as out of backend scope rather than a backend regression.
