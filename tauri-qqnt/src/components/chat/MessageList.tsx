@@ -15,10 +15,23 @@ interface MessageListProps {
 
 const LINE_HEIGHT = 20
 const BASE_HEIGHT = 56
-const CHARS_PER_LINE = 28
+const FILE_HEIGHT = 132
+const MIN_BUBBLE_WIDTH = 180
+const BUBBLE_HORIZONTAL_PADDING = 48
+const AVERAGE_CHAR_WIDTH = 8
 
-function estimateHeight(content: string) {
-  const lines = Math.max(1, Math.ceil((content || '').length / CHARS_PER_LINE))
+function estimateTextLines(content: string, width: number) {
+  const bubbleWidth = Math.max(MIN_BUBBLE_WIDTH, width * 0.6 - BUBBLE_HORIZONTAL_PADDING)
+  const charsPerLine = Math.max(10, Math.floor(bubbleWidth / AVERAGE_CHAR_WIDTH))
+  return content.split(/\r?\n/).reduce((lines, line) => {
+    return lines + Math.max(1, Math.ceil((line || ' ').length / charsPerLine))
+  }, 0)
+}
+
+function estimateHeight(message: Message | undefined, width: number) {
+  if (!message) return BASE_HEIGHT
+  if (message.type === 'file' || message.type === 'image') return FILE_HEIGHT
+  const lines = estimateTextLines(message.content || '', width)
   return BASE_HEIGHT + (lines - 1) * LINE_HEIGHT
 }
 
@@ -47,7 +60,26 @@ function MessageItem({
 }
 
 export function MessageList(props: MessageListProps) {
-  const { messages } = props
+  return (
+    <div className="flex-1 overflow-hidden">
+      <AutoSizer
+        renderProp={({ height, width }: { height: number | undefined; width: number | undefined }) => {
+          if (!height || !width) return null
+          return (
+            <VirtualizedMessages
+              {...props}
+              height={height}
+              width={width}
+            />
+          )
+        }}
+      />
+    </div>
+  )
+}
+
+function VirtualizedMessages(props: MessageListProps & { height: number; width: number }) {
+  const { height, width, messages } = props
   const listRef = useRef<List>(null)
   const sizeMap = useRef<Record<number, number>>({})
 
@@ -55,11 +87,11 @@ export function MessageList(props: MessageListProps) {
     (index: number) => {
       const cached = sizeMap.current[index]
       if (cached) return cached
-      const height = estimateHeight(messages[index]?.content || '')
-      sizeMap.current[index] = height
-      return height
+      const itemHeight = estimateHeight(messages[index], width)
+      sizeMap.current[index] = itemHeight
+      return itemHeight
     },
-    [messages]
+    [messages, width]
   )
 
   useEffect(() => {
@@ -68,27 +100,18 @@ export function MessageList(props: MessageListProps) {
     if (messages.length > 0) {
       listRef.current?.scrollToItem(messages.length - 1, 'end')
     }
-  }, [messages])
+  }, [messages, width])
 
   return (
-    <div className="flex-1 overflow-hidden">
-      <AutoSizer
-        renderProp={({ height, width }: { height: number | undefined; width: number | undefined }) => {
-          if (!height || !width) return null
-          return (
-            <List
-              ref={listRef}
-              height={height}
-              width={width}
-              itemCount={messages.length}
-              itemSize={getItemSize}
-              itemData={props}
-            >
-              {MessageItem}
-            </List>
-          )
-        }}
-      />
-    </div>
+    <List
+      ref={listRef}
+      height={height}
+      width={width}
+      itemCount={messages.length}
+      itemSize={getItemSize}
+      itemData={props}
+    >
+      {MessageItem}
+    </List>
   )
 }

@@ -288,7 +288,11 @@ export function useEngine(): UseEngineReturn {
         const unlisten = await listen(event, (evt) => {
           if (!cancelled) handler(evt.payload)
         })
-        unlisteners.push(unlisten)
+        if (cancelled) {
+          unlisten()
+        } else {
+          unlisteners.push(unlisten)
+        }
       }
 
       timersRef.current.push(
