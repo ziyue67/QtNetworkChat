@@ -62,19 +62,79 @@ MessageType resumeMessageTypeFromPayload(const QJsonObject& payload, const QStri
     return MessageType::File;
 }
 
-QString downloadDirFromSettings(const QJsonObject& settings) {
-    const QString direct = settings.value(QStringLiteral("fileDownloadDir")).toString().trimmed();
+bool optionalSettingsStringField(const QJsonObject& object,
+                                 const QString& field,
+                                 const QString& label,
+                                 QString* value,
+                                 QString* rejectReason) {
+    const QJsonValue fieldValue = object.value(field);
+    if (fieldValue.isUndefined() || fieldValue.isNull()) {
+        value->clear();
+        return true;
+    }
+    if (!fieldValue.isString()) {
+        if (rejectReason) {
+            *rejectReason = QStringLiteral("settings.%1 must be a string when provided.").arg(label);
+        }
+        return false;
+    }
+
+    *value = fieldValue.toString().trimmed();
+    return true;
+}
+
+bool downloadDirFromSettings(const QJsonObject& settings, QString* requestedDir, QString* rejectReason) {
+    requestedDir->clear();
+
+    QString direct;
+    if (!optionalSettingsStringField(settings,
+                                     QStringLiteral("fileDownloadDir"),
+                                     QStringLiteral("fileDownloadDir"),
+                                     &direct,
+                                     rejectReason)) {
+        return false;
+    }
     if (!direct.isEmpty()) {
-        return direct;
+        *requestedDir = direct;
+        return true;
     }
 
-    const QJsonObject files = settings.value(QStringLiteral("files")).toObject();
-    const QString nested = files.value(QStringLiteral("downloadDir")).toString().trimmed();
+    const QJsonValue filesValue = settings.value(QStringLiteral("files"));
+    if (filesValue.isUndefined() || filesValue.isNull()) {
+        return true;
+    }
+    if (!filesValue.isObject()) {
+        if (rejectReason) {
+            *rejectReason = QStringLiteral("settings.files must be an object when provided.");
+        }
+        return false;
+    }
+
+    const QJsonObject files = filesValue.toObject();
+    QString nested;
+    if (!optionalSettingsStringField(files,
+                                     QStringLiteral("downloadDir"),
+                                     QStringLiteral("files.downloadDir"),
+                                     &nested,
+                                     rejectReason)) {
+        return false;
+    }
     if (!nested.isEmpty()) {
-        return nested;
+        *requestedDir = nested;
+        return true;
     }
 
-    return files.value(QStringLiteral("downloadDirectory")).toString().trimmed();
+    if (!optionalSettingsStringField(files,
+                                     QStringLiteral("downloadDirectory"),
+                                     QStringLiteral("files.downloadDirectory"),
+                                     &nested,
+                                     rejectReason)) {
+        return false;
+    }
+    if (!nested.isEmpty()) {
+        *requestedDir = nested;
+    }
+    return true;
 }
 
 QStringList memberIdsFromPayload(const QJsonObject& payload) {
@@ -95,8 +155,7 @@ QStringList memberIdsFromPayload(const QJsonObject& payload) {
     return memberIds;
 }
 
-bool applyDownloadDirSetting(const QJsonObject& settings, QString* appliedDownloadDir, QString* rejectReason) {
-    const QString requestedDir = downloadDirFromSettings(settings);
+bool applyDownloadDirSetting(const QString& requestedDir, QString* appliedDownloadDir, QString* rejectReason) {
     if (requestedDir.isEmpty()) {
         return true;
     }
@@ -728,9 +787,17 @@ void QQNTEngineCommandRouter::handleSettingsSync(const QString& op, const QStrin
     }
 
     const QJsonObject settings = settingsValue.toObject();
+    QString requestedDownloadDir;
     QString appliedDownloadDir;
     QString rejectReason;
-    if (!applyDownloadDirSetting(settings, &appliedDownloadDir, &rejectReason)) {
+    if (!downloadDirFromSettings(settings, &requestedDownloadDir, &rejectReason)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_settings"),
+                               rejectReason.isEmpty() ? QStringLiteral("Settings fields are invalid.") : rejectReason);
+        return;
+    }
+    if (!applyDownloadDirSetting(requestedDownloadDir, &appliedDownloadDir, &rejectReason)) {
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("settings_apply_failed"),
