@@ -395,6 +395,8 @@ int main(int argc, char* argv[]) {
                 "missing op command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"payload\":{}}\n"),
                 "missing reqId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"get_user_list\",\"reqId\":\"   \",\"payload\":{}}\n"),
+                "blank reqId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-missing-host\",\"payload\":{\"port\":8888}}\n"),
                 "connect missing host command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
@@ -532,6 +534,7 @@ int main(int argc, char* argv[]) {
     QSet<QString> seenAckReqIds;
     bool sawInvalidJsonAck = false;
     bool sawMissingReqIdAck = false;
+    bool sawBlankReqIdAck = false;
     int protocolLineCount = 0;
     const int contractReqIdPrefixLength = QStringLiteral("contract-").size();
     const QList<QByteArray> lines = stdoutBytes.split('\n');
@@ -581,6 +584,12 @@ int main(int argc, char* argv[]) {
             && reqId.isEmpty()
             && errorCode == QLatin1String("missing_req_id")) {
             sawMissingReqIdAck = true;
+        }
+        if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")
+            && object.value(QStringLiteral("op")).toString() == QLatin1String("get_user_list")
+            && reqId.isEmpty()
+            && errorCode == QLatin1String("missing_req_id")) {
+            sawBlankReqIdAck = true;
         }
 
         if (reqId == QLatin1String("smoke-ready")) {
@@ -826,6 +835,7 @@ int main(int argc, char* argv[]) {
     ok = expect(sawReadyEvent, "QQNTEngine should emit startup ready event") && ok;
     ok = expect(sawInvalidJsonAck, "QQNTEngine should ack invalid JSON lines with invalid_json") && ok;
     ok = expect(sawMissingReqIdAck, "QQNTEngine should ack missing reqId commands with missing_req_id") && ok;
+    ok = expect(sawBlankReqIdAck, "QQNTEngine should ack blank reqId commands with missing_req_id") && ok;
     ok = expect(sawSettingsSyncedEvent, "QQNTEngine should emit settings_synced event") && ok;
     ok = expect(missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty(), "QQNTEngine should ack every smoke command") && ok;
     return ok ? 0 : 1;

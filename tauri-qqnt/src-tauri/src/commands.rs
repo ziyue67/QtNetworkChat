@@ -1447,6 +1447,18 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_blank_req_id() {
+        let error = validate_generic_command(&json!({
+            "op": "ready",
+            "reqId": "   ",
+            "payload": {}
+        }))
+        .expect_err("generic command with blank reqId should fail");
+
+        assert_eq!(error.code, "missing_req_id");
+    }
+
+    #[test]
     fn generic_command_rejects_non_object_payload() {
         let error = validate_generic_command(&json!({
             "op": "search_friend",
