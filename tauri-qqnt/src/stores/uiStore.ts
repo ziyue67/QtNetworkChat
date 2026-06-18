@@ -12,8 +12,6 @@ export interface QQNTSettings {
   downloadPath: string
   autoAcceptFiles: boolean
   openFolderAfterDownload: boolean
-  networkHost: string
-  networkPort: number
   e2eEnabled: boolean
 }
 
@@ -41,9 +39,23 @@ export const DEFAULT_SETTINGS: QQNTSettings = {
   downloadPath: '',
   autoAcceptFiles: false,
   openFolderAfterDownload: true,
-  networkHost: '127.0.0.1',
-  networkPort: 16000,
   e2eEnabled: true
+}
+
+function sanitizeSettings(settings: Partial<QQNTSettings>): QQNTSettings {
+  return {
+    theme: settings.theme ?? DEFAULT_SETTINGS.theme,
+    launchOnStartup: settings.launchOnStartup ?? DEFAULT_SETTINGS.launchOnStartup,
+    minimizeToTray: settings.minimizeToTray ?? DEFAULT_SETTINGS.minimizeToTray,
+    notifications: settings.notifications ?? DEFAULT_SETTINGS.notifications,
+    sound: settings.sound ?? DEFAULT_SETTINGS.sound,
+    desktopNotifications: settings.desktopNotifications ?? DEFAULT_SETTINGS.desktopNotifications,
+    muteInSession: settings.muteInSession ?? DEFAULT_SETTINGS.muteInSession,
+    downloadPath: settings.downloadPath ?? DEFAULT_SETTINGS.downloadPath,
+    autoAcceptFiles: settings.autoAcceptFiles ?? DEFAULT_SETTINGS.autoAcceptFiles,
+    openFolderAfterDownload: settings.openFolderAfterDownload ?? DEFAULT_SETTINGS.openFolderAfterDownload,
+    e2eEnabled: settings.e2eEnabled ?? DEFAULT_SETTINGS.e2eEnabled
+  }
 }
 
 function loadSettings(): QQNTSettings {
@@ -51,7 +63,7 @@ function loadSettings(): QQNTSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (!raw) return DEFAULT_SETTINGS
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) }
+    return sanitizeSettings(JSON.parse(raw))
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -71,14 +83,14 @@ export const useUIStore = create<UIState>((set) => ({
   settings: initialSettings,
   setTheme: (theme) =>
     set((state) => {
-      const settings = { ...state.settings, theme }
+      const settings = sanitizeSettings({ ...state.settings, theme })
       persistSettings(settings)
       return { theme, settings }
     }),
   setActiveRoute: (route) => set({ activeRoute: route }),
   updateSettings: (patch) =>
     set((state) => {
-      const settings = { ...state.settings, ...patch }
+      const settings = sanitizeSettings({ ...state.settings, ...patch })
       persistSettings(settings)
       return { settings, theme: settings.theme }
     }),

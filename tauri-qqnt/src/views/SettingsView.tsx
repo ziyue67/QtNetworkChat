@@ -91,20 +91,18 @@ export function SettingsView() {
   const [active, setActive] = useState<TabKey>('general')
   const [syncText, setSyncText] = useState('已保存到本地')
   const currentUser = useAuthStore((state) => state.currentUser)
-  const setServer = useAuthStore((state) => state.setServer)
   const settings = useUIStore((state) => state.settings)
   const setTheme = useUIStore((state) => state.setTheme)
   const updateSettings = useUIStore((state) => state.updateSettings)
 
   useEffect(() => {
-    setServer(settings.networkHost, settings.networkPort)
     const timer = window.setTimeout(() => {
       settingsSync({ ...settings })
         .then((ack) => setSyncText(ack.status === 'ok' ? '已同步到引擎' : ack.error?.message || '同步失败'))
         .catch(() => setSyncText('已保存到本地，等待引擎连接'))
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [setServer, settings])
+  }, [settings])
 
   function patchSettings(patch: Partial<QQNTSettings>) {
     updateSettings(patch)
