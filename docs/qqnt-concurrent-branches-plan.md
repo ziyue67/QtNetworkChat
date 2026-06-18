@@ -85,7 +85,7 @@ tauri-qqnt/src-tauri/
 | 编号 | 任务 | 输出文件 | 验收标准 |
 |---|---|---|---|
 | B0 | 基线已完成 | `codex/qqnt-base` | 见基线验收 |
-| B1 | CMake 目标改造 | `CMakeLists.txt` | `cmake --build build --target QQNTEngine QQNTServer` 成功 |
+| B1 | CMake 目标改造 | `CMakeLists.txt` | `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功 |
 | B2 | sidecar 同步脚本 | `scripts/copy-sidecars.ps1` | 编译后自动拷贝 exe 到 `tauri-qqnt/src-tauri/binaries/` |
 | B3 | QQNTEngine 入口 + 日志隔离 | `tools/qqnt_engine.cpp` | `stdout` 仅含 NDJSON；`stderr` 输出日志 |
 | B4 | NDJSON 桥接核心 | `src/qqnt_client_bridge.cpp` `include/qqnt_client_bridge.h` | 能读写 NDJSON；命令与事件格式正确 |
@@ -266,8 +266,8 @@ Week 4: 合并两个大分支 → main；后端 BM6；前端 FM6
 ### 各自分支可独立合并条件
 
 - **后端分支合入 base/main 前**：
-  - `cmake --build build --target QQNTEngine QQNTServer` 成功
-  - `ctest --test-dir build --output-on-failure` 通过（含新增测试）
+  - `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功
+  - `ctest --test-dir build-qt6-mingw --output-on-failure` 通过（含新增测试）
   - `npm run tauri build` 在 `tauri-qqnt/` 下通过
 - **前端分支合入 base/main 前**：
   - `npm install && npm run tauri dev` 成功

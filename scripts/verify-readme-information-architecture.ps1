@@ -58,6 +58,7 @@ $readme = Read-Utf8Text $resolvedReadmePath
 $docsRoot = $resolvedDocsDir
 $packagePath = Join-Path $repoRoot "tauri-qqnt/package.json"
 $tauriConfigPath = Join-Path $repoRoot "tauri-qqnt/src-tauri/tauri.conf.json"
+$implementationPlanPath = Join-Path $docsRoot "qqnt-implementation-plan.md"
 $branchPlanPath = Join-Path $docsRoot "qqnt-concurrent-branches-plan.md"
 $coveragePath = Join-Path $docsRoot "testing-coverage.md"
 
@@ -79,6 +80,7 @@ foreach ($doc in $requiredDocs) {
 
 Assert-File $packagePath
 Assert-File $tauriConfigPath
+Assert-File $implementationPlanPath
 Assert-File $branchPlanPath
 Assert-File $coveragePath
 
@@ -119,7 +121,21 @@ Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTEngine" "T
 Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTServer" "Tauri externalBin"
 
 $branchPlan = Read-Utf8Text $branchPlanPath
+$implementationPlan = Read-Utf8Text $implementationPlanPath
+
+Assert-Contains $implementationPlan 'cmake -S . -B build-qt6-mingw'
+Assert-Contains $implementationPlan 'cmake --build build-qt6-mingw --target QQNTEngine QQNTServer'
+Assert-Contains $implementationPlan '.\scripts\copy-sidecars.ps1 -BuildDir build-qt6-mingw'
+Assert-Contains $implementationPlan 'ctest --test-dir build-qt6-mingw --output-on-failure'
+Assert-NotContains $implementationPlan 'cmake -S . -B build -DCMAKE_PREFIX_PATH'
+Assert-NotContains $implementationPlan 'cmake --build build --target QQNTEngine QQNTServer'
+Assert-NotContains $implementationPlan 'ctest --test-dir build --output-on-failure'
+Assert-NotContains $implementationPlan 'Copy-Item -Path "build/QQNTEngine.exe"'
+Assert-NotContains $implementationPlan 'Copy-Item -Path "build/QQNTServer.exe"'
+
 Assert-Contains $branchPlan "| B14 |"
+Assert-Contains $branchPlan 'cmake --build build-qt6-mingw --target QQNTEngine QQNTServer'
+Assert-Contains $branchPlan 'ctest --test-dir build-qt6-mingw --output-on-failure'
 Assert-Contains $branchPlan 'tauri-qqnt/src-tauri/tauri.conf.json'
 Assert-Contains $branchPlan 'externalBin: ["binaries/QQNTEngine", "binaries/QQNTServer"]'
 Assert-Contains $branchPlan 'tauri_qqnt_lib::run()'
@@ -133,6 +149,8 @@ Assert-Contains $branchPlan '`codex/qqnt-frontend`'
 Assert-Contains $branchPlan "tauri-qqnt/src-tauri/"
 Assert-Contains $branchPlan "tauri-qqnt/src/"
 Assert-NotContains $branchPlan '`tauri-qqnt/tauri.conf.json`'
+Assert-NotContains $branchPlan 'cmake --build build --target QQNTEngine QQNTServer'
+Assert-NotContains $branchPlan 'ctest --test-dir build --output-on-failure'
 Assert-NotContains $branchPlan 'externalBin: ["QQNTEngine", "QQNTServer"]'
 Assert-NotContains $branchPlan 'shell plugin'
 Assert-NotContains $branchPlan 'empty module export'

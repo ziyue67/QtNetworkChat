@@ -618,8 +618,8 @@ export const APP_ENTRIES: QQNTAppEntry[] = [
 ### 8.1 C++ 编译
 
 ```powershell
-cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
-cmake --build build --target QQNTEngine QQNTServer
+cmake -S . -B build-qt6-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="D:/Qt/6.8.3/mingw_64"
+cmake --build build-qt6-mingw --target QQNTEngine QQNTServer
 ```
 
 ### 8.2 sidecar 同步脚本
@@ -627,19 +627,14 @@ cmake --build build --target QQNTEngine QQNTServer
 `scripts/copy-sidecars.ps1`：
 
 ```powershell
-$triplet = "x86_64-pc-windows-msvc"
-$outDir = "tauri-qqnt/src-tauri/binaries"
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-Copy-Item -Path "build/QQNTEngine.exe" -Destination "$outDir/QQNTEngine-$triplet.exe" -Force
-Copy-Item -Path "build/QQNTServer.exe" -Destination "$outDir/QQNTServer-$triplet.exe" -Force
+.\scripts\copy-sidecars.ps1 -BuildDir build-qt6-mingw -OutDir tauri-qqnt\src-tauri\binaries
 ```
 
 CMake POST_BUILD 接入：
 
 ```cmake
 add_custom_command(TARGET QQNTEngine POST_BUILD
-    COMMAND powershell -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/scripts/copy-sidecars.ps1"
+    COMMAND powershell -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/scripts/copy-sidecars.ps1" -BuildDir "${CMAKE_BINARY_DIR}"
 )
 ```
 
@@ -695,7 +690,7 @@ npm run tauri build
 | Rust Bridge mock | `tests/qqnt_bridge_rust_test.rs` | reqId 关联与事件广播 |
 | 前端 store | `src/stores/*.test.ts` | 会话排序、未读、乐观发送 |
 | 前端组件 | `src/components/**/*.test.tsx` | MessageBubble、Composer、SessionList |
-| 回归 | 现有 CTest | `ctest --test-dir build --output-on-failure` 全过 |
+| 回归 | 现有 CTest | `ctest --test-dir build-qt6-mingw --output-on-failure` 全过 |
 
 ---
 
@@ -720,7 +715,7 @@ npm run tauri build
 | 1.1 | 安装 Rust + Tauri CLI + WebView2；安装/验证 Docker + Redis compose | GPT5.5 | `cargo tauri --version`；`docker compose -f dev/redis-compose.yml up -d` 成功 |
 | 1.2 | 初始化 `tauri-qqnt`；配置 `tauri.conf.json` 与 `capabilities/default.json` | GPT5.5 | `npm run tauri dev` 打开空窗口 |
 | 1.2a | 编写 `scripts/copy-sidecars.ps1` 并接入 CMake POST_BUILD | GPT5.5 | C++ 编译后 `tauri-qqnt/src-tauri/binaries/` 出现带 triplet 的 exe |
-| 1.3 | CMake 新增 `QQNTEngine` 与 `QQNTServer` target；`QQNTClientCore` OBJECT library | GPT5.5 | `cmake --build build --target QQNTEngine QQNTServer` 成功 |
+| 1.3 | CMake 新增 `QQNTEngine` 与 `QQNTServer` target；`QQNTClientCore` OBJECT library | GPT5.5 | `cmake --build build-qt6-mingw --target QQNTEngine QQNTServer` 成功 |
 | 1.4 | 实现 `QQNTEngine` ready + connect；安装 `qInstallMessageHandler` 保证 stdout 纯净；`ready` ack 带 `protocolVersion` | GPT5.5 | CTest `qqnt_engine_smoke_test` 通过；stdout 每行合法 JSON |
 | 1.5 | Rust `bridge.rs`/`sidecar.rs` spawn engine + NDJSON 读写 + 事件广播 | GPT5.5 | 测试能收到 `qqnt://engine/ready` |
 | 1.5a | 创建 `docs/qqnt-ipcv1.md` 与 `tests/fixtures/ready.json` | GPT5.5 | 文档与 fixture 齐全 |
