@@ -15,7 +15,7 @@ interface AuthState {
 }
 
 export const DEFAULT_SERVER_HOST = '127.0.0.1'
-export const DEFAULT_SERVER_PORT = 16000
+export const DEFAULT_SERVER_PORT = 8888
 
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,

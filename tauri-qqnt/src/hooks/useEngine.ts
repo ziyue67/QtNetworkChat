@@ -37,6 +37,8 @@ import { EXPECTED_PROTOCOL_VERSION } from '@/types/qqnt'
 export const ENGINE_UNAVAILABLE_MESSAGE = '未检测到本地 QQ NT 引擎，请从 Tauri 客户端启动并确认本地引擎运行。'
 const AUTH_BEFORE_CONNECT_MESSAGE = '请先提交账号密码，再连接本地聊天服务。'
 const AUTH_BEFORE_CONNECT_RAW_MESSAGE = 'Send login or register credentials before connect'
+const SERVER_CONNECT_FAILED_MESSAGE = '无法连接到本地聊天服务器，请确认 QQNTServer 已启动并监听 8888 端口。'
+const SERVER_CONNECT_FAILED_RAW_MESSAGE = 'Unable to connect to server'
 
 export interface AuthHandshakeResult {
   ok: boolean
@@ -52,16 +54,15 @@ export interface UseEngineReturn {
 }
 
 function userFacingError(message: string) {
-  return message.includes(AUTH_BEFORE_CONNECT_RAW_MESSAGE)
-    ? AUTH_BEFORE_CONNECT_MESSAGE
-    : message
+  if (message.includes(AUTH_BEFORE_CONNECT_RAW_MESSAGE)) return AUTH_BEFORE_CONNECT_MESSAGE
+  if (message.includes(SERVER_CONNECT_FAILED_RAW_MESSAGE)) return SERVER_CONNECT_FAILED_MESSAGE
+  return message
 }
 
 function connectionFailureMessage(error: unknown) {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
-  return message.includes(AUTH_BEFORE_CONNECT_RAW_MESSAGE)
-    ? userFacingError(message)
-    : ENGINE_UNAVAILABLE_MESSAGE
+  const friendlyMessage = userFacingError(message)
+  return friendlyMessage === message ? ENGINE_UNAVAILABLE_MESSAGE : friendlyMessage
 }
 
 function asContact(userId: string, userName: string, online = false): Contact {

@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { connectServer, login as apiLogin, register as apiRegister, sendCommand } from '@/api/qqnt'
-import { useAuthStore } from '@/stores/authStore'
+import { DEFAULT_SERVER_PORT, useAuthStore } from '@/stores/authStore'
 import { ENGINE_UNAVAILABLE_MESSAGE, useEngine } from './useEngine'
 
 type EventCallback = (event: { payload: unknown }) => void
@@ -38,7 +38,7 @@ describe('useEngine', () => {
       op: 'connect',
       reqId: 'connect',
       status: 'ok',
-      payload: { connected: true, host: '127.0.0.1', port: 16000 }
+      payload: { connected: true, host: '127.0.0.1', port: DEFAULT_SERVER_PORT }
     })
     vi.mocked(apiLogin).mockResolvedValue({
       type: 'ack',
@@ -58,7 +58,7 @@ describe('useEngine', () => {
       isAuthenticated: false,
       currentUser: null,
       serverHost: '127.0.0.1',
-      serverPort: 16000,
+      serverPort: DEFAULT_SERVER_PORT,
       mock: false
     })
   })
@@ -132,6 +132,56 @@ describe('useEngine', () => {
 
     await waitFor(() => {
       expect(result.current.engine.error).toBe('请先提交账号密码，再连接本地聊天服务。')
+    })
+  })
+
+  it('uses the QQNT server sidecar default port when connecting', async () => {
+    const { result } = renderHook(() => useEngine())
+
+    await act(async () => {
+      const connected = await result.current.connect()
+      expect(connected).toBe(true)
+    })
+
+    expect(connectServer).toHaveBeenCalledWith('127.0.0.1', 8888)
+  })
+
+  it('maps server connection ack failures to a Chinese diagnostic', async () => {
+    vi.mocked(connectServer).mockResolvedValueOnce({
+      type: 'ack',
+      op: 'connect',
+      reqId: 'connect',
+      status: 'error',
+      error: {
+        code: 'connect_failed',
+        message: 'Unable to connect to server.'
+      }
+    })
+
+    const { result } = renderHook(() => useEngine())
+
+    await act(async () => {
+      const connected = await result.current.connect()
+      expect(connected).toBe(false)
+    })
+
+    await waitFor(() => {
+      expect(result.current.engine.error).toBe('无法连接到本地聊天服务器，请确认 QQNTServer 已启动并监听 8888 端口。')
+    })
+  })
+
+  it('maps server connection command failures to a Chinese diagnostic', async () => {
+    vi.mocked(connectServer).mockRejectedValueOnce(new Error('Unable to connect to server.'))
+
+    const { result } = renderHook(() => useEngine())
+
+    await act(async () => {
+      const connected = await result.current.connect()
+      expect(connected).toBe(false)
+    })
+
+    await waitFor(() => {
+      expect(result.current.engine.error).toBe('无法连接到本地聊天服务器，请确认 QQNTServer 已启动并监听 8888 端口。')
     })
   })
 
