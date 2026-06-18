@@ -122,6 +122,8 @@ Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTServer" "T
 
 $branchPlan = Read-Utf8Text $branchPlanPath
 $implementationPlan = Read-Utf8Text $implementationPlanPath
+$ipcContractPath = Join-Path $docsRoot "qqnt-ipcv1.md"
+$ipcContract = Read-Utf8Text $ipcContractPath
 
 Assert-Contains $implementationPlan 'cmake -S . -B build-qt6-mingw'
 Assert-Contains $implementationPlan 'cmake --build build-qt6-mingw --target QQNTEngine QQNTServer'
@@ -161,6 +163,15 @@ Assert-NotContains $branchPlan 'externalBin: ["QQNTEngine", "QQNTServer"]'
 Assert-NotContains $branchPlan 'shell plugin'
 Assert-NotContains $branchPlan 'empty module export'
 Assert-NotContains $branchPlan 'placeholder script'
+
+Assert-Contains $ipcContract "listen('qqnt://engine/error', handler)"
+Assert-Contains $ipcContract "listen('qqnt://server/fatal', handler)"
+Assert-Contains $ipcContract 'code=engine_terminated'
+Assert-Contains $ipcContract 'code=server_terminated'
+Assert-Contains $ipcContract 'details.codeValue'
+Assert-Contains $ipcContract 'details.signal'
+Assert-Contains $ipcContract 'codeValue'
+Assert-Contains $ipcContract 'signal'
 
 $coverage = Read-Utf8Text $coveragePath
 Assert-Contains $coverage "npm run tauri build"

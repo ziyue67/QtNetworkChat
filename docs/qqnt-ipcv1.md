@@ -358,5 +358,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 
 - 前端命令入口固定为 `invoke('qqnt_command', { payload })`。
 - Engine 事件固定为 `listen('qqnt://engine/<event>', handler)`。
-- Server 致命错误固定为 `listen('qqnt://server/fatal', handler)`，payload 使用 `{code, message, source, details?}`；例如 Redis 未就绪使用 `code=redis_unavailable`，`details.host`/`details.port` 指向预检目标，`details.cause` 保留底层 Redis 连接错误。
+- Engine 错误固定为 `listen('qqnt://engine/error', handler)`，payload 使用 `{code, message, source, details?}`；engine 进程终止使用 `code=engine_terminated`，`details.codeValue`/`details.signal` 保留退出码与信号。
+- Server 致命错误固定为 `listen('qqnt://server/fatal', handler)`，payload 使用 `{code, message, source, details?}`；Redis 未就绪使用 `code=redis_unavailable`，`details.host`/`details.port` 指向预检目标，`details.cause` 保留底层 Redis 连接错误；server 进程终止使用 `code=server_terminated`，`details.codeValue`/`details.signal` 保留退出码与信号。
+- Sidecar 终止事件为了兼容旧前端监听器，会同时在顶层保留 `codeValue` 与 `signal`；新代码应优先读取 `details.codeValue` 与 `details.signal`。
 - 后端新增字段必须保持向后兼容；删除或改名必须升级 `protocolVersion`。
