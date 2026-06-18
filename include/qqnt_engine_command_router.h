@@ -52,6 +52,11 @@ private:
                        QString* value,
                        const QString& op,
                        const QString& reqId) const;
+    bool requireBool(const QJsonObject& payload,
+                     const QString& field,
+                     bool* value,
+                     const QString& op,
+                     const QString& reqId) const;
 
     QQNTClientBridge* m_bridge;
     QString m_account;

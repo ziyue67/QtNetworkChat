@@ -413,6 +413,8 @@ int main(int argc, char* argv[]) {
                 "invalid payload command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
                 "missing field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-accepted\",\"payload\":{\"senderId\":\"10001\"}}\n"),
+                "respond_friend_request missing accepted command should be written") && ok;
 
     QSet<QString> contractAckReqIds;
     for (const QString& command : contractCommands) {
@@ -440,7 +442,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-invalid-payload"),
-        QStringLiteral("smoke-missing-field")
+        QStringLiteral("smoke-missing-field"),
+        QStringLiteral("smoke-friend-response-missing-accepted")
     };
     expectedAckReqIds.unite(contractAckReqIds);
 
@@ -593,6 +596,11 @@ int main(int argc, char* argv[]) {
                         "missing required field should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "missing required field should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-friend-response-missing-accepted")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "respond_friend_request missing accepted should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "respond_friend_request missing accepted should use missing_field code") && ok;
         }
 
         if (contractAckReqIds.contains(reqId)) {

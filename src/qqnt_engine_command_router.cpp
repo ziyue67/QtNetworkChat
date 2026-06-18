@@ -324,12 +324,14 @@ void QQNTEngineCommandRouter::handleSendFriendRequest(const QString& op, const Q
 
 void QQNTEngineCommandRouter::handleRespondFriendRequest(const QString& op, const QString& reqId, const QJsonObject& payload) {
     QString senderId;
-    if (!requireString(payload, QStringLiteral("senderId"), &senderId, op, reqId)) {
+    bool accepted = false;
+    if (!requireString(payload, QStringLiteral("senderId"), &senderId, op, reqId)
+        || !requireBool(payload, QStringLiteral("accepted"), &accepted, op, reqId)) {
         return;
     }
     sendBoolAck(op,
                 reqId,
-                m_bridge->client()->sendFriendResponse(senderId, payload.value(QStringLiteral("accepted")).toBool()),
+                m_bridge->client()->sendFriendResponse(senderId, accepted),
                 QStringLiteral("friend_response_failed"),
                 QStringLiteral("Friend response requires an active server connection."));
 }
@@ -706,5 +708,22 @@ bool QQNTEngineCommandRouter::requireString(const QJsonObject& payload,
         return false;
     }
     *value = text;
+    return true;
+}
+
+bool QQNTEngineCommandRouter::requireBool(const QJsonObject& payload,
+                                          const QString& field,
+                                          bool* value,
+                                          const QString& op,
+                                          const QString& reqId) const {
+    const QJsonValue fieldValue = payload.value(field);
+    if (!fieldValue.isBool()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("missing_field"),
+                               QStringLiteral("payload.%1 is required.").arg(field));
+        return false;
+    }
+    *value = fieldValue.toBool();
     return true;
 }
