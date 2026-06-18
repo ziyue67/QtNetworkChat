@@ -4,7 +4,7 @@ This branch validates the QQNT backend through focused CTest targets, Rust bridg
 
 ## Core Lanes
 
-- `QQNTEngineSmoke` verifies headless engine startup, stdout NDJSON cleanliness, `ready`, basic command acknowledgements, and every documented command in `tests/fixtures/protocol_contract.json` is routed by `QQNTEngine`.
+- `QQNTEngineSmoke` verifies headless engine startup, stdout NDJSON cleanliness, `ready`, basic command acknowledgements, every documented command in `tests/fixtures/protocol_contract.json` is routed by `QQNTEngine`, and successful contract acknowledgements keep their documented payload shape.
 - `QQNTEngineEndToEnd` verifies two real `QQNTEngine` processes can register, connect through `QQNTServer`, and deliver a private message over Redis routing.
 - `QQNTProtocolDrift` verifies that docs, C++ fixtures, and Rust bridge expectations agree on protocol version, command/event coverage, and command/event payload shapes.
 - `QQNTServerRedis`, `RedisServerReadiness`, and `RedisStartupRequirement` verify Redis-backed server readiness and routing behavior.

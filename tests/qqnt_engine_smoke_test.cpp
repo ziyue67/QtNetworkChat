@@ -187,6 +187,160 @@ QJsonObject contractProbePayload(const QString& op) {
     return payload;
 }
 
+bool expectEmptyPayload(const QString& op, const QJsonObject& payload) {
+    return expect(payload.isEmpty(), QStringLiteral("%1 payload should be empty").arg(op));
+}
+
+bool expectArrayField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isArray(),
+                  QStringLiteral("%1 payload should include %2 array").arg(op, field));
+}
+
+bool expectBoolField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isBool(),
+                  QStringLiteral("%1 payload should include %2 boolean").arg(op, field));
+}
+
+bool expectTrueBoolField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).toBool(false),
+                  QStringLiteral("%1 payload should include true %2").arg(op, field));
+}
+
+bool expectObjectField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isObject(),
+                  QStringLiteral("%1 payload should include %2 object").arg(op, field));
+}
+
+bool expectStringField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isString(),
+                  QStringLiteral("%1 payload should include %2 string").arg(op, field));
+}
+
+bool expectNonEmptyStringField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(!payload.value(field).toString().isEmpty(),
+                  QStringLiteral("%1 payload should include non-empty %2").arg(op, field));
+}
+
+bool expectUnsignedIntegerStringField(const QString& op, const QJsonObject& payload, const QString& field) {
+    const QString text = payload.value(field).toString();
+    bool converted = false;
+    text.toULongLong(&converted);
+    return expect(converted && !text.isEmpty(),
+                  QStringLiteral("%1 payload should include unsigned integer string %2").arg(op, field));
+}
+
+bool expectUnsignedIntegerStringArrayField(const QString& op, const QJsonObject& payload, const QString& field) {
+    if (!expectArrayField(op, payload, field)) {
+        return false;
+    }
+
+    bool ok = true;
+    const QJsonArray values = payload.value(field).toArray();
+    for (const QJsonValue& value : values) {
+        const QString text = value.toString();
+        bool converted = false;
+        text.toULongLong(&converted);
+        ok = expect(converted && !text.isEmpty(),
+                    QStringLiteral("%1 payload should include unsigned integer string items in %2").arg(op, field)) && ok;
+    }
+    return ok;
+}
+
+bool expectAcceptedPayload(const QString& op, const QJsonObject& payload) {
+    return expectTrueBoolField(op, payload, QStringLiteral("accepted"));
+}
+
+bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload) {
+    bool ok = true;
+
+    if (op == QLatin1String("ready")) {
+        ok = expect(payload.value(QStringLiteral("protocolVersion")).toInt() == 1,
+                    "ready contract payload should advertise protocol version 1") && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("version")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("qtVersion")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("e2eStatus")) && ok;
+    } else if (op == QLatin1String("connect")) {
+        ok = expectTrueBoolField(op, payload, QStringLiteral("connected")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("host")) && ok;
+        const int port = payload.value(QStringLiteral("port")).toInt();
+        ok = expect(port > 0 && port <= 65535, "connect contract payload should include valid port") && ok;
+    } else if (op == QLatin1String("login") || op == QLatin1String("register")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("requiresConnect")) && ok;
+        ok = expect(payload.value(QStringLiteral("mode")).toString() == op,
+                    QStringLiteral("%1 contract payload should echo mode").arg(op)) && ok;
+    } else if (op == QLatin1String("disconnect")
+               || op == QLatin1String("logout")
+               || op == QLatin1String("set_user_info")) {
+        ok = expectEmptyPayload(op, payload) && ok;
+    } else if (op == QLatin1String("get_user_list")) {
+        ok = expectArrayField(op, payload, QStringLiteral("users")) && ok;
+        ok = expect(!payload.contains(QStringLiteral("friends")),
+                    "get_user_list contract payload should not alias friends") && ok;
+    } else if (op == QLatin1String("get_friend_list")) {
+        ok = expectArrayField(op, payload, QStringLiteral("friends")) && ok;
+        ok = expect(!payload.contains(QStringLiteral("users")),
+                    "get_friend_list contract payload should not alias users") && ok;
+    } else if (op == QLatin1String("get_group_list")) {
+        ok = expectArrayField(op, payload, QStringLiteral("groups")) && ok;
+        ok = expectArrayField(op, payload, QStringLiteral("removedGroups")) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("hasSnapshot")) && ok;
+    } else if (op == QLatin1String("search_friend")
+               || op == QLatin1String("send_friend_request")
+               || op == QLatin1String("respond_friend_request")
+               || op == QLatin1String("send_group_message")
+               || op == QLatin1String("create_group")
+               || op == QLatin1String("update_group_announcement")
+               || op == QLatin1String("update_group_member")
+               || op == QLatin1String("send_file")
+               || op == QLatin1String("send_image")
+               || op == QLatin1String("e2e_announce_identity")
+               || op == QLatin1String("e2e_pin_identity")
+               || op == QLatin1String("e2e_request_rotation")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+    } else if (op == QLatin1String("send_private_message")) {
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("receiverId")) && ok;
+    } else if (op == QLatin1String("cancel_transfer")) {
+        ok = expectTrueBoolField(op, payload, QStringLiteral("cancelled")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
+    } else if (op == QLatin1String("query_resume")) {
+        ok = expectTrueBoolField(op, payload, QStringLiteral("canResume")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("confirmedBytes")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("nextChunkIndex")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("fileSize")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("chunkSize")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("chunkCount")) && ok;
+        ok = expectStringField(op, payload, QStringLiteral("fileHash")) && ok;
+        ok = expectUnsignedIntegerStringArrayField(op, payload, QStringLiteral("receivedChunks")) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("resumed")) && ok;
+        const QString mode = payload.value(QStringLiteral("mode")).toString();
+        ok = expect(mode == QLatin1String("query") || mode == QLatin1String("resume"),
+                    "query_resume contract payload should include query/resume mode") && ok;
+    } else if (op == QLatin1String("e2e_status")) {
+        ok = expectObjectField(op, payload, QStringLiteral("localIdentity")) && ok;
+        if (payload.contains(QStringLiteral("peerId"))) {
+            ok = expectNonEmptyStringField(op, payload, QStringLiteral("peerId")) && ok;
+            ok = expectObjectField(op, payload, QStringLiteral("session")) && ok;
+            ok = expectObjectField(op, payload, QStringLiteral("identity")) && ok;
+        }
+    } else if (op == QLatin1String("profile_update")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("avatarSent")) && ok;
+        ok = expectStringField(op, payload, QStringLiteral("userName")) && ok;
+    } else if (op == QLatin1String("settings_sync")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expect(payload.value(QStringLiteral("revision")).toInt() >= 1,
+                    "settings_sync contract payload should include revision") && ok;
+        ok = expectObjectField(op, payload, QStringLiteral("settings")) && ok;
+        if (payload.contains(QStringLiteral("appliedDownloadDir"))) {
+            ok = expectNonEmptyStringField(op, payload, QStringLiteral("appliedDownloadDir")) && ok;
+        }
+    }
+
+    return ok;
+}
+
 bool writeJsonCommand(QProcess* process, const QString& op, const QString& reqId, const QJsonObject& payload) {
     QJsonObject command;
     command[QStringLiteral("op")] = op;
@@ -429,7 +583,9 @@ int main(int argc, char* argv[]) {
             const QString contractOp = reqId.mid(contractReqIdPrefixLength);
             ok = expect(object.value(QStringLiteral("op")).toString() == contractOp,
                         QStringLiteral("protocol contract ack should echo op: %1").arg(contractOp)) && ok;
-            if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")) {
+            if (object.value(QStringLiteral("status")).toString() == QLatin1String("ok")) {
+                ok = validateOkContractAckPayload(contractOp, payload) && ok;
+            } else if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")) {
                 const QString errorCode = object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString();
                 ok = expect(errorCode != QLatin1String("unknown_op"),
                             QStringLiteral("protocol contract command should be routed, not unknown_op: %1").arg(contractOp)) && ok;
