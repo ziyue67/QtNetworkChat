@@ -431,8 +431,12 @@ void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QStrin
         return;
     }
 
-    const QString groupId = payload.value(QStringLiteral("groupId")).toString().trimmed();
-    const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
+    QString groupId;
+    QString receiverId;
+    if (!optionalTargetString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
+        || !optionalTargetString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)) {
+        return;
+    }
     if (groupId.isEmpty() && receiverId.isEmpty()) {
         m_bridge->sendErrorAck(op,
                                reqId,
@@ -502,8 +506,12 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
     QVector<qint64> receivedChunks;
     QString rejectReason;
     const QString filePath = payload.value(QStringLiteral("filePath")).toString().trimmed();
-    const QString groupId = payload.value(QStringLiteral("groupId")).toString().trimmed();
-    const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
+    QString groupId;
+    QString receiverId;
+    if (!optionalTargetString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
+        || !optionalTargetString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)) {
+        return;
+    }
     if (!filePath.isEmpty() && groupId.isEmpty() && receiverId.isEmpty()) {
         m_bridge->sendErrorAck(op,
                                reqId,
@@ -779,5 +787,27 @@ bool QQNTEngineCommandRouter::requireTcpPort(const QJsonObject& payload,
     }
 
     *value = static_cast<quint16>(port);
+    return true;
+}
+
+bool QQNTEngineCommandRouter::optionalTargetString(const QJsonObject& payload,
+                                                   const QString& field,
+                                                   QString* value,
+                                                   const QString& op,
+                                                   const QString& reqId) const {
+    const QJsonValue fieldValue = payload.value(field);
+    if (fieldValue.isUndefined() || fieldValue.isNull()) {
+        value->clear();
+        return true;
+    }
+    if (!fieldValue.isString()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_target"),
+                               QStringLiteral("payload.%1 must be a string when provided.").arg(field));
+        return false;
+    }
+
+    *value = fieldValue.toString().trimmed();
     return true;
 }

@@ -67,6 +67,11 @@ private:
                         quint16* value,
                         const QString& op,
                         const QString& reqId) const;
+    bool optionalTargetString(const QJsonObject& payload,
+                              const QString& field,
+                              QString* value,
+                              const QString& op,
+                              const QString& reqId) const;
 
     QQNTClientBridge* m_bridge;
     QString m_account;
