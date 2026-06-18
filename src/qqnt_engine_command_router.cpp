@@ -137,22 +137,65 @@ bool downloadDirFromSettings(const QJsonObject& settings, QString* requestedDir,
     return true;
 }
 
-QStringList memberIdsFromPayload(const QJsonObject& payload) {
-    QStringList memberIds;
+bool appendMemberId(QStringList* memberIds, const QString& memberId, QString* rejectReason) {
+    const QString normalizedMemberId = memberId.trimmed();
+    if (normalizedMemberId.isEmpty()) {
+        if (rejectReason) {
+            *rejectReason = QStringLiteral("create_group members entries must not be empty.");
+        }
+        return false;
+    }
+    if (!memberIds->contains(normalizedMemberId)) {
+        *memberIds << normalizedMemberId;
+    }
+    return true;
+}
+
+bool memberIdsFromPayload(const QJsonObject& payload, QStringList* memberIds, QString* rejectReason) {
+    memberIds->clear();
     const QJsonArray members = payload.value(QStringLiteral("members")).toArray();
     for (const QJsonValue& memberValue : members) {
-        QString memberId = memberValue.toString().trimmed();
-        if (memberId.isEmpty() && memberValue.isObject()) {
+        if (memberValue.isString()) {
+            if (!appendMemberId(memberIds, memberValue.toString(), rejectReason)) {
+                return false;
+            }
+            continue;
+        }
+
+        if (memberValue.isObject()) {
             const QJsonObject memberObject = memberValue.toObject();
-            memberId = memberObject.value(QStringLiteral("userId")).toString(
-                memberObject.value(QStringLiteral("account")).toString(
-                    memberObject.value(QStringLiteral("id")).toString())).trimmed();
+            QString memberId;
+            const QStringList candidateFields = {
+                QStringLiteral("userId"),
+                QStringLiteral("account"),
+                QStringLiteral("id"),
+            };
+            for (const QString& candidateField : candidateFields) {
+                const QJsonValue candidateValue = memberObject.value(candidateField);
+                if (candidateValue.isUndefined() || candidateValue.isNull()) {
+                    continue;
+                }
+                if (!candidateValue.isString()) {
+                    if (rejectReason) {
+                        *rejectReason = QStringLiteral("create_group member.%1 must be a string when provided.").arg(candidateField);
+                    }
+                    return false;
+                }
+                memberId = candidateValue.toString().trimmed();
+                break;
+            }
+            if (!appendMemberId(memberIds, memberId, rejectReason)) {
+                return false;
+            }
+            continue;
         }
-        if (!memberId.isEmpty() && !memberIds.contains(memberId)) {
-            memberIds << memberId;
+
+        if (rejectReason) {
+            *rejectReason = QStringLiteral("create_group members entries must be strings.");
         }
+        return false;
     }
-    return memberIds;
+    return true;
 }
 
 bool applyDownloadDirSetting(const QString& requestedDir, QString* appliedDownloadDir, QString* rejectReason) {
@@ -460,11 +503,20 @@ void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString
                              reqId)) {
         return;
     }
+    QStringList memberIds;
+    QString membersRejectReason;
+    if (!memberIdsFromPayload(payload, &memberIds, &membersRejectReason)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_members"),
+                               membersRejectReason.isEmpty() ? QStringLiteral("create_group members entries are invalid.") : membersRejectReason);
+        return;
+    }
     sendBoolAck(op,
                 reqId,
                 m_bridge->client()->createPrivateServerGroup(groupName,
                                                             announcement,
-                                                            memberIdsFromPayload(payload)),
+                                                            memberIds),
                 QStringLiteral("create_group_failed"),
                 QStringLiteral("Group creation requires an active server connection."));
 }

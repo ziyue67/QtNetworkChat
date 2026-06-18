@@ -439,6 +439,8 @@ int main(int argc, char* argv[]) {
                 "update_group_announcement missing announcement command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-members\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":\"10001\"}}\n"),
                 "create_group invalid members command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-entry\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[10001]}}\n"),
+                "create_group invalid member entry command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-announcement\",\"payload\":{\"groupName\":\"Smoke Group\",\"announcement\":true}}\n"),
                 "create_group invalid announcement command should be written") && ok;
 
@@ -482,6 +484,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-friend-response-missing-accepted"),
         QStringLiteral("smoke-group-announcement-missing"),
         QStringLiteral("smoke-create-group-invalid-members"),
+        QStringLiteral("smoke-create-group-invalid-member-entry"),
         QStringLiteral("smoke-create-group-invalid-announcement")
     };
     expectedAckReqIds.unite(contractAckReqIds);
@@ -700,6 +703,11 @@ int main(int argc, char* argv[]) {
                         "create_group with non-array members should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
                         "create_group with non-array members should use invalid_members code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-member-entry")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with non-string member entry should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
+                        "create_group with non-string member entry should use invalid_members code") && ok;
         } else if (reqId == QLatin1String("smoke-create-group-invalid-announcement")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "create_group with non-string announcement should return error ack") && ok;
