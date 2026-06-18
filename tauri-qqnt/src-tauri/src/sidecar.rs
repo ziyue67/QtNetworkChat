@@ -1,9 +1,15 @@
+use std::collections::HashSet;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::{process::CommandEvent, ShellExt};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_shell::{
+    process::{Command, CommandEvent},
+    ShellExt,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::bridge;
@@ -36,10 +42,11 @@ pub fn start_server(app: AppHandle, state: Arc<AppState>) {
 }
 
 async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
-    let (mut receiver, child) = app
+    let command = app
         .shell()
         .sidecar(ENGINE_SIDECAR_PATH)
-        .map_err(|error| QQNTError::rust("engine_spawn_prepare_failed", error.to_string()))?
+        .map_err(|error| QQNTError::rust("engine_spawn_prepare_failed", error.to_string()))?;
+    let (mut receiver, child) = sidecar_command_with_qt_runtime(command, &app)
         .spawn()
         .map_err(|error| QQNTError::rust("engine_spawn_failed", error.to_string()))?;
 
@@ -62,10 +69,11 @@ async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
 
 async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
     let redis = redis_preflight().await?;
-    let mut command = app
+    let command = app
         .shell()
         .sidecar(SERVER_SIDECAR_PATH)
-        .map_err(|error| QQNTError::rust("server_spawn_prepare_failed", error.to_string()))?
+        .map_err(|error| QQNTError::rust("server_spawn_prepare_failed", error.to_string()))?;
+    let mut command = sidecar_command_with_qt_runtime(command, &app)
         .env("QTNETWORKCHAT_REDIS", "1")
         .env("QTNETWORKCHAT_REDIS_HOST", redis.host.as_str())
         .env("QTNETWORKCHAT_REDIS_PORT", redis.port.to_string());
@@ -110,6 +118,109 @@ async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
         "server_event_stream_closed",
         "QQNTServer event stream closed.",
     ))
+}
+
+fn sidecar_command_with_qt_runtime(command: Command, app: &AppHandle) -> Command {
+    let runtime_dirs = sidecar_runtime_dirs(app);
+    command
+        .env(
+            "PATH",
+            extended_path_value(std::env::var_os("PATH"), &runtime_dirs),
+        )
+        .env(
+            "QT_PLUGIN_PATH",
+            extended_path_value(std::env::var_os("QT_PLUGIN_PATH"), &runtime_dirs),
+        )
+}
+
+fn sidecar_runtime_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    collect_sidecar_runtime_dirs(
+        current_sidecar_base_dir(),
+        app.path().resource_dir().ok(),
+        std::env::current_dir().ok(),
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
+fn current_sidecar_base_dir() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))?;
+
+    if exe_dir.ends_with("deps") {
+        exe_dir.parent().map(Path::to_path_buf)
+    } else {
+        Some(exe_dir)
+    }
+}
+
+fn collect_sidecar_runtime_dirs(
+    sidecar_base_dir: Option<PathBuf>,
+    resource_dir: Option<PathBuf>,
+    current_dir: Option<PathBuf>,
+    manifest_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(base_dir) = sidecar_base_dir {
+        push_runtime_root(&mut dirs, &mut seen, base_dir);
+    }
+    if let Some(resource_dir) = resource_dir {
+        push_runtime_root(&mut dirs, &mut seen, resource_dir);
+    }
+    if let Some(current_dir) = current_dir {
+        push_runtime_root(&mut dirs, &mut seen, current_dir);
+    }
+
+    push_unique_path(&mut dirs, &mut seen, manifest_dir.join("binaries"));
+
+    dirs
+}
+
+fn push_runtime_root(dirs: &mut Vec<PathBuf>, seen: &mut HashSet<String>, root: PathBuf) {
+    push_unique_path(dirs, seen, root.join("binaries"));
+    push_unique_path(dirs, seen, root);
+}
+
+fn extended_path_value(existing: Option<OsString>, prepended_dirs: &[PathBuf]) -> OsString {
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+
+    for dir in prepended_dirs {
+        push_unique_path(&mut entries, &mut seen, dir.clone());
+    }
+
+    if let Some(existing) = existing {
+        for entry in std::env::split_paths(&existing) {
+            push_unique_path(&mut entries, &mut seen, entry);
+        }
+    }
+
+    std::env::join_paths(entries).unwrap_or_default()
+}
+
+fn push_unique_path(dirs: &mut Vec<PathBuf>, seen: &mut HashSet<String>, path: PathBuf) {
+    if path.as_os_str().is_empty() {
+        return;
+    }
+
+    let key = path_dedupe_key(&path);
+    if seen.insert(key) {
+        dirs.push(path);
+    }
+}
+
+fn path_dedupe_key(path: &Path) -> String {
+    let mut key = path
+        .as_os_str()
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    if cfg!(windows) {
+        key.make_ascii_lowercase();
+    }
+    key
 }
 
 async fn handle_server_event(app: &AppHandle, state: &Arc<AppState>, event: CommandEvent) -> bool {
@@ -408,6 +519,82 @@ mod tests {
                 "CMake should attach POST_BUILD sidecar copy for {sidecar}"
             );
         }
+    }
+
+    #[test]
+    fn sidecar_runtime_dirs_cover_dev_and_bundled_runtime_locations() {
+        let manifest_dir = PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri");
+        let dirs = collect_sidecar_runtime_dirs(
+            Some(PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri\target\debug")),
+            Some(PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri\target\debug")),
+            Some(PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri")),
+            &manifest_dir,
+        );
+        let expected = [
+            r"C:\repo\tauri-qqnt\src-tauri\target\debug\binaries",
+            r"C:\repo\tauri-qqnt\src-tauri\target\debug",
+            r"C:\repo\tauri-qqnt\src-tauri\binaries",
+            r"C:\repo\tauri-qqnt\src-tauri",
+        ];
+
+        for path in expected {
+            assert!(
+                dirs.iter().any(|dir| dir == Path::new(path)),
+                "sidecar runtime dirs should include {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn sidecar_runtime_dirs_do_not_duplicate_case_or_slash_variants() {
+        let manifest_dir = PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri");
+        let dirs = collect_sidecar_runtime_dirs(
+            Some(PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri\target\debug\")),
+            Some(PathBuf::from(r"c:\repo\tauri-qqnt\src-tauri\target\debug")),
+            Some(PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri")),
+            &manifest_dir,
+        );
+        let keys: Vec<String> = dirs.iter().map(|dir| path_dedupe_key(dir)).collect();
+        let unique: std::collections::HashSet<_> = keys.iter().cloned().collect();
+
+        assert_eq!(keys.len(), unique.len());
+    }
+
+    #[test]
+    fn sidecar_path_extension_preserves_existing_path_entries() {
+        let runtime = vec![
+            PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri\target\debug\binaries"),
+            PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri\target\debug"),
+        ];
+        let existing = std::env::join_paths([
+            PathBuf::from(r"C:\Windows\System32"),
+            PathBuf::from(r"C:\repo\tauri-qqnt\src-tauri\target\debug"),
+        ])
+        .expect("test PATH should join");
+        let extended = extended_path_value(Some(existing), &runtime);
+        let entries: Vec<PathBuf> = std::env::split_paths(&extended).collect();
+
+        assert_eq!(
+            entries.first(),
+            Some(&PathBuf::from(
+                r"C:\repo\tauri-qqnt\src-tauri\target\debug\binaries"
+            ))
+        );
+        assert!(
+            entries.contains(&PathBuf::from(r"C:\Windows\System32")),
+            "existing PATH entries should be preserved"
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| {
+                    path_dedupe_key(entry)
+                        == path_dedupe_key(Path::new(r"C:\repo\tauri-qqnt\src-tauri\target\debug"))
+                })
+                .count(),
+            1,
+            "runtime dirs already present in PATH should not be duplicated"
+        );
     }
 
     #[tokio::test]
