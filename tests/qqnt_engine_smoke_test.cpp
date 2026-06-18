@@ -487,6 +487,10 @@ int main(int argc, char* argv[]) {
                 "settings_sync invalid downloadDir command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-download-directory\",\"payload\":{\"settings\":{\"files\":{\"downloadDirectory\":42}}}}\n"),
                 "settings_sync invalid downloadDirectory command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-direct-dir-invalid-files\",\"payload\":{\"settings\":{\"fileDownloadDir\":\"C:/tmp/downloads\",\"files\":\"bad\"}}}\n"),
+                "settings_sync direct download dir with invalid files command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-direct-dir-invalid-nested-dir\",\"payload\":{\"settings\":{\"fileDownloadDir\":\"C:/tmp/downloads\",\"files\":{\"downloadDirectory\":42}}}}\n"),
+                "settings_sync direct download dir with invalid nested dir command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-invalid-payload\",\"payload\":\"bad\"}\n"),
                 "invalid payload command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
@@ -586,6 +590,11 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-settings-invalid-download-dir"),
+        QStringLiteral("smoke-settings-invalid-file-download-dir"),
+        QStringLiteral("smoke-settings-invalid-files"),
+        QStringLiteral("smoke-settings-invalid-download-directory"),
+        QStringLiteral("smoke-settings-direct-dir-invalid-files"),
+        QStringLiteral("smoke-settings-direct-dir-invalid-nested-dir"),
         QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field"),
         QStringLiteral("smoke-search-blank-account"),
@@ -948,6 +957,16 @@ int main(int argc, char* argv[]) {
                         "settings_sync with non-string downloadDirectory should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
                         "settings_sync with non-string downloadDirectory should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-direct-dir-invalid-files")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync should validate files even with direct fileDownloadDir") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync direct fileDownloadDir plus invalid files should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-direct-dir-invalid-nested-dir")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync should validate nested download dir even with direct fileDownloadDir") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync direct fileDownloadDir plus invalid nested dir should use invalid_settings code") && ok;
         } else if (reqId == QLatin1String("smoke-invalid-payload")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "non-object payload should return error ack") && ok;

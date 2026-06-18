@@ -89,7 +89,6 @@ bool downloadDirFromSettings(const QJsonObject& settings, QString* requestedDir,
     }
     if (!direct.isEmpty()) {
         *requestedDir = direct;
-        return true;
     }
 
     const QJsonValue filesValue = settings.value(QStringLiteral("files"));
@@ -112,9 +111,8 @@ bool downloadDirFromSettings(const QJsonObject& settings, QString* requestedDir,
                                      rejectReason)) {
         return false;
     }
-    if (!nested.isEmpty()) {
+    if (requestedDir->isEmpty() && !nested.isEmpty()) {
         *requestedDir = nested;
-        return true;
     }
 
     if (!optionalSettingsStringField(files,
@@ -124,7 +122,7 @@ bool downloadDirFromSettings(const QJsonObject& settings, QString* requestedDir,
                                      rejectReason)) {
         return false;
     }
-    if (!nested.isEmpty()) {
+    if (requestedDir->isEmpty() && !nested.isEmpty()) {
         *requestedDir = nested;
     }
     return true;

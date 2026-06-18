@@ -862,13 +862,7 @@ fn validate_settings_sync_command_payload(payload: &Value) -> Result<(), QQNTErr
         ));
     };
 
-    if let Some(download_dir) =
-        optional_settings_string_field(settings_value, "fileDownloadDir", "fileDownloadDir")?
-    {
-        if !download_dir.trim().is_empty() {
-            return Ok(());
-        }
-    }
+    optional_settings_string_field(settings_value, "fileDownloadDir", "fileDownloadDir")?;
 
     let Some(files_value) = settings.get("files") else {
         return Ok(());
@@ -884,13 +878,7 @@ fn validate_settings_sync_command_payload(payload: &Value) -> Result<(), QQNTErr
     };
     let _ = files;
 
-    if let Some(download_dir) =
-        optional_settings_string_field(files_value, "downloadDir", "files.downloadDir")?
-    {
-        if !download_dir.trim().is_empty() {
-            return Ok(());
-        }
-    }
+    optional_settings_string_field(files_value, "downloadDir", "files.downloadDir")?;
     optional_settings_string_field(files_value, "downloadDirectory", "files.downloadDirectory")?;
     Ok(())
 }
@@ -1708,6 +1696,16 @@ mod tests {
                     "downloadDirectory": 42
                 }
             }),
+            json!({
+                "fileDownloadDir": "C:/tmp/downloads",
+                "files": "bad"
+            }),
+            json!({
+                "fileDownloadDir": "C:/tmp/downloads",
+                "files": {
+                    "downloadDirectory": 42
+                }
+            }),
         ] {
             let error = validate_generic_command(&json!({
                 "op": "settings_sync",
@@ -2445,11 +2443,25 @@ mod tests {
             }
         }))
         .expect_err("settings.files.downloadDirectory must be a string when provided");
+        let direct_plus_invalid_files_error = settings_sync_payload(json!({
+            "fileDownloadDir": "C:/tmp/downloads",
+            "files": "bad"
+        }))
+        .expect_err("settings.files must still be validated when fileDownloadDir is valid");
+        let direct_plus_invalid_nested_error = settings_sync_payload(json!({
+            "fileDownloadDir": "C:/tmp/downloads",
+            "files": {
+                "downloadDirectory": 42
+            }
+        }))
+        .expect_err("settings.files aliases must still be validated when fileDownloadDir is valid");
 
         assert_eq!(direct_error.code, "invalid_settings");
         assert_eq!(files_error.code, "invalid_settings");
         assert_eq!(nested_download_dir_error.code, "invalid_settings");
         assert_eq!(nested_download_directory_error.code, "invalid_settings");
+        assert_eq!(direct_plus_invalid_files_error.code, "invalid_settings");
+        assert_eq!(direct_plus_invalid_nested_error.code, "invalid_settings");
     }
 
     #[test]

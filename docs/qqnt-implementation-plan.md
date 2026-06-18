@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
 | `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
 | `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
-| `query_resume` | `{transferId, filePath?, receiverId xor groupId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送，恢复发送目标必须二选一 |
+| `query_resume` | `{transferId, filePath?, receiverId xor groupId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送，恢复发送目标必须二选一；目标字段仅在恢复模式有效 |
 | `e2e_status` | `{peerId?}` | E2E 状态；省略时返回本机身份，提供时追加会话与对端身份 |
 | `e2e_announce_identity` | `{peerId}` | 身份公告 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定身份 |
@@ -783,7 +783,7 @@ npm run tauri build
 | 7.2 | 个人资料编辑页 | Kimi | 昵称头像可修改 |
 | 7.3 | 8 个扩展页 mock 占位 | Kimi | 入口与 UI 完整 |
 
-> 后端已支持 `settings_sync` 校验、最近设置快照、`settings_synced` 事件，以及文件下载目录设置应用；前端可通过 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 影响 engine 接收文件保存位置。
+> 后端已支持 `settings_sync` 校验、最近设置快照、`settings_synced` 事件，以及文件下载目录设置应用；前端可通过 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 影响 engine 接收文件保存位置，且任一已提供字段都必须保持类型合法，不会因其他下载目录字段存在而被跳过校验。
 
 ### Phase 8：收尾
 
