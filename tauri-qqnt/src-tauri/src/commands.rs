@@ -821,6 +821,182 @@ mod tests {
     }
 
     #[test]
+    fn ack_payload_validates_connect_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "connect",
+                "reqId": "req-connect",
+                "status": "ok",
+                "payload": { "connected": true, "host": "127.0.0.1", "port": 70000 }
+            }),
+            "connect",
+        )
+        .expect_err("connect ack with out-of-range port should fail");
+
+        assert_eq!(error.code, "invalid_connect_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_login_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "login",
+                "reqId": "req-login",
+                "status": "ok",
+                "payload": { "accepted": true, "requiresConnect": true }
+            }),
+            "login",
+        )
+        .expect_err("login ack without mode should fail");
+
+        assert_eq!(error.code, "invalid_login_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_bool_ack_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "send_file",
+                "reqId": "req-file",
+                "status": "ok",
+                "payload": {}
+            }),
+            "send_file",
+        )
+        .expect_err("send_file ack without accepted should fail");
+
+        assert_eq!(error.code, "invalid_send_file_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_send_private_message_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "send_private_message",
+                "reqId": "req-message",
+                "status": "ok",
+                "payload": { "receiverId": "" }
+            }),
+            "send_private_message",
+        )
+        .expect_err("send_private_message ack without non-empty receiverId should fail");
+
+        assert_eq!(error.code, "invalid_send_private_message_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_cancel_transfer_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "cancel_transfer",
+                "reqId": "req-cancel",
+                "status": "ok",
+                "payload": { "cancelled": true }
+            }),
+            "cancel_transfer",
+        )
+        .expect_err("cancel_transfer ack without transferId should fail");
+
+        assert_eq!(error.code, "invalid_cancel_transfer_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_query_resume_contract_fields() {
+        let payload = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "query_resume",
+                "reqId": "req-resume",
+                "status": "ok",
+                "payload": {
+                    "canResume": true,
+                    "transferId": "transfer-1",
+                    "confirmedBytes": "128",
+                    "nextChunkIndex": "2",
+                    "fileSize": "1024",
+                    "chunkSize": "64",
+                    "chunkCount": "16",
+                    "fileHash": "abc123",
+                    "receivedChunks": ["0", "1"],
+                    "resumed": true,
+                    "mode": "resume"
+                }
+            }),
+            "query_resume",
+        )
+        .expect("query_resume ack with contract fields should pass");
+
+        assert_eq!(payload["mode"], "resume");
+    }
+
+    #[test]
+    fn ack_payload_rejects_query_resume_without_received_chunks() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "query_resume",
+                "reqId": "req-resume",
+                "status": "ok",
+                "payload": {
+                    "canResume": true,
+                    "transferId": "transfer-1",
+                    "confirmedBytes": "128",
+                    "nextChunkIndex": "2",
+                    "fileSize": "1024",
+                    "chunkSize": "64",
+                    "chunkCount": "16",
+                    "fileHash": "abc123",
+                    "resumed": false,
+                    "mode": "query"
+                }
+            }),
+            "query_resume",
+        )
+        .expect_err("query_resume ack without receivedChunks should fail");
+
+        assert_eq!(error.code, "invalid_query_resume_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_e2e_status_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "e2e_status",
+                "reqId": "req-e2e",
+                "status": "ok",
+                "payload": { "peerId": "10002", "session": {}, "identity": {} }
+            }),
+            "e2e_status",
+        )
+        .expect_err("e2e_status ack without localIdentity should fail");
+
+        assert_eq!(error.code, "invalid_e2e_status_payload");
+    }
+
+    #[test]
+    fn ack_payload_validates_profile_update_contract_fields() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "profile_update",
+                "reqId": "req-profile",
+                "status": "ok",
+                "payload": { "accepted": true, "avatarSent": true }
+            }),
+            "profile_update",
+        )
+        .expect_err("profile_update ack without userName should fail");
+
+        assert_eq!(error.code, "invalid_profile_update_payload");
+    }
+
+    #[test]
     fn ack_payload_validates_user_list_contract_fields() {
         let payload = ack_payload(
             json!({

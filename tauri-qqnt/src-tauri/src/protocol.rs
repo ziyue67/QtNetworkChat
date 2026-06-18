@@ -55,12 +55,117 @@ pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<(
 pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()> {
     match op {
         "ready" => validate_ready_payload(payload),
+        "connect" => validate_connect_ack_payload(payload),
+        "login" => validate_login_ack_payload(payload, "login", "login"),
+        "register" => validate_login_ack_payload(payload, "register", "register"),
         "get_user_list" => validate_user_list_payload(payload, "get_user_list"),
         "get_friend_list" => validate_friend_list_payload(payload, "get_friend_list"),
         "get_group_list" => validate_group_collection_payload(payload, "get_group_list"),
+        "search_friend"
+        | "send_friend_request"
+        | "respond_friend_request"
+        | "send_group_message"
+        | "create_group"
+        | "update_group_announcement"
+        | "update_group_member"
+        | "send_file"
+        | "send_image"
+        | "e2e_announce_identity"
+        | "e2e_pin_identity"
+        | "e2e_request_rotation" => validate_bool_ack_payload(payload, op),
+        "send_private_message" => validate_send_private_message_ack_payload(payload),
+        "cancel_transfer" => validate_cancel_transfer_ack_payload(payload),
+        "query_resume" => validate_query_resume_ack_payload(payload),
+        "e2e_status" => validate_e2e_status_ack_payload(payload),
+        "profile_update" => validate_profile_update_ack_payload(payload),
         "settings_sync" => validate_settings_synced_payload(payload, "settings_sync"),
         _ => Ok(()),
     }
+}
+
+fn validate_connect_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_true_bool_field(payload, "connected", "connect")?;
+    require_non_empty_string_field(payload, "host", "connect")?;
+    require_tcp_port_field(payload, "port", "connect")?;
+
+    Ok(())
+}
+
+fn validate_login_ack_payload(
+    payload: &Value,
+    contract_name: &str,
+    expected_mode: &str,
+) -> QQNTResult<()> {
+    require_true_bool_field(payload, "accepted", contract_name)?;
+    require_bool_field(payload, "requiresConnect", contract_name)?;
+    require_string_value_field(payload, "mode", expected_mode, contract_name)?;
+
+    Ok(())
+}
+
+fn validate_bool_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_true_bool_field(payload, "accepted", contract_name)?;
+
+    Ok(())
+}
+
+fn validate_send_private_message_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "receiverId", "send_private_message")?;
+
+    Ok(())
+}
+
+fn validate_cancel_transfer_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_true_bool_field(payload, "cancelled", "cancel_transfer")?;
+    require_non_empty_string_field(payload, "transferId", "cancel_transfer")?;
+
+    Ok(())
+}
+
+fn validate_query_resume_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_true_bool_field(payload, "canResume", "query_resume")?;
+    require_non_empty_string_field(payload, "transferId", "query_resume")?;
+    require_unsigned_integer_string_field(payload, "confirmedBytes", "query_resume")?;
+    require_unsigned_integer_string_field(payload, "nextChunkIndex", "query_resume")?;
+    require_unsigned_integer_string_field(payload, "fileSize", "query_resume")?;
+    require_unsigned_integer_string_field(payload, "chunkSize", "query_resume")?;
+    require_unsigned_integer_string_field(payload, "chunkCount", "query_resume")?;
+    require_string_field(payload, "fileHash", "query_resume")?;
+    require_unsigned_integer_string_array_field(payload, "receivedChunks", "query_resume")?;
+    require_bool_field(payload, "resumed", "query_resume")?;
+    require_one_of_string_field(payload, "mode", &["query", "resume"], "query_resume")?;
+
+    Ok(())
+}
+
+fn validate_e2e_status_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_object_field(payload, "localIdentity", "e2e_status")?;
+
+    let has_peer_id = payload.get("peerId").is_some();
+    let has_session = payload.get("session").is_some();
+    let has_identity = payload.get("identity").is_some();
+    if !has_peer_id && (has_session || has_identity) {
+        return Err(QQNTError::rust(
+            "invalid_e2e_status_payload",
+            "QQNTEngine e2e_status payload must include peerId when session or identity is present.",
+        ));
+    }
+
+    if has_peer_id {
+        require_non_empty_string_field(payload, "peerId", "e2e_status")?;
+        require_object_field(payload, "session", "e2e_status")?;
+        require_object_field(payload, "identity", "e2e_status")?;
+    }
+
+    Ok(())
+}
+
+fn validate_profile_update_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_true_bool_field(payload, "accepted", "profile_update")?;
+    require_bool_field(payload, "avatarSent", "profile_update")?;
+    require_string_field(payload, "userName", "profile_update")?;
+
+    Ok(())
 }
 
 fn validate_group_collection_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
@@ -301,6 +406,20 @@ fn require_unsigned_number_field(
     ))
 }
 
+fn require_tcp_port_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
+    if matches!(
+        payload.get(field).and_then(Value::as_u64),
+        Some(value) if (1..=u16::MAX as u64).contains(&value)
+    ) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} TCP port number."),
+    ))
+}
+
 fn require_object_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
     if matches!(payload.get(field), Some(Value::Object(_))) {
         return Ok(());
@@ -330,6 +449,17 @@ fn require_non_empty_string_field(
     ))
 }
 
+fn require_true_bool_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
+    if matches!(payload.get(field), Some(Value::Bool(true))) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} true."),
+    ))
+}
+
 fn require_string_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
     if matches!(payload.get(field), Some(Value::String(_))) {
         return Ok(());
@@ -339,6 +469,84 @@ fn require_string_field(payload: &Value, field: &str, contract_name: &str) -> QQ
         format!("invalid_{contract_name}_payload"),
         format!("QQNTEngine {contract_name} payload must include {field} string."),
     ))
+}
+
+fn require_string_value_field(
+    payload: &Value,
+    field: &str,
+    expected: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    if payload.get(field).and_then(Value::as_str) == Some(expected) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!(
+            "QQNTEngine {contract_name} payload must include {field} string equal to {expected}."
+        ),
+    ))
+}
+
+fn require_one_of_string_field(
+    payload: &Value,
+    field: &str,
+    expected: &[&str],
+    contract_name: &str,
+) -> QQNTResult<()> {
+    match payload.get(field).and_then(Value::as_str) {
+        Some(value) if expected.contains(&value) => Ok(()),
+        _ => Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!(
+                "QQNTEngine {contract_name} payload must include {field} as a supported string."
+            ),
+        )),
+    }
+}
+
+fn require_unsigned_integer_string_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    if matches!(
+        payload.get(field).and_then(Value::as_str),
+        Some(value) if value.parse::<u64>().is_ok()
+    ) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} unsigned integer string."),
+    ))
+}
+
+fn require_unsigned_integer_string_array_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    match payload.get(field).and_then(Value::as_array) {
+        Some(items)
+            if items.iter().all(|item| {
+                matches!(
+                    item.as_str(),
+                    Some(value) if value.parse::<u64>().is_ok()
+                )
+            }) =>
+        {
+            Ok(())
+        }
+        _ => Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!(
+                "QQNTEngine {contract_name} payload must include {field} as an unsigned integer string array."
+            ),
+        )),
+    }
 }
 
 fn require_optional_non_empty_string_field(
@@ -861,6 +1069,201 @@ mod tests {
         .expect_err("group_snapshot without boolean hasSnapshot should fail");
 
         assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn connect_ack_payload_accepts_contract_fields() {
+        validate_command_ack_payload(
+            "connect",
+            &json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 8888
+            }),
+        )
+        .expect("connect ack with contract fields should pass");
+    }
+
+    #[test]
+    fn connect_ack_payload_rejects_invalid_port() {
+        let error = validate_command_ack_payload(
+            "connect",
+            &json!({
+                "connected": true,
+                "host": "127.0.0.1",
+                "port": 0
+            }),
+        )
+        .expect_err("connect ack with invalid port should fail");
+
+        assert_eq!(error.code, "invalid_connect_payload");
+    }
+
+    #[test]
+    fn login_ack_payload_requires_login_mode() {
+        let error = validate_command_ack_payload(
+            "login",
+            &json!({
+                "accepted": true,
+                "requiresConnect": false,
+                "mode": "register"
+            }),
+        )
+        .expect_err("login ack with register mode should fail");
+
+        assert_eq!(error.code, "invalid_login_payload");
+    }
+
+    #[test]
+    fn register_ack_payload_accepts_register_mode() {
+        validate_command_ack_payload(
+            "register",
+            &json!({
+                "accepted": true,
+                "requiresConnect": true,
+                "mode": "register"
+            }),
+        )
+        .expect("register ack with register mode should pass");
+    }
+
+    #[test]
+    fn bool_ack_payload_requires_accepted_true() {
+        let error = validate_command_ack_payload(
+            "send_file",
+            &json!({
+                "accepted": false
+            }),
+        )
+        .expect_err("successful bool ack with accepted false should fail");
+
+        assert_eq!(error.code, "invalid_send_file_payload");
+    }
+
+    #[test]
+    fn send_private_message_ack_payload_requires_receiver_id() {
+        let error = validate_command_ack_payload("send_private_message", &json!({}))
+            .expect_err("send_private_message ack without receiverId should fail");
+
+        assert_eq!(error.code, "invalid_send_private_message_payload");
+    }
+
+    #[test]
+    fn cancel_transfer_ack_payload_accepts_contract_fields() {
+        validate_command_ack_payload(
+            "cancel_transfer",
+            &json!({
+                "cancelled": true,
+                "transferId": "transfer-1"
+            }),
+        )
+        .expect("cancel_transfer ack with contract fields should pass");
+    }
+
+    #[test]
+    fn query_resume_ack_payload_accepts_contract_fields() {
+        validate_command_ack_payload(
+            "query_resume",
+            &json!({
+                "canResume": true,
+                "transferId": "transfer-1",
+                "confirmedBytes": "128",
+                "nextChunkIndex": "2",
+                "fileSize": "1024",
+                "chunkSize": "64",
+                "chunkCount": "16",
+                "fileHash": "abc123",
+                "receivedChunks": ["0", "1"],
+                "resumed": false,
+                "mode": "query"
+            }),
+        )
+        .expect("query_resume ack with contract fields should pass");
+    }
+
+    #[test]
+    fn query_resume_ack_payload_requires_received_chunks() {
+        let error = validate_command_ack_payload(
+            "query_resume",
+            &json!({
+                "canResume": true,
+                "transferId": "transfer-1",
+                "confirmedBytes": "128",
+                "nextChunkIndex": "2",
+                "fileSize": "1024",
+                "chunkSize": "64",
+                "chunkCount": "16",
+                "fileHash": "abc123",
+                "resumed": false,
+                "mode": "query"
+            }),
+        )
+        .expect_err("query_resume ack without receivedChunks should fail");
+
+        assert_eq!(error.code, "invalid_query_resume_payload");
+    }
+
+    #[test]
+    fn query_resume_ack_payload_rejects_numeric_counters() {
+        let error = validate_command_ack_payload(
+            "query_resume",
+            &json!({
+                "canResume": true,
+                "transferId": "transfer-1",
+                "confirmedBytes": 128,
+                "nextChunkIndex": "2",
+                "fileSize": "1024",
+                "chunkSize": "64",
+                "chunkCount": "16",
+                "fileHash": "abc123",
+                "receivedChunks": ["0", "1"],
+                "resumed": false,
+                "mode": "query"
+            }),
+        )
+        .expect_err("query_resume ack uses C++ string counters");
+
+        assert_eq!(error.code, "invalid_query_resume_payload");
+    }
+
+    #[test]
+    fn e2e_status_ack_payload_accepts_local_identity_only() {
+        validate_command_ack_payload(
+            "e2e_status",
+            &json!({
+                "localIdentity": {}
+            }),
+        )
+        .expect("e2e_status ack with localIdentity should pass");
+    }
+
+    #[test]
+    fn e2e_status_ack_payload_requires_peer_shape_when_present() {
+        let error = validate_command_ack_payload(
+            "e2e_status",
+            &json!({
+                "localIdentity": {},
+                "peerId": "10002",
+                "session": {}
+            }),
+        )
+        .expect_err("e2e_status ack with peerId must include identity");
+
+        assert_eq!(error.code, "invalid_e2e_status_payload");
+    }
+
+    #[test]
+    fn profile_update_ack_payload_requires_avatar_sent() {
+        let error = validate_command_ack_payload(
+            "profile_update",
+            &json!({
+                "accepted": true,
+                "userName": "Alice"
+            }),
+        )
+        .expect_err("profile_update ack without avatarSent should fail");
+
+        assert_eq!(error.code, "invalid_profile_update_payload");
     }
 
     #[test]
