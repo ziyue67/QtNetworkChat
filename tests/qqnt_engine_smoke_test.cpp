@@ -403,8 +403,20 @@ int main(int argc, char* argv[]) {
                 "connect missing host command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
                 "connect invalid port command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-missing-account\",\"payload\":{\"password\":\"smoke-password\"}}\n"),
+                "login missing account command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-missing-password\",\"payload\":{\"account\":\"smoke-account\"}}\n"),
+                "login missing password command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-account\",\"payload\":{\"password\":\"smoke-password\",\"userName\":\"Smoke Register\"}}\n"),
+                "register missing account command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-password\",\"payload\":{\"account\":\"smoke-register\",\"userName\":\"Smoke Register\"}}\n"),
+                "register missing password command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-user-name\",\"payload\":{\"account\":\"smoke-register\",\"password\":\"smoke-password\"}}\n"),
                 "register missing userName command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"set_user_info\",\"reqId\":\"smoke-user-info-missing-id\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
+                "set_user_info missing userId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"set_user_info\",\"reqId\":\"smoke-user-info-missing-name\",\"payload\":{\"userId\":\"10000\"}}\n"),
+                "set_user_info missing userName command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
                 "e2e_status command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e-invalid-peer\",\"payload\":{\"peerId\":10001}}\n"),
@@ -461,6 +473,8 @@ int main(int argc, char* argv[]) {
                 "invalid payload command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
                 "missing field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-search-blank-account\",\"payload\":{\"account\":\"   \"}}\n"),
+                "search_friend blank account command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_friend_request\",\"reqId\":\"smoke-friend-request-missing-receiver\",\"payload\":{}}\n"),
                 "send_friend_request missing receiverId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-sender\",\"payload\":{\"accepted\":true}}\n"),
@@ -516,7 +530,13 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-missing-op"),
         QStringLiteral("smoke-connect-missing-host"),
         QStringLiteral("smoke-connect-invalid-port"),
+        QStringLiteral("smoke-login-missing-account"),
+        QStringLiteral("smoke-login-missing-password"),
+        QStringLiteral("smoke-register-missing-account"),
+        QStringLiteral("smoke-register-missing-password"),
         QStringLiteral("smoke-register-missing-user-name"),
+        QStringLiteral("smoke-user-info-missing-id"),
+        QStringLiteral("smoke-user-info-missing-name"),
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-e2e-invalid-peer"),
         QStringLiteral("smoke-e2e-announce-missing"),
@@ -545,6 +565,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-settings-invalid-download-dir"),
         QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field"),
+        QStringLiteral("smoke-search-blank-account"),
         QStringLiteral("smoke-friend-request-missing-receiver"),
         QStringLiteral("smoke-friend-response-missing-sender"),
         QStringLiteral("smoke-friend-response-missing-accepted"),
@@ -690,11 +711,41 @@ int main(int argc, char* argv[]) {
                         "connect with invalid port should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "connect with invalid port should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-login-missing-account")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "login without account should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "login without account should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-login-missing-password")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "login without password should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "login without password should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-register-missing-account")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "register without account should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "register without account should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-register-missing-password")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "register without password should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "register without password should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-register-missing-user-name")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "register without userName should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "register without userName should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-user-info-missing-id")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "set_user_info without userId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "set_user_info without userId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-user-info-missing-name")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "set_user_info without userName should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "set_user_info without userName should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-e2e")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "e2e_status should return ok ack") && ok;
@@ -839,6 +890,11 @@ int main(int argc, char* argv[]) {
                         "missing required field should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "missing required field should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-search-blank-account")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "search_friend blank account should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "search_friend blank account should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-friend-request-missing-receiver")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "send_friend_request missing receiverId should return error ack") && ok;
