@@ -339,13 +339,9 @@ pub async fn e2e_status(
     req_id: String,
     peer_id: Option<String>,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "e2e_status",
-        req_id,
-        json!({ "peerId": peer_id }),
-    )
-    .await
+    let payload = e2e_status_payload(peer_id)?;
+
+    call_engine_payload(state.inner(), "e2e_status", req_id, payload).await
 }
 
 #[tauri::command]
@@ -354,13 +350,9 @@ pub async fn e2e_announce_identity(
     req_id: String,
     peer_id: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "e2e_announce_identity",
-        req_id,
-        json!({ "peerId": peer_id }),
-    )
-    .await
+    let payload = e2e_peer_payload(peer_id)?;
+
+    call_engine_payload(state.inner(), "e2e_announce_identity", req_id, payload).await
 }
 
 #[tauri::command]
@@ -370,16 +362,9 @@ pub async fn e2e_pin_identity(
     peer_id: String,
     fingerprint: Option<String>,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "e2e_pin_identity",
-        req_id,
-        json!({
-            "peerId": peer_id,
-            "fingerprint": fingerprint
-        }),
-    )
-    .await
+    let payload = e2e_pin_identity_payload(peer_id, fingerprint)?;
+
+    call_engine_payload(state.inner(), "e2e_pin_identity", req_id, payload).await
 }
 
 #[tauri::command]
@@ -388,13 +373,9 @@ pub async fn e2e_request_rotation(
     req_id: String,
     peer_id: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "e2e_request_rotation",
-        req_id,
-        json!({ "peerId": peer_id }),
-    )
-    .await
+    let payload = e2e_peer_payload(peer_id)?;
+
+    call_engine_payload(state.inner(), "e2e_request_rotation", req_id, payload).await
 }
 
 #[tauri::command]
@@ -404,16 +385,9 @@ pub async fn profile_update(
     user_name: Option<String>,
     avatar_base64: Option<String>,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "profile_update",
-        req_id,
-        json!({
-            "userName": user_name,
-            "avatarBase64": avatar_base64
-        }),
-    )
-    .await
+    let payload = profile_update_payload(user_name, avatar_base64)?;
+
+    call_engine_payload(state.inner(), "profile_update", req_id, payload).await
 }
 
 #[tauri::command]
@@ -422,13 +396,9 @@ pub async fn settings_sync(
     req_id: String,
     settings: Value,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state.inner(),
-        "settings_sync",
-        req_id,
-        json!({ "settings": settings }),
-    )
-    .await
+    let payload = settings_sync_payload(settings)?;
+
+    call_engine_payload(state.inner(), "settings_sync", req_id, payload).await
 }
 
 async fn login_like(
@@ -519,6 +489,48 @@ fn send_private_message_payload(receiver_id: String, content: String) -> Result<
         "content": content
     });
     validate_send_private_message_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn e2e_status_payload(peer_id: Option<String>) -> Result<Value, QQNTError> {
+    let payload = compact_payload(json!({ "peerId": peer_id }));
+    validate_e2e_status_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn e2e_peer_payload(peer_id: String) -> Result<Value, QQNTError> {
+    let payload = json!({ "peerId": peer_id });
+    validate_e2e_peer_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn e2e_pin_identity_payload(
+    peer_id: String,
+    fingerprint: Option<String>,
+) -> Result<Value, QQNTError> {
+    let payload = compact_payload(json!({
+        "peerId": peer_id,
+        "fingerprint": fingerprint
+    }));
+    validate_e2e_pin_identity_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn profile_update_payload(
+    user_name: Option<String>,
+    avatar_base64: Option<String>,
+) -> Result<Value, QQNTError> {
+    let payload = compact_payload(json!({
+        "userName": user_name,
+        "avatarBase64": avatar_base64
+    }));
+    validate_profile_update_command_payload(&payload)?;
+    Ok(payload)
+}
+
+fn settings_sync_payload(settings: Value) -> Result<Value, QQNTError> {
+    let payload = json!({ "settings": settings });
+    validate_settings_sync_command_payload(&payload)?;
     Ok(payload)
 }
 
@@ -732,6 +744,13 @@ fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> 
         "send_friend_request" => validate_send_friend_request_command_payload(payload),
         "respond_friend_request" => validate_respond_friend_request_command_payload(payload),
         "send_private_message" => validate_send_private_message_command_payload(payload),
+        "e2e_status" => validate_e2e_status_command_payload(payload),
+        "e2e_announce_identity" | "e2e_request_rotation" => {
+            validate_e2e_peer_command_payload(payload)
+        }
+        "e2e_pin_identity" => validate_e2e_pin_identity_command_payload(payload),
+        "profile_update" => validate_profile_update_command_payload(payload),
+        "settings_sync" => validate_settings_sync_command_payload(payload),
         "send_group_message" => validate_send_group_message_command_payload(payload),
         "create_group" => validate_create_group_command_payload(payload),
         "update_group_announcement" => validate_update_group_announcement_command_payload(payload),
@@ -791,6 +810,82 @@ fn validate_send_private_message_command_payload(payload: &Value) -> Result<(), 
 
 fn validate_cancel_transfer_command_payload(payload: &Value) -> Result<(), QQNTError> {
     require_non_empty_command_string_field(payload, "transferId")?;
+    Ok(())
+}
+
+fn validate_e2e_status_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    optional_command_string_field(payload, "peerId", "invalid_peer_id")?;
+    Ok(())
+}
+
+fn validate_e2e_peer_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "peerId")?;
+    Ok(())
+}
+
+fn validate_e2e_pin_identity_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    validate_e2e_peer_command_payload(payload)?;
+    optional_command_string_field(payload, "fingerprint", "invalid_fingerprint")?;
+    Ok(())
+}
+
+fn validate_profile_update_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    optional_command_string_field(payload, "userName", "invalid_profile_field")?;
+    let avatar_base64 =
+        optional_command_string_field(payload, "avatarBase64", "invalid_profile_field")?;
+    if !avatar_base64.trim().is_empty() && !is_valid_standard_base64(avatar_base64.trim()) {
+        return Err(QQNTError::rust(
+            "invalid_profile_field",
+            "payload.avatarBase64 must be valid Base64 when provided.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_settings_sync_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    let Some(settings_value) = payload.get("settings") else {
+        return Err(QQNTError::rust(
+            "invalid_settings",
+            "payload.settings must be an object.",
+        ));
+    };
+    let Some(settings) = settings_value.as_object() else {
+        return Err(QQNTError::rust(
+            "invalid_settings",
+            "payload.settings must be an object.",
+        ));
+    };
+
+    if let Some(download_dir) =
+        optional_settings_string_field(settings_value, "fileDownloadDir", "fileDownloadDir")?
+    {
+        if !download_dir.trim().is_empty() {
+            return Ok(());
+        }
+    }
+
+    let Some(files_value) = settings.get("files") else {
+        return Ok(());
+    };
+    if files_value.is_null() {
+        return Ok(());
+    }
+    let Some(files) = files_value.as_object() else {
+        return Err(QQNTError::rust(
+            "invalid_settings",
+            "settings.files must be an object when provided.",
+        ));
+    };
+    let _ = files;
+
+    if let Some(download_dir) =
+        optional_settings_string_field(files_value, "downloadDir", "files.downloadDir")?
+    {
+        if !download_dir.trim().is_empty() {
+            return Ok(());
+        }
+    }
+    optional_settings_string_field(files_value, "downloadDirectory", "files.downloadDirectory")?;
     Ok(())
 }
 
@@ -967,6 +1062,57 @@ fn optional_command_string_field<'a>(
             error_code,
             format!("payload.{field} must be a string when provided."),
         )),
+    }
+}
+
+fn optional_settings_string_field<'a>(
+    object: &'a Value,
+    field: &str,
+    label: &str,
+) -> Result<Option<&'a str>, QQNTError> {
+    match object.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.as_str())),
+        _ => Err(QQNTError::rust(
+            "invalid_settings",
+            format!("settings.{label} must be a string when provided."),
+        )),
+    }
+}
+
+fn is_valid_standard_base64(value: &str) -> bool {
+    let mut padding_count = 0usize;
+    let mut data_count = 0usize;
+    let mut padding_started = false;
+
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' => {
+                if padding_started {
+                    return false;
+                }
+                data_count += 1;
+            }
+            b'=' => {
+                padding_started = true;
+                padding_count += 1;
+                if padding_count > 2 {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    let total_len = data_count + padding_count;
+    if total_len == 0 || total_len % 4 == 1 {
+        return false;
+    }
+    match padding_count {
+        0 => true,
+        1 => total_len % 4 == 0 && data_count % 4 == 3,
+        2 => total_len % 4 == 0 && data_count % 4 == 2,
+        _ => false,
     }
 }
 
@@ -1383,6 +1529,81 @@ mod tests {
         .expect_err("generic private message should require content");
 
         assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_e2e_status_invalid_peer_id() {
+        let error = validate_generic_command(&json!({
+            "op": "e2e_status",
+            "reqId": "req-e2e-status",
+            "payload": {
+                "peerId": 10001
+            }
+        }))
+        .expect_err("generic e2e_status peerId must be a string when provided");
+
+        assert_eq!(error.code, "invalid_peer_id");
+    }
+
+    #[test]
+    fn generic_command_rejects_e2e_announce_missing_peer_id() {
+        let error = validate_generic_command(&json!({
+            "op": "e2e_announce_identity",
+            "reqId": "req-e2e-announce",
+            "payload": {
+                "peerId": ""
+            }
+        }))
+        .expect_err("generic e2e_announce_identity should require peerId");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_e2e_pin_invalid_fingerprint() {
+        let error = validate_generic_command(&json!({
+            "op": "e2e_pin_identity",
+            "reqId": "req-e2e-pin",
+            "payload": {
+                "peerId": "10001",
+                "fingerprint": false
+            }
+        }))
+        .expect_err("generic e2e_pin_identity fingerprint must be a string when provided");
+
+        assert_eq!(error.code, "invalid_fingerprint");
+    }
+
+    #[test]
+    fn generic_command_rejects_profile_update_invalid_avatar() {
+        let error = validate_generic_command(&json!({
+            "op": "profile_update",
+            "reqId": "req-profile",
+            "payload": {
+                "avatarBase64": "not-base64%%%"
+            }
+        }))
+        .expect_err("generic profile_update avatarBase64 must be valid Base64");
+
+        assert_eq!(error.code, "invalid_profile_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_settings_sync_invalid_download_dir() {
+        let error = validate_generic_command(&json!({
+            "op": "settings_sync",
+            "reqId": "req-settings",
+            "payload": {
+                "settings": {
+                    "files": {
+                        "downloadDir": 42
+                    }
+                }
+            }
+        }))
+        .expect_err("generic settings_sync downloadDir must be a string when provided");
+
+        assert_eq!(error.code, "invalid_settings");
     }
 
     #[test]
@@ -1844,6 +2065,68 @@ mod tests {
             .expect_err("typed cancel_transfer payload should require transferId");
 
         assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn e2e_payloads_validate_optional_and_required_peer_fields() {
+        let status = e2e_status_payload(None).expect("e2e_status may omit peerId");
+        let announce_error = e2e_peer_payload(" ".to_string())
+            .expect_err("typed e2e peer command should require peerId");
+        let pin_payload = e2e_pin_identity_payload("10001".to_string(), Some("".to_string()))
+            .expect("empty fingerprint is allowed for local clearing");
+
+        assert!(status.get("peerId").is_none());
+        assert_eq!(announce_error.code, "missing_field");
+        assert_eq!(pin_payload["fingerprint"], "");
+    }
+
+    #[test]
+    fn profile_update_payload_validates_avatar_base64() {
+        let packet = command_packet(
+            "profile_update",
+            "req-profile".to_string(),
+            profile_update_payload(Some("Alice".to_string()), Some("aGVsbG8=".to_string()))
+                .expect("valid profile_update payload should pass"),
+        );
+        let error = profile_update_payload(None, Some("not-base64%%%".to_string()))
+            .expect_err("typed profile_update payload should reject invalid Base64");
+
+        assert_eq!(packet["payload"]["userName"], "Alice");
+        assert_eq!(packet["payload"]["avatarBase64"], "aGVsbG8=");
+        assert_eq!(error.code, "invalid_profile_field");
+    }
+
+    #[test]
+    fn settings_sync_payload_requires_object_settings() {
+        let valid = settings_sync_payload(json!({
+            "files": {
+                "downloadDirectory": "C:/tmp/downloads"
+            }
+        }))
+        .expect("valid settings_sync payload should pass");
+        let error = settings_sync_payload(json!("bad"))
+            .expect_err("typed settings_sync payload should require object settings");
+
+        assert!(valid["settings"]["files"].is_object());
+        assert_eq!(error.code, "invalid_settings");
+    }
+
+    #[test]
+    fn settings_sync_payload_rejects_invalid_download_dir_fields() {
+        let direct_error = settings_sync_payload(json!({ "fileDownloadDir": false }))
+            .expect_err("settings.fileDownloadDir must be a string when provided");
+        let files_error = settings_sync_payload(json!({ "files": "bad" }))
+            .expect_err("settings.files must be an object when provided");
+        let nested_error = settings_sync_payload(json!({
+            "files": {
+                "downloadDirectory": 42
+            }
+        }))
+        .expect_err("settings.files.downloadDirectory must be a string when provided");
+
+        assert_eq!(direct_error.code, "invalid_settings");
+        assert_eq!(files_error.code, "invalid_settings");
+        assert_eq!(nested_error.code, "invalid_settings");
     }
 
     #[test]
