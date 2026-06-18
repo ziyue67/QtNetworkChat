@@ -273,6 +273,32 @@ mod tests {
     }
 
     #[test]
+    fn tauri_packaging_contract_keeps_backend_bundle_entrypoints() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json should parse");
+        let package: Value = serde_json::from_str(include_str!("../../package.json"))
+            .expect("package.json should parse");
+        let capability: Value = serde_json::from_str(include_str!("../capabilities/default.json"))
+            .expect("default capability should parse");
+
+        assert_eq!(config["build"]["beforeBuildCommand"], "npm run build");
+        assert_eq!(config["build"]["frontendDist"], "../dist");
+        assert_eq!(config["bundle"]["active"], true);
+        assert_eq!(string_array(&config["bundle"], "targets"), vec!["nsis"]);
+
+        assert_eq!(package["scripts"]["build"], "tsc && vite build");
+        assert_eq!(package["scripts"]["tauri"], "tauri");
+
+        assert_eq!(config["app"]["windows"][0]["label"], "main");
+        assert_eq!(config["app"]["windows"][0]["decorations"], false);
+        assert_eq!(string_array(&capability, "windows"), vec!["main"]);
+        assert!(
+            string_array(&capability, "permissions").contains(&"core:default"),
+            "default capability should keep core desktop permissions"
+        );
+    }
+
+    #[test]
     fn copy_sidecars_defaults_match_rust_sidecars() {
         let script = include_str!("../../../scripts/copy-sidecars.ps1");
         let sidecar_param = script
