@@ -11,6 +11,7 @@ struct FileTransferStatusInfo {
 };
 
 FileTransferStatusInfo describeFileTransferReason(const QString& reason);
+QString canonicalFileTransferDirection(const QString& category, const QString& direction = QString());
 QString fileTransferUserMessage(const QString& reason, const QString& fallback = QString());
 QString fileTransferStatusEventMessage(const QString& fileName,
                                        const QString& transferId,

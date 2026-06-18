@@ -52,16 +52,6 @@ bool isFileTransferProgressOnlyCategory(const QString& category) {
         || category == QLatin1String("receive-started");
 }
 
-QString fileTransferDirectionForCategory(const QString& category, const QString& direction) {
-    const QString trimmedDirection = direction.trimmed();
-    if (!trimmedDirection.isEmpty()) {
-        return trimmedDirection;
-    }
-    return category.startsWith(QLatin1String("receive-"))
-        ? QStringLiteral("incoming")
-        : QStringLiteral("outgoing");
-}
-
 QString notificationTitleForMessage(const Message& message) {
     const QString senderName = message.senderName.trimmed();
     if (!senderName.isEmpty()) {
@@ -359,7 +349,7 @@ void QQNTClientBridge::bindClientSignals() {
             return;
         }
 
-        const QString resolvedDirection = fileTransferDirectionForCategory(info.category, direction);
+        const QString resolvedDirection = canonicalFileTransferDirection(info.category, direction);
         if (reason.trimmed().isEmpty() || isFileTransferDoneCategory(info.category)) {
             QJsonObject payload;
             payload[QStringLiteral("transferId")] = transferId;
