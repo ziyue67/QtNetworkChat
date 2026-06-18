@@ -62,6 +62,13 @@ MessageType resumeMessageTypeFromPayload(const QJsonObject& payload, const QStri
     return MessageType::File;
 }
 
+bool isSupportedResumeContentType(const QString& contentType) {
+    const QString textType = contentType.trimmed().toLower();
+    return textType.isEmpty()
+        || textType == QLatin1String("file")
+        || textType == QLatin1String("image");
+}
+
 bool optionalSettingsStringField(const QJsonObject& object,
                                  const QString& field,
                                  const QString& label,
@@ -674,6 +681,13 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
                                 QStringLiteral("invalid_content_type"),
                                 op,
                                 reqId)) {
+        return;
+    }
+    if (!isSupportedResumeContentType(contentType)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_content_type"),
+                               QStringLiteral("query_resume contentType must be file or image when provided."));
         return;
     }
     filePath = filePath.trimmed();
