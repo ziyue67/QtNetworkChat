@@ -387,6 +387,12 @@ bool validateStrictCommandValidation(const QString& markdown,
     ok = expectContains(rustCommandsSource,
                         QStringLiteral("Command payload for {op} contains unsupported field: {field}."),
                         QStringLiteral("Rust unsupported payload field error")) && ok;
+    ok = expectContains(rustCommandsSource,
+                        QStringLiteral("fn validate_target_error_details"),
+                        QStringLiteral("Rust target validation error details guard")) && ok;
+    ok = expectContains(rustCommandsSource,
+                        QStringLiteral("details.targetFields"),
+                        QStringLiteral("Rust target validation error details message")) && ok;
     return ok;
 }
 }
