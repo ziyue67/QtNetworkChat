@@ -407,6 +407,8 @@ int main(int argc, char* argv[]) {
                 "settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
                 "invalid settings_sync command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-invalid-payload\",\"payload\":\"bad\"}\n"),
+                "invalid payload command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
                 "missing field command should be written") && ok;
 
@@ -434,6 +436,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
+        QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field")
     };
     expectedAckReqIds.unite(contractAckReqIds);
@@ -572,6 +575,11 @@ int main(int argc, char* argv[]) {
                         "invalid settings_sync should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
                         "invalid settings_sync should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-invalid-payload")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "non-object payload should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_payload"),
+                        "non-object payload should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-missing-field")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "missing required field should return error ack") && ok;

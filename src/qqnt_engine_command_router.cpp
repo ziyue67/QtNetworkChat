@@ -124,7 +124,7 @@ QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
 void QQNTEngineCommandRouter::route(const QJsonObject& command) {
     const QString op = command.value(QStringLiteral("op")).toString().trimmed();
     const QString reqId = command.value(QStringLiteral("reqId")).toString().trimmed();
-    const QJsonObject payload = command.value(QStringLiteral("payload")).toObject();
+    const QJsonValue payloadValue = command.value(QStringLiteral("payload"));
 
     if (op.isEmpty()) {
         m_bridge->sendErrorAck(op, reqId, QStringLiteral("missing_op"), QStringLiteral("Command op is required."));
@@ -134,6 +134,15 @@ void QQNTEngineCommandRouter::route(const QJsonObject& command) {
         m_bridge->sendErrorAck(op, reqId, QStringLiteral("missing_req_id"), QStringLiteral("Command reqId is required."));
         return;
     }
+    if (!payloadValue.isUndefined() && !payloadValue.isObject()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_payload"),
+                               QStringLiteral("Command payload must be an object."));
+        return;
+    }
+
+    const QJsonObject payload = payloadValue.toObject();
 
     if (op == QLatin1String("ready")) {
         handleReady(op, reqId);
