@@ -198,6 +198,28 @@ bool memberIdsFromPayload(const QJsonObject& payload, QStringList* memberIds, QS
     return true;
 }
 
+bool normalizeGroupMemberAction(const QString& action, QString* normalizedAction) {
+    const QString text = action.trimmed().toLower();
+    if (text == QLatin1String("add")
+        || text == QLatin1String("remove")
+        || text == QLatin1String("promote_admin")
+        || text == QLatin1String("demote_admin")) {
+        *normalizedAction = text;
+        return true;
+    }
+    if (text == QLatin1String("set_admin")) {
+        *normalizedAction = QStringLiteral("promote_admin");
+        return true;
+    }
+    if (text == QLatin1String("unset_admin")) {
+        *normalizedAction = QStringLiteral("demote_admin");
+        return true;
+    }
+
+    normalizedAction->clear();
+    return false;
+}
+
 bool applyDownloadDirSetting(const QString& requestedDir, QString* appliedDownloadDir, QString* rejectReason) {
     if (requestedDir.isEmpty()) {
         return true;
@@ -542,6 +564,13 @@ void QQNTEngineCommandRouter::handleUpdateGroupMember(const QString& op, const Q
     if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
         || !requireString(payload, QStringLiteral("memberId"), &memberId, op, reqId)
         || !requireString(payload, QStringLiteral("action"), &action, op, reqId)) {
+        return;
+    }
+    if (!normalizeGroupMemberAction(action, &action)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_action"),
+                               QStringLiteral("update_group_member action must be add, remove, promote_admin, or demote_admin."));
         return;
     }
     sendBoolAck(op,
