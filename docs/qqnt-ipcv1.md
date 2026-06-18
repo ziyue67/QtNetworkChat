@@ -182,7 +182,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变化；`action` 为精确小写枚举值 |
 | `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件传输进度 |
 | `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件传输完成 |
-| `file_error` | `{transferId, reason}` | 文件传输失败 |
+| `file_error` | `{transferId, fileName, reason, bytes, total, direction=incoming/outgoing}` | 文件传输失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话状态 |
 | `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份状态 |
 | `e2e_rotation_request` | `{peerId, agreement}` | 收到 E2E 会话轮换请求 |

@@ -597,7 +597,16 @@ fn validate_file_done_payload(payload: &Value) -> QQNTResult<()> {
 
 fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "transferId", "file_error")?;
+    require_non_empty_string_field(payload, "fileName", "file_error")?;
     require_non_empty_string_field(payload, "reason", "file_error")?;
+    require_one_of_string_field(
+        payload,
+        "direction",
+        &["incoming", "outgoing"],
+        "file_error",
+    )?;
+    require_string_or_number_field(payload, "bytes", "file_error")?;
+    require_string_or_number_field(payload, "total", "file_error")?;
 
     Ok(())
 }
@@ -1226,7 +1235,11 @@ mod tests {
             }),
             "file_error" => json!({
                 "transferId": "transfer-1",
-                "reason": "cancelled"
+                "fileName": "contract.bin",
+                "reason": "cancelled",
+                "bytes": "128",
+                "total": "256",
+                "direction": "outgoing"
             }),
             "e2e_session_state" => json!({
                 "peerId": "10002",
@@ -2035,19 +2048,19 @@ mod tests {
     }
 
     #[test]
-    fn file_error_payload_accepts_contract_fields_and_extras() {
+    fn file_error_payload_accepts_contract_fields() {
         validate_event_payload(
             "file_error",
             &json!({
                 "transferId": "transfer-1",
-                "reason": "cancelled",
                 "fileName": "report.zip",
+                "reason": "cancelled",
                 "direction": "outgoing",
                 "bytes": "128",
                 "total": "256"
             }),
         )
-        .expect("file_error with contract fields and extras should pass");
+        .expect("file_error with contract fields should pass");
     }
 
     #[test]
@@ -2059,6 +2072,23 @@ mod tests {
             }),
         )
         .expect_err("file_error without reason should fail");
+
+        assert_eq!(error.code, "invalid_file_error_payload");
+    }
+
+    #[test]
+    fn file_error_payload_requires_direction() {
+        let error = validate_event_payload(
+            "file_error",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "reason": "cancelled",
+                "bytes": "128",
+                "total": "256"
+            }),
+        )
+        .expect_err("file_error without direction should fail");
 
         assert_eq!(error.code, "invalid_file_error_payload");
     }

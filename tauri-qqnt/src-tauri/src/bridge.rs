@@ -443,7 +443,11 @@ mod tests {
             }),
             "file_error" => json!({
                 "transferId": "contract-transfer",
+                "fileName": "contract.bin",
                 "reason": "cancelled",
+                "bytes": "128",
+                "total": "256",
+                "direction": "outgoing",
                 "contractProbe": true
             }),
             "e2e_session_state" => json!({
@@ -825,7 +829,7 @@ mod tests {
     #[test]
     fn dispatches_invalid_file_error_payload_as_error() {
         let dispatch = dispatch_stdout_line(
-            br#"{"type":"event","event":"file_error","payload":{"transferId":"transfer-1"}}"#,
+            br#"{"type":"event","event":"file_error","payload":{"transferId":"transfer-1","fileName":"contract.bin","reason":"cancelled","bytes":"128","total":"256"}}"#,
         );
 
         match dispatch {

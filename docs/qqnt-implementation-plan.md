@@ -300,7 +300,7 @@ int main(int argc, char* argv[]) {
 | `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更；`action` 为精确小写枚举值 |
 | `file_progress` | `{transferId, fileName, bytes, total, direction=incoming/outgoing}` | 文件进度 |
 | `file_done` | `{transferId, fileName, filePath, direction=incoming/outgoing}` | 文件完成 |
-| `file_error` | `{transferId, reason}` | 文件失败 |
+| `file_error` | `{transferId, fileName, reason, bytes, total, direction=incoming/outgoing}` | 文件失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话 |
 | `e2e_identity_state` | `{peerId, configured, trusted, publicKeyFingerprintSha256?}` | E2E 身份 |
 | `e2e_rotation_request` | `{peerId, agreement}` | E2E 会话轮换请求 |

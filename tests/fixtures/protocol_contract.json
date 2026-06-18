@@ -129,7 +129,7 @@
     "group_member_updated": "{groupId, memberId, action=add/remove/promote_admin/demote_admin}",
     "file_progress": "{transferId, fileName, bytes, total, direction=incoming/outgoing}",
     "file_done": "{transferId, fileName, filePath, direction=incoming/outgoing}",
-    "file_error": "{transferId, reason}",
+    "file_error": "{transferId, fileName, reason, bytes, total, direction=incoming/outgoing}",
     "e2e_session_state": "{peerId, rotationRequired}",
     "e2e_identity_state": "{peerId, configured, trusted, publicKeyFingerprintSha256?}",
     "e2e_rotation_request": "{peerId, agreement}",
