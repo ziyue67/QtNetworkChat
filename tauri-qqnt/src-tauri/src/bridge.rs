@@ -335,7 +335,16 @@ mod tests {
             }),
             "message" => json!({
                 "sessionId": "10001",
-                "message": {},
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10001",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": "1710000000000",
+                    "contentType": "text",
+                    "content": "hello",
+                    "status": "received"
+                },
                 "contractProbe": true
             }),
             "group_snapshot" => json!({
@@ -447,14 +456,26 @@ mod tests {
     #[test]
     fn dispatches_event_to_engine_topic() {
         let dispatch = dispatch_stdout_line(
-            br#"{"type":"event","event":"message","payload":{"sessionId":"10001","message":{}}}"#,
+            br#"{"type":"event","event":"message","payload":{"sessionId":"10001","message":{"messageId":"message-1","sessionId":"10001","senderId":"10002","senderName":"Bob","timestamp":"1710000000000","contentType":"text","content":"hello","status":"received"}}}"#,
         );
 
         assert_eq!(
             dispatch,
             EngineDispatch::Event {
                 topic: "qqnt://engine/message".to_string(),
-                payload: json!({ "sessionId": "10001", "message": {} }),
+                payload: json!({
+                    "sessionId": "10001",
+                    "message": {
+                        "messageId": "message-1",
+                        "sessionId": "10001",
+                        "senderId": "10002",
+                        "senderName": "Bob",
+                        "timestamp": "1710000000000",
+                        "contentType": "text",
+                        "content": "hello",
+                        "status": "received"
+                    }
+                }),
             }
         );
     }

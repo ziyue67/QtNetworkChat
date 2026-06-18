@@ -286,6 +286,39 @@ fn validate_friend_event_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_message_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "sessionId", "message")?;
     require_object_field(payload, "message", "message")?;
+    let session_id = payload
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .expect("sessionId was validated as a non-empty string");
+    let message = payload
+        .get("message")
+        .expect("message was validated as an object");
+
+    require_non_empty_string_field(message, "messageId", "message")?;
+    require_non_empty_string_field(message, "sessionId", "message")?;
+    if message.get("sessionId").and_then(Value::as_str) != Some(session_id) {
+        return Err(QQNTError::rust(
+            "invalid_message_payload",
+            "QQNTEngine message payload sessionId must match message.sessionId.",
+        ));
+    }
+    require_string_field(message, "senderId", "message")?;
+    require_string_field(message, "senderName", "message")?;
+    require_string_or_number_field(message, "timestamp", "message")?;
+    require_one_of_string_field(
+        message,
+        "contentType",
+        &["text", "image", "file", "system"],
+        "message",
+    )?;
+    require_string_field(message, "content", "message")?;
+    require_one_of_string_field(
+        message,
+        "status",
+        &["sending", "sent", "failed", "received"],
+        "message",
+    )?;
+    require_optional_string_field(message, "clientMessageId", "message")?;
 
     Ok(())
 }
@@ -867,7 +900,16 @@ mod tests {
             }),
             "message" => json!({
                 "sessionId": "10002",
-                "message": {}
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10002",
+                    "senderId": "10001",
+                    "senderName": "Alice",
+                    "timestamp": "1710000000000",
+                    "contentType": "text",
+                    "content": "hello",
+                    "status": "received"
+                }
             }),
             "group_snapshot" => json!({
                 "groups": [],
@@ -1251,6 +1293,111 @@ mod tests {
             }),
         )
         .expect_err("message without message object should fail");
+
+        assert_eq!(error.code, "invalid_message_payload");
+    }
+
+    #[test]
+    fn message_payload_accepts_minimal_message_model() {
+        validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {
+                    "messageId": "message-1",
+                    "clientMessageId": "client-1",
+                    "sessionId": "10001",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": 1710000000000_u64,
+                    "contentType": "file",
+                    "content": "",
+                    "status": "sent"
+                }
+            }),
+        )
+        .expect("message event with minimal message model should pass");
+    }
+
+    #[test]
+    fn message_payload_requires_message_model_fields() {
+        let error = validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {}
+            }),
+        )
+        .expect_err("message event with empty message object should fail");
+
+        assert_eq!(error.code, "invalid_message_payload");
+    }
+
+    #[test]
+    fn message_payload_rejects_session_mismatch() {
+        let error = validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10002",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": "1710000000000",
+                    "contentType": "text",
+                    "content": "hello",
+                    "status": "received"
+                }
+            }),
+        )
+        .expect_err("message event sessionId mismatch should fail");
+
+        assert_eq!(error.code, "invalid_message_payload");
+    }
+
+    #[test]
+    fn message_payload_rejects_unknown_content_type() {
+        let error = validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10001",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": "1710000000000",
+                    "contentType": "video",
+                    "content": "hello",
+                    "status": "received"
+                }
+            }),
+        )
+        .expect_err("message event with unknown contentType should fail");
+
+        assert_eq!(error.code, "invalid_message_payload");
+    }
+
+    #[test]
+    fn message_payload_rejects_unknown_status() {
+        let error = validate_event_payload(
+            "message",
+            &json!({
+                "sessionId": "10001",
+                "message": {
+                    "messageId": "message-1",
+                    "sessionId": "10001",
+                    "senderId": "10002",
+                    "senderName": "Bob",
+                    "timestamp": "1710000000000",
+                    "contentType": "text",
+                    "content": "hello",
+                    "status": "queued"
+                }
+            }),
+        )
+        .expect_err("message event with unknown status should fail");
 
         assert_eq!(error.code, "invalid_message_payload");
     }
