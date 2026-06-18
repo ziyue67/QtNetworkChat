@@ -362,7 +362,12 @@ fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
 fn validate_group_member_updated_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "groupId", "group_member_updated")?;
     require_non_empty_string_field(payload, "memberId", "group_member_updated")?;
-    require_non_empty_string_field(payload, "action", "group_member_updated")?;
+    require_one_of_string_field(
+        payload,
+        "action",
+        &["add", "remove", "promote_admin", "demote_admin"],
+        "group_member_updated",
+    )?;
 
     Ok(())
 }
@@ -1164,6 +1169,36 @@ mod tests {
             }),
         )
         .expect_err("group_member_updated without action should fail");
+
+        assert_eq!(error.code, "invalid_group_member_updated_payload");
+    }
+
+    #[test]
+    fn group_member_updated_payload_accepts_supported_actions() {
+        for action in ["add", "remove", "promote_admin", "demote_admin"] {
+            validate_event_payload(
+                "group_member_updated",
+                &json!({
+                    "groupId": "group-1",
+                    "memberId": "10002",
+                    "action": action
+                }),
+            )
+            .expect("supported group_member_updated action should pass");
+        }
+    }
+
+    #[test]
+    fn group_member_updated_payload_rejects_unknown_action() {
+        let error = validate_event_payload(
+            "group_member_updated",
+            &json!({
+                "groupId": "group-1",
+                "memberId": "10002",
+                "action": "ban"
+            }),
+        )
+        .expect_err("unknown group_member_updated action should fail");
 
         assert_eq!(error.code, "invalid_group_member_updated_payload");
     }
