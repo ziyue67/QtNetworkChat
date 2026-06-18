@@ -1815,6 +1815,21 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_file_transfer_blank_target() {
+        let error = validate_generic_command(&json!({
+            "op": "send_file",
+            "reqId": "req-file",
+            "payload": {
+                "filePath": "C:/tmp/a.txt",
+                "receiverId": "   "
+            }
+        }))
+        .expect_err("generic send_file with blank target should fail");
+
+        assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
     fn generic_command_rejects_file_transfer_ambiguous_target() {
         let error = validate_generic_command(&json!({
             "op": "send_image",
@@ -1898,6 +1913,22 @@ mod tests {
             }
         }))
         .expect_err("query_resume resume mode requires a target");
+
+        assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
+    fn generic_command_rejects_query_resume_resume_blank_target() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1",
+                "filePath": "C:/tmp/a.txt",
+                "groupId": "   "
+            }
+        }))
+        .expect_err("query_resume resume mode should reject blank targets");
 
         assert_eq!(error.code, "missing_target");
     }
@@ -2260,6 +2291,15 @@ mod tests {
     }
 
     #[test]
+    fn send_file_like_payload_rejects_blank_target() {
+        let error =
+            send_file_like_payload("C:/tmp/a.txt".to_string(), Some("   ".to_string()), None)
+                .expect_err("typed send_file payload should reject blank target");
+
+        assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
     fn query_resume_payload_accepts_query_only() {
         let packet = command_packet(
             "query_resume",
@@ -2298,6 +2338,20 @@ mod tests {
             Some("file".to_string()),
         )
         .expect_err("typed query_resume resume payload should require a target");
+
+        assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
+    fn query_resume_payload_rejects_resume_blank_target() {
+        let error = query_resume_payload(
+            "transfer-1".to_string(),
+            Some("C:/tmp/a.txt".to_string()),
+            None,
+            Some("   ".to_string()),
+            Some("file".to_string()),
+        )
+        .expect_err("typed query_resume resume payload should reject blank targets");
 
         assert_eq!(error.code, "missing_target");
     }

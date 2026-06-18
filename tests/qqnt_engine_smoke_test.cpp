@@ -419,12 +419,16 @@ int main(int argc, char* argv[]) {
                 "cancel_transfer inactive command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-missing-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
                 "send_file missing target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-blank-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"   \"}}\n"),
+                "send_file blank target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_image\",\"reqId\":\"smoke-file-ambiguous-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.png\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
                 "send_image ambiguous target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-invalid-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":10001}}\n"),
                 "send_file invalid target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-missing-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
                 "query_resume missing target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-blank-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"groupId\":\"   \"}}\n"),
+                "query_resume blank target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-ambiguous-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
                 "query_resume ambiguous target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"groupId\":1}}\n"),
@@ -496,9 +500,11 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-cancel-missing"),
         QStringLiteral("smoke-cancel-inactive"),
         QStringLiteral("smoke-file-missing-target"),
+        QStringLiteral("smoke-file-blank-target"),
         QStringLiteral("smoke-file-ambiguous-target"),
         QStringLiteral("smoke-file-invalid-target"),
         QStringLiteral("smoke-resume-missing-target"),
+        QStringLiteral("smoke-resume-blank-target"),
         QStringLiteral("smoke-resume-ambiguous-target"),
         QStringLiteral("smoke-resume-invalid-target"),
         QStringLiteral("smoke-resume-invalid-file-path"),
@@ -688,6 +694,11 @@ int main(int argc, char* argv[]) {
                         "send_file without target should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
                         "send_file without target should use missing_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-blank-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file with blank target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "send_file with blank target should use missing_target code") && ok;
         } else if (reqId == QLatin1String("smoke-file-ambiguous-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "send_image with two targets should return error ack") && ok;
@@ -703,6 +714,11 @@ int main(int argc, char* argv[]) {
                         "query_resume without target should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
                         "query_resume without target should use missing_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-blank-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with blank target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "query_resume with blank target should use missing_target code") && ok;
         } else if (reqId == QLatin1String("smoke-resume-ambiguous-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "query_resume with two targets should return error ack") && ok;
