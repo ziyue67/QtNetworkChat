@@ -13,6 +13,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -51,7 +52,8 @@ pub fn run() {
             commands::e2e_pin_identity,
             commands::e2e_request_rotation,
             commands::profile_update,
-            commands::settings_sync
+            commands::settings_sync,
+            commands::read_image_base64
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -108,6 +110,7 @@ mod tests {
     fn protocol_op_for_command(command: &str) -> Option<&str> {
         match command {
             GENERIC_COMMAND => None,
+            "read_image_base64" => None,
             "engine_ready" => Some("ready"),
             "connect_server" => Some("connect"),
             "register_account" => Some("register"),

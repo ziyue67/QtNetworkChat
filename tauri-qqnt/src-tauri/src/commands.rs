@@ -1,4 +1,8 @@
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
+
+use base64::{engine::general_purpose, Engine as _};
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -46,6 +50,13 @@ pub struct LoginResponse {
     pub accepted: bool,
     pub requires_connect: bool,
     pub mode: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageBase64Response {
+    pub base64: String,
+    pub data_url: String,
 }
 
 #[tauri::command]
@@ -401,6 +412,38 @@ pub async fn settings_sync(
     call_engine_payload(state.inner(), "settings_sync", req_id, payload).await
 }
 
+#[tauri::command]
+pub async fn read_image_base64(file_path: String) -> Result<ImageBase64Response, QQNTError> {
+    let path = Path::new(&file_path);
+    if !path.is_file() {
+        return Err(QQNTError::rust(
+            "invalid_file_path",
+            "Selected avatar path is not a readable image file.",
+        ));
+    }
+
+    let mime = image_mime_from_path(path)?;
+    let bytes = fs::read(path).map_err(|err| {
+        QQNTError::rust(
+            "read_image_failed",
+            format!("Unable to read selected avatar image: {err}"),
+        )
+    })?;
+
+    if bytes.is_empty() {
+        return Err(QQNTError::rust(
+            "empty_image_file",
+            "Selected avatar image is empty.",
+        ));
+    }
+
+    let base64 = general_purpose::STANDARD.encode(bytes);
+    Ok(ImageBase64Response {
+        data_url: format!("data:{mime};base64,{base64}"),
+        base64,
+    })
+}
+
 async fn login_like(
     state: &Arc<AppState>,
     op: &str,
@@ -532,6 +575,29 @@ fn settings_sync_payload(settings: Value) -> Result<Value, QQNTError> {
     let payload = json!({ "settings": settings });
     validate_settings_sync_command_payload(&payload)?;
     Ok(payload)
+}
+
+fn image_mime_from_path(path: &Path) -> Result<&'static str, QQNTError> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    match extension.as_str() {
+        "png" => Ok("image/png"),
+        "jpg" | "jpeg" => Ok("image/jpeg"),
+        "gif" => Ok("image/gif"),
+        "webp" => Ok("image/webp"),
+        "bmp" => Ok("image/bmp"),
+        "svg" => Ok("image/svg+xml"),
+        "avif" => Ok("image/avif"),
+        "apng" => Ok("image/apng"),
+        _ => Err(QQNTError::rust(
+            "unsupported_image_type",
+            "Avatar image must be png, jpg, jpeg, gif, webp, bmp, svg, avif, or apng.",
+        )),
+    }
 }
 
 async fn send_file_like(

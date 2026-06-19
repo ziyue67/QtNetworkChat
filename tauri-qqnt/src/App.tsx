@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAuthStore } from '@/stores/authStore'
 import { useTheme } from '@/hooks/useTheme'
 import { useEngine } from '@/hooks/useEngine'
+import { profileUpdate } from '@/api/qqnt'
 import { TitleBar } from '@/components/frame/TitleBar'
 import { MainLayout } from '@/views/MainLayout'
 import { LoginView } from '@/views/LoginView'
@@ -46,7 +47,6 @@ function useResizeForAuth(isAuthenticated: boolean) {
           await win.center()
         }
       } catch {
-        // Not running inside Tauri (e.g. browser preview).
       }
     }
 
@@ -109,11 +109,27 @@ export async function submitLogin(engine: UseEngineReturn, account: string, pass
   await engine.connect()
 }
 
-export async function submitRegister(engine: UseEngineReturn, account: string, password: string) {
-  const auth = await engine.register(account, password, account)
+export async function submitRegister(
+  engine: UseEngineReturn,
+  account: string,
+  password: string,
+  nickname: string,
+  avatarBase64?: string
+) {
+  const auth = await engine.register(account, password, nickname)
   if (!auth.ok) return false
-  if (!auth.requiresConnect) return true
-  return engine.connect()
+
+  if (auth.requiresConnect) {
+    const connected = await engine.connect()
+    if (!connected) return false
+  }
+
+  if (nickname || avatarBase64) {
+    const ack = await profileUpdate({ userName: nickname, avatarBase64: avatarBase64 || '' })
+    if (ack.status === 'error') return false
+  }
+
+  return true
 }
 
 function LoginScreen({ engine }: { engine: UseEngineReturn }) {
@@ -129,7 +145,7 @@ function LoginScreen({ engine }: { engine: UseEngineReturn }) {
         loading={engine.engine.connecting || engine.engine.loggingIn}
         error={engine.engine.error}
         onLogin={(account, password) => submitLogin(engine, account, password)}
-        onRegister={(account, password) => submitRegister(engine, account, password)}
+        onRegister={(account, password, nickname, avatarBase64) => submitRegister(engine, account, password, nickname, avatarBase64)}
       />
     </div>
   )

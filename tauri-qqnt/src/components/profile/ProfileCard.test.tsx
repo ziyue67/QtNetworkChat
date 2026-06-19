@@ -11,10 +11,9 @@ const user: User = {
 }
 
 describe('ProfileCard', () => {
-  it('renders account profile fields and dispatches edits', () => {
+  it('renders account profile fields and dispatches edits without URL/Base64 inputs', () => {
     const onNicknameChange = vi.fn()
     const onSignatureChange = vi.fn()
-    const onAvatarChange = vi.fn()
     const onAvatarPick = vi.fn()
     const onSave = vi.fn()
 
@@ -28,7 +27,6 @@ describe('ProfileCard', () => {
         error=""
         onNicknameChange={onNicknameChange}
         onSignatureChange={onSignatureChange}
-        onAvatarChange={onAvatarChange}
         onAvatarPick={onAvatarPick}
         onSave={onSave}
       />
@@ -36,16 +34,15 @@ describe('ProfileCard', () => {
 
     expect(screen.getByText('个人资料')).toBeTruthy()
     expect(screen.getByText('10001')).toBeTruthy()
+    expect(screen.queryByLabelText('头像 URL / Base64')).toBeNull()
 
     fireEvent.change(screen.getByLabelText('昵称'), { target: { value: '新昵称' } })
     fireEvent.change(screen.getByLabelText('个性签名'), { target: { value: 'new signature' } })
-    fireEvent.change(screen.getByLabelText('头像 URL / Base64'), { target: { value: 'avatar-url' } })
     fireEvent.click(screen.getByLabelText('修改头像'))
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     expect(onNicknameChange).toHaveBeenCalledWith('新昵称')
     expect(onSignatureChange).toHaveBeenCalledWith('new signature')
-    expect(onAvatarChange).toHaveBeenCalledWith('avatar-url')
     expect(onAvatarPick).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledTimes(1)
   })

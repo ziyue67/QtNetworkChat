@@ -11,7 +11,6 @@ interface ProfileCardProps {
   error: string
   onNicknameChange: (value: string) => void
   onSignatureChange: (value: string) => void
-  onAvatarChange: (value: string) => void
   onAvatarPick: () => void
   onSave: () => void
 }
@@ -25,7 +24,6 @@ export function ProfileCard({
   error,
   onNicknameChange,
   onSignatureChange,
-  onAvatarChange,
   onAvatarPick,
   onSave
 }: ProfileCardProps) {
@@ -74,16 +72,6 @@ export function ProfileCard({
             placeholder="编辑个性签名"
             className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
             aria-label="个性签名"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">头像 URL / Base64</label>
-          <input
-            value={avatar}
-            onChange={(event) => onAvatarChange(event.target.value)}
-            placeholder="https://..."
-            className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
-            aria-label="头像 URL / Base64"
           />
         </div>
       </div>

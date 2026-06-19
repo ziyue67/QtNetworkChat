@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
+import { profileUpdate } from '@/api/qqnt'
 import { LOGIN_MIN_SIZE, LOGIN_SIZE, MAIN_MIN_SIZE, MAIN_SIZE, submitLogin, submitRegister } from './App'
 import type { UseEngineReturn } from '@/hooks/useEngine'
+
+vi.mock('@/api/qqnt', () => ({
+  profileUpdate: vi.fn(async () => ({ status: 'ok' }))
+}))
 
 function fakeEngine(overrides: Partial<UseEngineReturn> = {}): UseEngineReturn {
   return {
@@ -86,10 +91,21 @@ describe('auth submit flow', () => {
       })
     })
 
-    const ok = await submitRegister(engine, '456', 'secret')
+    const ok = await submitRegister(engine, '456', 'secret', '小企鹅')
 
-    expect(engine.register).toHaveBeenCalledWith('456', 'secret', '456')
+    expect(engine.register).toHaveBeenCalledWith('456', 'secret', '小企鹅')
+    expect(profileUpdate).not.toHaveBeenCalled()
     expect(ok).toBe(false)
     expect(calls).toEqual(['register', 'connect'])
+  })
+
+  it('updates nickname and avatar after register connection succeeds', async () => {
+    const engine = fakeEngine()
+
+    const ok = await submitRegister(engine, '456', 'secret', '小企鹅', 'aGVsbG8=')
+
+    expect(ok).toBe(true)
+    expect(engine.register).toHaveBeenCalledWith('456', 'secret', '小企鹅')
+    expect(profileUpdate).toHaveBeenCalledWith({ userName: '小企鹅', avatarBase64: 'aGVsbG8=' })
   })
 })
