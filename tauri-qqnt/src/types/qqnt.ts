@@ -280,19 +280,23 @@ export interface FileProgressPayload {
   fileName: string
   bytes: number
   total: number
-  direction: 'upload' | 'download'
+  direction: 'upload' | 'download' | 'incoming' | 'outgoing'
 }
 
 export interface FileDonePayload {
   transferId: string
   fileName: string
   filePath: string
-  direction: 'upload' | 'download'
+  direction: 'upload' | 'download' | 'incoming' | 'outgoing'
 }
 
 export interface FileErrorPayload {
   transferId: string
+  fileName?: string
   reason: string
+  direction?: 'upload' | 'download' | 'incoming' | 'outgoing'
+  bytes?: number
+  total?: number
 }
 
 export interface E2ESessionStatePayload {

@@ -22,11 +22,41 @@ describe('Composer', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
-  it('shows desktop file drop hints when file sending is enabled', () => {
-    render(<Composer onSend={vi.fn()} canSendFiles />)
+  it('shows desktop file buttons and drop hints when file sending is enabled', () => {
+    const onPickFiles = vi.fn()
+    const onPickImages = vi.fn()
+    render(<Composer onSend={vi.fn()} canSendFiles onPickFiles={onPickFiles} onPickImages={onPickImages} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /发送文件/ }))
+    fireEvent.click(screen.getByRole('button', { name: /发送图片/ }))
 
     expect(screen.getByText('拖入文件发送')).toBeTruthy()
-    expect(screen.getByText('图片自动识别')).toBeTruthy()
+    expect(onPickFiles).toHaveBeenCalledTimes(1)
+    expect(onPickImages).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows member suggestions after typing @ and inserts a mention', () => {
+    render(<Composer onSend={vi.fn()} mentionCandidates={[{ id: 'u-1', nickname: '阿明' }]} />)
+
+    const input = screen.getByPlaceholderText('输入消息...')
+    fireEvent.change(input, { target: { value: '@' } })
+    fireEvent.click(screen.getByRole('button', { name: /阿明/ }))
+
+    expect(input).toHaveProperty('value', '@阿明 ')
+  })
+
+  it('inserts pending mentions from avatar context menus', () => {
+    const onMentionConsumed = vi.fn()
+    render(
+      <Composer
+        onSend={vi.fn()}
+        pendingMention={{ id: 'u-2', nickname: '好友' }}
+        onMentionConsumed={onMentionConsumed}
+      />
+    )
+
+    expect(screen.getByPlaceholderText('输入消息...')).toHaveProperty('value', '@好友 ')
+    expect(onMentionConsumed).toHaveBeenCalledTimes(1)
   })
 
   it('disables text input when sending is unavailable', () => {

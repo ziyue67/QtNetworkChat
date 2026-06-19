@@ -210,7 +210,8 @@ interface CreateGroupResult {
 }
 
 interface FileTransferResult {
-  transferId: string
+  accepted?: boolean
+  transferId?: string
 }
 
 interface ResumeResult {

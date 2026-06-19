@@ -86,9 +86,9 @@ describe('auth submit flow', () => {
       })
     })
 
-    const ok = await submitRegister(engine, '456', 'secret')
+    const ok = await submitRegister(engine, { account: '456', password: 'secret', nickname: '小明' })
 
-    expect(engine.register).toHaveBeenCalledWith('456', 'secret', '456')
+    expect(engine.register).toHaveBeenCalledWith('456', 'secret', '小明')
     expect(ok).toBe(false)
     expect(calls).toEqual(['register', 'connect'])
   })

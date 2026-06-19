@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAuthStore } from '@/stores/authStore'
 import { useTheme } from '@/hooks/useTheme'
 import { useEngine } from '@/hooks/useEngine'
+import { profileUpdate } from '@/api/qqnt'
 import { TitleBar } from '@/components/frame/TitleBar'
 import { MainLayout } from '@/views/MainLayout'
 import { LoginView } from '@/views/LoginView'
@@ -27,6 +28,14 @@ export const LOGIN_SIZE = { width: 300, height: 460 }
 export const LOGIN_MIN_SIZE = { width: 300, height: 460 }
 export const MAIN_SIZE = { width: 1100, height: 740 }
 export const MAIN_MIN_SIZE = { width: 860, height: 540 }
+
+export interface RegisterForm {
+  account: string
+  password: string
+  nickname: string
+  avatar?: string
+  avatarBase64?: string
+}
 
 function useResizeForAuth(isAuthenticated: boolean) {
   useEffect(() => {
@@ -109,11 +118,14 @@ export async function submitLogin(engine: UseEngineReturn, account: string, pass
   await engine.connect()
 }
 
-export async function submitRegister(engine: UseEngineReturn, account: string, password: string) {
-  const auth = await engine.register(account, password, account)
+export async function submitRegister(engine: UseEngineReturn, form: RegisterForm) {
+  const auth = await engine.register(form.account, form.password, form.nickname)
   if (!auth.ok) return false
-  if (!auth.requiresConnect) return true
-  return engine.connect()
+  const connected = auth.requiresConnect ? await engine.connect() : true
+  if (connected && form.avatarBase64) {
+    await profileUpdate({ userName: form.nickname, avatarBase64: form.avatarBase64 }).catch(() => undefined)
+  }
+  return connected
 }
 
 function LoginScreen({ engine }: { engine: UseEngineReturn }) {
@@ -129,7 +141,7 @@ function LoginScreen({ engine }: { engine: UseEngineReturn }) {
         loading={engine.engine.connecting || engine.engine.loggingIn}
         error={engine.engine.error}
         onLogin={(account, password) => submitLogin(engine, account, password)}
-        onRegister={(account, password) => submitRegister(engine, account, password)}
+        onRegister={(form) => submitRegister(engine, form)}
       />
     </div>
   )

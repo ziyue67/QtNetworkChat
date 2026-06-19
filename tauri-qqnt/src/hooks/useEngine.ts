@@ -145,7 +145,7 @@ function handleFileProgress(payload: FileProgressPayload) {
     size: payload.total,
     progress,
     mime: 'application/octet-stream'
-  }, payload.direction === 'upload' ? 'sending' : undefined)
+  }, payload.direction === 'upload' || payload.direction === 'outgoing' ? 'sending' : undefined)
 }
 
 function handleFileDone(payload: FileDonePayload) {
@@ -159,12 +159,14 @@ function handleFileDone(payload: FileDonePayload) {
     path: payload.filePath,
     progress: 100,
     mime: 'application/octet-stream'
-  }, payload.direction === 'upload' ? 'sent' : 'received')
+  }, payload.direction === 'upload' || payload.direction === 'outgoing' ? 'sent' : 'received')
 }
 
 function handleFileError(payload: FileErrorPayload) {
   useFileStore.getState().failTransfer(payload.transferId, payload.reason)
   useMessageStore.getState().updateFileMessage(payload.transferId, {
+    name: payload.fileName,
+    size: payload.total,
     error: payload.reason
   }, 'failed')
 }

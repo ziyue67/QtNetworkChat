@@ -13,6 +13,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -24,6 +25,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::qqnt_command,
+            commands::read_image_base64,
             commands::engine_ready,
             commands::connect_server,
             commands::login,
@@ -108,6 +110,7 @@ mod tests {
     fn protocol_op_for_command(command: &str) -> Option<&str> {
         match command {
             GENERIC_COMMAND => None,
+            "read_image_base64" => None,
             "engine_ready" => Some("ready"),
             "connect_server" => Some("connect"),
             "register_account" => Some("register"),

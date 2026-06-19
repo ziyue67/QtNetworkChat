@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useMessageStore } from '@/stores/messageStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useContactStore } from '@/stores/contactStore'
 import { SessionList } from '@/components/session/SessionList'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { cancelTransfer, sendPrivateMessage, sendGroupMessage, sendFile, sendImage, newReqId } from '@/api/qqnt'
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener'
-import type { Message } from '@/types/qqnt'
+import type { Message, User } from '@/types/qqnt'
+import type { MentionCandidate } from '@/components/chat/Composer'
 
 const IMAGE_EXTENSIONS = new Set(['.apng', '.avif', '.bmp', '.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp'])
 
@@ -24,8 +26,33 @@ function isImagePath(path: string) {
   return IMAGE_EXTENSIONS.has(extension(path))
 }
 
+function normalizeDialogSelection(selection: string | string[] | null) {
+  if (!selection) return []
+  return Array.isArray(selection) ? selection : [selection]
+}
+
+function asMentionCandidate(user: Pick<User, 'id' | 'nickname' | 'avatar'>): MentionCandidate {
+  return { id: user.id, nickname: user.nickname, avatar: user.avatar }
+}
+
+function uniqueMembers(members: MentionCandidate[]) {
+  const seen = new Set<string>()
+  return members.filter((member) => {
+    if (!member.id || seen.has(member.id)) return false
+    seen.add(member.id)
+    return true
+  })
+}
+
+function selectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  if (!message) return '无法打开系统资源管理器，请确认当前是在 Tauri 客户端内运行。'
+  return `无法打开系统资源管理器：${message}`
+}
+
 export function MessageView() {
   const [dragActive, setDragActive] = useState(false)
+  const [attachmentError, setAttachmentError] = useState('')
   const sessions = useSessionStore((state) => state.sessions)
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const setActiveSession = useSessionStore((state) => state.setActiveSession)
@@ -35,14 +62,24 @@ export function MessageView() {
   const addMessage = useMessageStore((state) => state.addMessage)
   const updateMessageStatus = useMessageStore((state) => state.updateMessageStatus)
   const currentUser = useAuthStore((state) => state.currentUser)
+  const contacts = useContactStore((state) => state.contacts)
+  const groups = useContactStore((state) => state.groups)
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const activeSession = sessions.find((session) => session.id === activeSessionId)
   const activeMessages = activeSessionId ? messages[activeSessionId] || [] : []
+  const activeContact = activeSession ? [...contacts, ...groups].find((contact) => contact.id === activeSession.id) : undefined
+  const activeMembers = uniqueMembers([
+    ...(currentUser ? [asMentionCandidate(currentUser)] : []),
+    ...(activeSession?.type === 'group' ? activeContact?.members?.map(asMentionCandidate) || [] : []),
+    ...(activeSession?.type === 'private' && activeContact ? [asMentionCandidate(activeContact)] : []),
+    ...activeMessages.map((message) => ({ id: message.senderId, nickname: message.senderName }))
+  ])
 
   const handleFileDrop = useCallback(async (paths: string[]) => {
     if (!activeSession || !currentUser) return
+    setAttachmentError('')
 
-    for (const filePath of paths) {
+    for (const filePath of paths.filter(Boolean)) {
       const image = isImagePath(filePath)
       const clientId = `client-${newReqId()}`
       const fileName = baseName(filePath)
@@ -74,12 +111,14 @@ export function MessageView() {
           : { receiverId: activeSession.id, filePath }
         const ack = image ? await sendImage(args) : await sendFile(args)
         const transferId = ack.payload?.transferId
-        if (ack.status === 'ok' && transferId) {
-          useMessageStore.getState().updateFileMessage(clientId, { id: transferId }, 'sending')
+        const accepted = ack.status === 'ok' && (ack.payload?.accepted ?? true)
+        if (accepted) {
+          useMessageStore.getState().updateFileMessage(clientId, transferId ? { id: transferId } : {}, 'sending')
         } else {
           updateMessageStatus(activeSession.id, clientId, 'failed')
         }
-      } catch {
+      } catch (error) {
+        setAttachmentError(error instanceof Error ? error.message : '文件发送失败')
         updateMessageStatus(activeSession.id, clientId, 'failed')
       }
     }
@@ -117,6 +156,7 @@ export function MessageView() {
   }, [handleFileDrop])
 
   const handleSelect = (id: string) => {
+    setAttachmentError('')
     setActiveSession(id)
     markRead(id)
   }
@@ -155,6 +195,33 @@ export function MessageView() {
     await deliver(content, clientId)
   }
 
+  const handlePickFiles = async () => {
+    try {
+      setAttachmentError('')
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selection = await open({ multiple: true, directory: false, title: '选择要发送的文件' })
+      await handleFileDrop(normalizeDialogSelection(selection))
+    } catch (error) {
+      setAttachmentError(selectionError(error))
+    }
+  }
+
+  const handlePickImages = async () => {
+    try {
+      setAttachmentError('')
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selection = await open({
+        multiple: true,
+        directory: false,
+        title: '选择要发送的图片',
+        filters: [{ name: 'Images', extensions: Array.from(IMAGE_EXTENSIONS).map((item) => item.slice(1)) }]
+      })
+      await handleFileDrop(normalizeDialogSelection(selection))
+    } catch (error) {
+      setAttachmentError(selectionError(error))
+    }
+  }
+
   const handleRetry = async (clientId: string) => {
     const msg = activeMessages.find((m) => m.id === clientId)
     if (!msg || msg.status !== 'failed' || !activeSession) return
@@ -186,12 +253,17 @@ export function MessageView() {
           session={activeSession}
           messages={activeMessages}
           currentUser={currentUser}
+          members={activeMembers}
           onSend={handleSend}
+          onPickFiles={handlePickFiles}
+          onPickImages={handlePickImages}
           onRetry={handleRetry}
           onCancelFile={handleCancelFile}
           onDownloadFile={handleDownloadFile}
           onOpenFolder={handleOpenFolder}
           dragActive={dragActive}
+          attachmentError={attachmentError}
+          peerStatus={activeContact?.status}
         />
       ) : (
         <main className="flex min-w-0 flex-1 items-center justify-center text-sm text-[var(--qq-text-secondary)]">

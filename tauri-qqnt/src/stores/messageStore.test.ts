@@ -99,4 +99,32 @@ describe('messageStore', () => {
       fileInfo: { id: 'transfer-1', progress: 75 }
     })
   })
+
+  it('matches accepted file sends to later transfer events by file name', () => {
+    useMessageStore.getState().setMessages('10001', [
+      {
+        ...message,
+        id: 'client-file-1',
+        type: 'file',
+        content: 'report.zip',
+        fileInfo: {
+          id: 'client-file-1',
+          name: 'report.zip',
+          size: 0,
+          mime: 'application/octet-stream',
+          progress: 0
+        }
+      }
+    ])
+
+    useMessageStore.getState().updateFileMessage('transfer-1', {
+      name: 'report.zip',
+      progress: 100
+    }, 'sent')
+
+    expect(useMessageStore.getState().messages['10001'][0]).toMatchObject({
+      status: 'sent',
+      fileInfo: { id: 'transfer-1', name: 'report.zip', progress: 100 }
+    })
+  })
 })

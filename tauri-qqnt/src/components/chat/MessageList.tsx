@@ -3,10 +3,13 @@ import { VariableSizeList as List } from 'react-window'
 import { AutoSizer } from 'react-virtualized-auto-sizer'
 import type { Message, User } from '@/types/qqnt'
 import { MessageBubble } from './MessageBubble'
+import type { MentionCandidate } from './Composer'
 
 interface MessageListProps {
   messages: Message[]
   currentUser: User | null
+  members?: MentionCandidate[]
+  onMentionUser?: (member: MentionCandidate) => void
   onRetry?: (id: string) => void
   onCancelFile?: (id: string) => void
   onDownloadFile?: (message: Message) => void
@@ -35,6 +38,10 @@ function estimateHeight(message: Message | undefined, width: number) {
   return BASE_HEIGHT + (lines - 1) * LINE_HEIGHT
 }
 
+function senderFromMembers(message: Message, members?: MentionCandidate[]) {
+  return members?.find((member) => member.id === message.senderId)
+}
+
 function MessageItem({
   index,
   style,
@@ -45,11 +52,15 @@ function MessageItem({
   data: MessageListProps
 }) {
   const msg = data.messages[index]
+  const sender = senderFromMembers(msg, data.members)
+  const isSelf = msg.senderId === data.currentUser?.id
   return (
     <div style={style}>
       <MessageBubble
         message={msg}
-        isSelf={msg.senderId === data.currentUser?.id}
+        isSelf={isSelf}
+        senderAvatar={sender?.avatar}
+        onMentionSender={!isSelf ? data.onMentionUser : undefined}
         onRetry={data.onRetry}
         onCancelFile={data.onCancelFile}
         onDownloadFile={data.onDownloadFile}

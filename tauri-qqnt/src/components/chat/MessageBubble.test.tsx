@@ -28,4 +28,19 @@ describe('MessageBubble', () => {
     fireEvent.click(screen.getByText('发送失败（点击重试）'))
     expect(onRetry).toHaveBeenCalledWith('client-1')
   })
+
+  it('mentions another user from avatar context menu', () => {
+    const onMentionSender = vi.fn()
+    render(
+      <MessageBubble
+        message={{ ...baseMessage, senderId: 'u-friend', senderName: '好友' }}
+        isSelf={false}
+        senderAvatar="avatar-url"
+        onMentionSender={onMentionSender}
+      />
+    )
+
+    fireEvent.contextMenu(screen.getByTitle('右键 @好友'))
+    expect(onMentionSender).toHaveBeenCalledWith({ id: 'u-friend', nickname: '好友', avatar: 'avatar-url' })
+  })
 })

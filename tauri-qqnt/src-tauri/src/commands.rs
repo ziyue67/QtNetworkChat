@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -38,6 +40,51 @@ pub struct ConnectServerResponse {
     pub connected: bool,
     pub host: String,
     pub port: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageBase64Response {
+    pub base64: String,
+    pub data_url: String,
+}
+
+#[tauri::command]
+pub async fn read_image_base64(file_path: String) -> Result<ImageBase64Response, QQNTError> {
+    let path = Path::new(&file_path);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "apng" => "image/apng",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "gif" => "image/gif",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        _ => {
+            return Err(QQNTError::rust(
+                "invalid_avatar_file",
+                "Please choose a supported image file for the avatar.",
+            ));
+        }
+    };
+    let bytes = fs::read(path).map_err(|error| {
+        QQNTError::rust(
+            "avatar_read_failed",
+            format!("Failed to read selected avatar image: {error}"),
+        )
+    })?;
+    use base64::Engine as _;
+    let base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(ImageBase64Response {
+        data_url: format!("data:{mime};base64,{base64}"),
+        base64,
+    })
 }
 
 #[derive(Debug, Serialize)]
