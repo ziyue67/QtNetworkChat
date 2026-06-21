@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -30,7 +30,6 @@ interface SharedBufferEvent {
 
 interface CloseOptions {
   silent?: boolean
-  deferClose?: boolean
   keepHiddenMainWindow?: boolean
 }
 
@@ -103,7 +102,7 @@ function sharedBufferTransferType(event: SharedBufferEvent) {
   return String(additionalData.transfer_type || additionalData.transferType || '')
 }
 
-function waitForSharedBuffer(transferType: string, timeoutMs = 900) {
+function waitForSharedBuffer(transferType: string, timeoutMs = 8000) {
   if (!supportsSharedBuffer()) return Promise.reject(new Error('当前 WebView2 不支持 SharedBuffer。'))
 
   return new Promise<ArrayBuffer>((resolve, reject) => {
@@ -151,25 +150,6 @@ function drawSharedBufferToCanvas(buffer: ArrayBuffer, canvas: HTMLCanvasElement
 
   context.putImageData(new ImageData(pixels, width, height), 0, 0)
   return { width, height }
-}
-
-function drawImageToCanvas(source: string, canvas: HTMLCanvasElement) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => {
-      canvas.width = image.naturalWidth
-      canvas.height = image.naturalHeight
-      const context = canvas.getContext('2d')
-      if (!context) {
-        reject(new Error('无法创建截图画布。'))
-        return
-      }
-      context.drawImage(image, 0, 0)
-      resolve({ width: image.naturalWidth, height: image.naturalHeight })
-    }
-    image.onerror = () => reject(new Error('截图数据加载失败。'))
-    image.src = convertFileSrc(source)
-  })
 }
 
 function viewportFromPhysicalSize(width: number, height: number): ViewportSize {
@@ -287,10 +267,13 @@ export function ScreenshotCaptureWindow() {
 
         const canvas = canvasRef.current
         if (!canvas) throw new Error('截图画布还没有准备好。')
-        const renderedImage = sharedBuffer
-          ? drawSharedBufferToCanvas(sharedBuffer, canvas)
-          : await drawImageToCanvas(responsePath(screenshot), canvas)
-        if (sharedBuffer) releaseSharedBuffer(sharedBuffer)
+        if (!sharedBuffer) throw new Error('WebView2 SharedBuffer 没有返回截图数据。')
+        let renderedImage: { width: number; height: number }
+        try {
+          renderedImage = drawSharedBufferToCanvas(sharedBuffer, canvas)
+        } finally {
+          releaseSharedBuffer(sharedBuffer)
+        }
 
         if (!cancelled) {
           const physicalWidth = screenshot.width || renderedImage.width
@@ -371,8 +354,6 @@ export function ScreenshotCaptureWindow() {
     setSelection(null)
     setSaving(false)
     startedRef.current = false
-    closingRef.current = false
-    if (options.deferClose) return
     await closeCaptureWindow()
   }
 
@@ -432,7 +413,7 @@ export function ScreenshotCaptureWindow() {
         filePath,
         fileName: responseName(cropped)
       })
-      void closeWindow({ silent: true, deferClose: true })
+      void closeWindow({ silent: true })
     } catch (err) {
       setSaving(false)
       setError(err instanceof Error ? err.message : '截图保存失败')

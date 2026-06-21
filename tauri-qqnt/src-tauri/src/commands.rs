@@ -1363,8 +1363,6 @@ async fn capture_screenshot_shared_buffer_impl(
     let capture = capture_screenshot_data()?;
     let info = capture.info;
     let capture_id = format!("screenshot-{}", chrono_like_timestamp());
-    let (destination, file_name) = screenshot_temp_destination("screenshot")?;
-    save_screenshot_capture_data(&capture, &destination)?;
     let transfer_type = request_id
         .as_deref()
         .map(str::trim)
@@ -1380,13 +1378,13 @@ async fn capture_screenshot_shared_buffer_impl(
         transfer_type,
     )
     .await
-    .ok();
+    .map_err(|err| QQNTError::rust("screenshot_shared_buffer_failed", err))?;
 
     cache_screenshot_capture(capture_id.clone(), capture)?;
 
     Ok(ScreenshotResponse {
-        file_path: destination.to_string_lossy().into_owned(),
-        file_name,
+        file_path: String::new(),
+        file_name: String::new(),
         capture_id: Some(capture_id),
         x: Some(info.x),
         y: Some(info.y),
