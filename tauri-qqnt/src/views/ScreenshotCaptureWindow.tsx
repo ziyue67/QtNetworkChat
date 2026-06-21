@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { emit, listen } from '@tauri-apps/api/event'
+import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { Check, X } from 'lucide-react'
@@ -26,11 +26,6 @@ interface HideMainWindowResponse {
 interface SharedBufferEvent {
   getBuffer: () => ArrayBuffer
   additionalData?: string | Record<string, unknown>
-}
-
-interface ScreenshotWindowEventPayload {
-  requestId?: string
-  hideMainWindow?: boolean
 }
 
 interface CloseOptions {
@@ -108,7 +103,7 @@ function sharedBufferTransferType(event: SharedBufferEvent) {
   return String(additionalData.transfer_type || additionalData.transferType || '')
 }
 
-function waitForSharedBuffer(transferType: string, timeoutMs = 4000) {
+function waitForSharedBuffer(transferType: string, timeoutMs = 900) {
   if (!supportsSharedBuffer()) return Promise.reject(new Error('当前 WebView2 不支持 SharedBuffer。'))
 
   return new Promise<ArrayBuffer>((resolve, reject) => {
@@ -223,14 +218,13 @@ async function closeCaptureWindow(delayMs = 120) {
   await currentWindow.close().catch(() => undefined)
 }
 
-const SCREENSHOT_WINDOW_READY_EVENT = 'qqnt://screenshot/window-ready'
 const SCREENSHOT_OVERLAY_READY_EVENT = 'qqnt://screenshot/overlay-ready'
-const SCREENSHOT_START_EVENT = 'qqnt://screenshot/start'
 const SCREENSHOT_FAILED_EVENT = 'qqnt://screenshot/failed'
 
 export function ScreenshotCaptureWindow() {
   const [searchParams] = useSearchParams()
   const initialRequestId = searchParams.get('request') || ''
+  const initialHideMainWindow = searchParams.get('hideMainWindow') === '1'
   const [captureId, setCaptureId] = useState('')
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
@@ -248,7 +242,6 @@ export function ScreenshotCaptureWindow() {
 
   useEffect(() => {
     let cancelled = false
-    let unlistenStart: (() => void) | undefined
     const currentWindow = getCurrentWindow()
 
     async function restoreMainWindow() {
@@ -267,7 +260,7 @@ export function ScreenshotCaptureWindow() {
       restoreTimerRef.current = window.setTimeout(() => {
         void restoreMainWindow()
       }, 20000)
-      await wait(96)
+      await wait(140)
     }
 
     async function captureAndLoad(nextRequestId = '', hideMainWindow = false) {
@@ -287,6 +280,7 @@ export function ScreenshotCaptureWindow() {
         const transferType = nextRequestId ? `screenshot:${nextRequestId}` : 'screenshot'
         const sharedBufferPromise = waitForSharedBuffer(transferType).catch(() => undefined)
         const screenshot = await invoke<ScreenshotResponse>('capture_screenshot_shared_buffer', { requestId: nextRequestId })
+        await restoreMainWindow()
         const sharedBuffer = await sharedBufferPromise
         const nextCaptureId = responseCaptureId(screenshot)
         if (!nextCaptureId) throw new Error('截图已完成，但客户端没有返回截图缓存 ID。')
@@ -328,10 +322,7 @@ export function ScreenshotCaptureWindow() {
         await invoke('set_screenshot_window_exclude_from_capture', { enable: true }).catch(() => undefined)
         await hideCaptureWindow()
         await currentWindow.setIgnoreCursorEvents(false).catch(() => undefined)
-        unlistenStart = await listen<ScreenshotWindowEventPayload>(SCREENSHOT_START_EVENT, (event) => {
-          void captureAndLoad(event.payload?.requestId || '', Boolean(event.payload?.hideMainWindow))
-        })
-        await emit(SCREENSHOT_WINDOW_READY_EVENT, { requestId: initialRequestId }).catch(() => undefined)
+        void captureAndLoad(initialRequestId, initialHideMainWindow)
       } catch (err) {
         const message = err instanceof Error ? err.message : '截图窗口准备失败'
         await emit(SCREENSHOT_FAILED_EVENT, { requestId: initialRequestId, message }).catch(() => undefined)
@@ -345,9 +336,8 @@ export function ScreenshotCaptureWindow() {
       cancelled = true
       window.clearTimeout(restoreTimerRef.current)
       void restoreMainWindow()
-      unlistenStart?.()
     }
-  }, [initialRequestId])
+  }, [initialHideMainWindow, initialRequestId])
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

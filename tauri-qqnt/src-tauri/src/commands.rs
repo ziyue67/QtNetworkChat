@@ -106,7 +106,6 @@ pub async fn restore_main_window(
     };
 
     let _ = set_window_capture_exclusion(main_window.clone(), false);
-    let _ = set_window_alpha(main_window.clone(), 255);
     let _ = main_window.show();
     let _ = main_window.unminimize();
     let _ = main_window.set_focus();
@@ -120,8 +119,7 @@ pub async fn hide_main_window(app_handle: AppHandle) -> Result<HideMainWindowRes
     };
 
     let _ = set_window_capture_exclusion(main_window.clone(), true);
-    let _ = set_window_alpha(main_window.clone(), 1);
-    let _ = main_window.minimize();
+    let _ = main_window.hide();
     Ok(HideMainWindowResponse { hidden: true })
 }
 
@@ -1529,41 +1527,6 @@ fn set_screenshot_window_exclude_from_capture_impl(
 
 #[cfg(not(target_os = "windows"))]
 fn set_window_capture_exclusion(_window: tauri::WebviewWindow, _enable: bool) -> Result<(), QQNTError> {
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn set_window_alpha(window: tauri::WebviewWindow, alpha: u8) -> Result<(), QQNTError> {
-    use windows::Win32::Foundation::COLORREF;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, SetLayeredWindowAttributes, SetWindowLongW, GWL_EXSTYLE, LWA_ALPHA,
-        WS_EX_LAYERED,
-    };
-
-    let hwnd = window.hwnd().map_err(|err| {
-        QQNTError::rust(
-            "screenshot_window_handle_failed",
-            format!("Unable to get main window handle: {err}"),
-        )
-    })?;
-
-    unsafe {
-        let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        let layered_style = style | WS_EX_LAYERED.0 as i32;
-        let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, layered_style);
-        SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA).map_err(|err| {
-            QQNTError::rust(
-                "screenshot_window_alpha_failed",
-                format!("Unable to update main window alpha: {err}"),
-            )
-        })?;
-    }
-
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn set_window_alpha(_window: tauri::WebviewWindow, _alpha: u8) -> Result<(), QQNTError> {
     Ok(())
 }
 

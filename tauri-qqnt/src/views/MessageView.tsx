@@ -110,8 +110,6 @@ interface ScreenshotWindowEventPayload {
   message?: string
 }
 
-const SCREENSHOT_WINDOW_READY_EVENT = 'qqnt://screenshot/window-ready'
-const SCREENSHOT_START_EVENT = 'qqnt://screenshot/start'
 const SCREENSHOT_FAILED_EVENT = 'qqnt://screenshot/failed'
 const SCREENSHOT_WINDOW_OPTIONS = {
   url: 'index.html#/screenshot-capture',
@@ -370,33 +368,9 @@ export function MessageView() {
     try {
       setAttachmentError('')
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-      const { emit, listen } = await import('@tauri-apps/api/event')
+      const { listen } = await import('@tauri-apps/api/event')
       const requestId = `screenshot-${Date.now()}-${Math.random().toString(16).slice(2)}`
       const screenshotWindowLabel = `screenshot-capture-${requestId}`
-
-      const waitForScreenshotWindowReady = new Promise<void>((resolve, reject) => {
-        let settled = false
-        const cleanups: Array<() => void> = []
-        const cleanupAll = () => cleanups.splice(0).forEach((cleanup) => cleanup())
-        const timer = window.setTimeout(() => {
-          if (settled) return
-          settled = true
-          cleanupAll()
-          reject(new Error('截图窗口准备超时，请重试。'))
-        }, 8000)
-
-        listen<ScreenshotWindowEventPayload>(SCREENSHOT_WINDOW_READY_EVENT, (event) => {
-          if (event.payload?.requestId !== requestId) return
-          settled = true
-          window.clearTimeout(timer)
-          cleanupAll()
-          resolve()
-        })
-          .then((cleanup) => {
-            cleanups.push(cleanup)
-          })
-          .catch(reject)
-      })
 
       const captured = new Promise<string>((resolve, reject) => {
         let settled = false
@@ -448,14 +422,11 @@ export function MessageView() {
 
       screenshotWindow = new WebviewWindow(screenshotWindowLabel, {
         ...SCREENSHOT_WINDOW_OPTIONS,
-        url: `index.html#/screenshot-capture?request=${encodeURIComponent(requestId)}`
+        url: `index.html#/screenshot-capture?request=${encodeURIComponent(requestId)}&hideMainWindow=${hideWindowBeforeScreenshot ? '1' : '0'}`
       })
       screenshotWindow.once?.('tauri://destroyed', () => {
         void restoreHiddenMainWindow()
       }).then((cleanup) => unlistens.push(cleanup)).catch(() => undefined)
-
-      await waitForScreenshotWindowReady
-      await emit(SCREENSHOT_START_EVENT, { requestId, hideMainWindow: hideWindowBeforeScreenshot }).catch(() => undefined)
 
       const selectedPath = await captured
       await restoreHiddenMainWindow()
