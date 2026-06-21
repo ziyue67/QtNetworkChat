@@ -2,13 +2,14 @@ pub mod bridge;
 pub mod commands;
 pub mod error;
 pub mod protocol;
+pub mod shared_buffer;
 pub mod sidecar;
 pub mod state;
 
 use std::sync::Arc;
 
 use state::AppState;
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,6 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let state = Arc::new(AppState::new());
             app.manage(state.clone());
@@ -26,6 +28,18 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::qqnt_command,
             commands::read_image_base64,
+            commands::get_screenshot_monitor_info,
+            commands::get_screenshot_virtual_screen_info,
+            commands::capture_screenshot,
+            commands::capture_screenshot_shared_buffer,
+            commands::crop_screenshot,
+            commands::release_screenshot_capture,
+            commands::set_screenshot_window_exclude_from_capture,
+            commands::prepare_screenshot_window,
+            commands::hide_main_window,
+            commands::restore_main_window,
+            commands::save_file_to_directory,
+            commands::save_base64_file_to_directory,
             commands::engine_ready,
             commands::connect_server,
             commands::login,
@@ -53,10 +67,44 @@ pub fn run() {
             commands::e2e_pin_identity,
             commands::e2e_request_rotation,
             commands::profile_update,
-            commands::settings_sync
+            commands::settings_sync,
+            commands::clear_session_history,
+            commands::delete_local_message,
+            commands::favorite_local_message,
+            commands::add_local_emoji,
+            commands::multi_select_local_message,
+            commands::quote_local_message,
+            commands::set_essence_local_message,
+            commands::recall_local_message,
+            commands::forward_local_message,
+            commands::view_local_profile,
+            commands::add_local_friend,
+            commands::report_local_user,
+            commands::block_local_user,
+            commands::edit_local_group_nickname,
+            commands::get_local_chat_actions
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let RunEvent::ExitRequested { api, .. } = &event {
+                if let Some(main_window) = app_handle.get_webview_window("main") {
+                    if !main_window.is_visible().unwrap_or(true) {
+                        api.prevent_exit();
+                        let _ = main_window.show();
+                        let _ = main_window.unminimize();
+                        let _ = main_window.set_focus();
+                        return;
+                    }
+                }
+            }
+            if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+                let state = app_handle.state::<Arc<AppState>>().inner().clone();
+                tauri::async_runtime::block_on(async move {
+                    sidecar::stop_sidecars(&state).await;
+                });
+            }
+        });
 }
 
 #[cfg(test)]
@@ -111,6 +159,33 @@ mod tests {
         match command {
             GENERIC_COMMAND => None,
             "read_image_base64" => None,
+            "get_screenshot_monitor_info" => None,
+            "get_screenshot_virtual_screen_info" => None,
+            "capture_screenshot" => None,
+            "capture_screenshot_shared_buffer" => None,
+            "crop_screenshot" => None,
+            "release_screenshot_capture" => None,
+            "set_screenshot_window_exclude_from_capture" => None,
+            "prepare_screenshot_window" => None,
+            "hide_main_window" => None,
+            "restore_main_window" => None,
+            "save_file_to_directory" => None,
+            "save_base64_file_to_directory" => None,
+            "clear_session_history" => None,
+            "delete_local_message" => None,
+            "favorite_local_message" => None,
+            "add_local_emoji" => None,
+            "multi_select_local_message" => None,
+            "quote_local_message" => None,
+            "set_essence_local_message" => None,
+            "recall_local_message" => None,
+            "forward_local_message" => None,
+            "view_local_profile" => None,
+            "add_local_friend" => None,
+            "report_local_user" => None,
+            "block_local_user" => None,
+            "edit_local_group_nickname" => None,
+            "get_local_chat_actions" => None,
             "engine_ready" => Some("ready"),
             "connect_server" => Some("connect"),
             "register_account" => Some("register"),

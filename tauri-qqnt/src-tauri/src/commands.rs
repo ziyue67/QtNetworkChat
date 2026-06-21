@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose, Engine as _};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::bridge;
 use crate::error::QQNTError;
@@ -57,6 +59,157 @@ pub struct LoginResponse {
 pub struct ImageBase64Response {
     pub base64: String,
     pub data_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedLocalFileResponse {
+    pub file_path: String,
+    pub file_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreMainWindowResponse {
+    pub restored: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HideMainWindowResponse {
+    pub hidden: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotResponse {
+    pub file_path: String,
+    pub file_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
+#[tauri::command]
+pub async fn restore_main_window(
+    app_handle: AppHandle,
+) -> Result<RestoreMainWindowResponse, QQNTError> {
+    let Some(main_window) = app_handle.get_webview_window("main") else {
+        return Ok(RestoreMainWindowResponse { restored: false });
+    };
+
+    let _ = main_window.show();
+    let _ = main_window.unminimize();
+    let _ = main_window.set_focus();
+    Ok(RestoreMainWindowResponse { restored: true })
+}
+
+#[tauri::command]
+pub async fn hide_main_window(app_handle: AppHandle) -> Result<HideMainWindowResponse, QQNTError> {
+    let Some(main_window) = app_handle.get_webview_window("main") else {
+        return Ok(HideMainWindowResponse { hidden: false });
+    };
+
+    let _ = main_window.hide();
+    Ok(HideMainWindowResponse { hidden: true })
+}
+
+#[derive(Debug, Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotMonitorInfo {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalActionResponse {
+    pub saved: bool,
+    pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearSessionHistoryResponse {
+    pub cleared: bool,
+    pub session_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteLocalMessageResponse {
+    pub deleted: bool,
+    pub session_id: String,
+    pub message_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalChatActionsResponse {
+    pub cleared_sessions: Vec<ClearedLocalSession>,
+    pub deleted_messages: Vec<DeletedLocalMessage>,
+    pub favorite_messages: Vec<LocalMessageAction>,
+    pub emoji_messages: Vec<LocalMessageAction>,
+    pub selected_messages: Vec<LocalMessageAction>,
+    pub quote_messages: Vec<LocalMessageAction>,
+    pub essence_messages: Vec<LocalMessageAction>,
+    pub recalled_messages: Vec<LocalMessageAction>,
+    pub member_actions: Vec<LocalMemberAction>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearedLocalSession {
+    pub session_id: String,
+    pub cleared_at: u128,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedLocalMessage {
+    pub session_id: String,
+    pub message_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalMessageAction {
+    pub session_id: String,
+    pub message_id: String,
+    pub saved_at: u128,
+    pub value: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalMemberAction {
+    pub kind: String,
+    pub member_id: String,
+    pub session_id: Option<String>,
+    pub saved_at: u128,
+    pub value: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotCropPayload {
+    #[serde(default)]
+    pub source_path: Option<String>,
+    #[serde(default)]
+    pub capture_id: Option<String>,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[tauri::command]
@@ -220,8 +373,9 @@ pub async fn send_private_message(
     req_id: String,
     receiver_id: String,
     content: String,
+    client_message_id: Option<String>,
 ) -> Result<Value, QQNTError> {
-    let payload = send_private_message_payload(receiver_id, content)?;
+    let payload = send_private_message_payload(receiver_id, content, client_message_id)?;
 
     call_engine_payload(state.inner(), "send_private_message", req_id, payload).await
 }
@@ -232,8 +386,9 @@ pub async fn send_group_message(
     req_id: String,
     group_id: String,
     content: String,
+    client_message_id: Option<String>,
 ) -> Result<Value, QQNTError> {
-    let payload = send_group_message_payload(group_id, content)?;
+    let payload = send_group_message_payload(group_id, content, client_message_id)?;
 
     call_engine_payload(state.inner(), "send_group_message", req_id, payload).await
 }
@@ -413,6 +568,256 @@ pub async fn settings_sync(
 }
 
 #[tauri::command]
+pub async fn clear_session_history(
+    session_id: String,
+) -> Result<ClearSessionHistoryResponse, QQNTError> {
+    let session_id = require_trimmed(session_id, "sessionId")?;
+    persist_local_action_value("clear_session", json!({ "sessionId": session_id }))?;
+    Ok(ClearSessionHistoryResponse {
+        cleared: true,
+        session_id,
+    })
+}
+
+#[tauri::command]
+pub async fn delete_local_message(
+    session_id: String,
+    message_id: String,
+) -> Result<DeleteLocalMessageResponse, QQNTError> {
+    let session_id = require_trimmed(session_id, "sessionId")?;
+    let message_id = require_trimmed(message_id, "messageId")?;
+    persist_local_action_value(
+        "delete_message",
+        json!({ "sessionId": session_id, "messageId": message_id }),
+    )?;
+    Ok(DeleteLocalMessageResponse {
+        deleted: true,
+        session_id,
+        message_id,
+    })
+}
+
+#[tauri::command]
+pub async fn favorite_local_message(message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action("favorite", message)
+}
+
+#[tauri::command]
+pub async fn add_local_emoji(message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action("emoji", message)
+}
+
+#[tauri::command]
+pub async fn multi_select_local_message(message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action("multi_select", message)
+}
+
+#[tauri::command]
+pub async fn quote_local_message(message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action("quote", message)
+}
+
+#[tauri::command]
+pub async fn set_essence_local_message(message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action("essence", message)
+}
+
+#[tauri::command]
+pub async fn recall_local_message(message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action("recall", message)
+}
+
+#[tauri::command]
+pub async fn forward_local_message(
+    message: Value,
+    target: Value,
+    note: Option<String>,
+) -> Result<LocalActionResponse, QQNTError> {
+    let target_id = target
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if target_id.is_empty() {
+        return Err(QQNTError::rust("missing_field", "target.id is required."));
+    }
+    persist_local_action_value(
+        "forward",
+        json!({
+            "id": message
+                .get("id")
+                .and_then(Value::as_str)
+                .or_else(|| message.get("messageId").and_then(Value::as_str))
+                .unwrap_or("local-message"),
+            "message": message,
+            "target": target,
+            "note": note.unwrap_or_default()
+        }),
+    )
+}
+
+#[tauri::command]
+pub async fn view_local_profile(member: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_member_action("view_profile", member, None, None)
+}
+
+#[tauri::command]
+pub async fn add_local_friend(member: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_member_action("add_friend", member, None, None)
+}
+
+#[tauri::command]
+pub async fn report_local_user(
+    member: Value,
+    session_id: Option<String>,
+) -> Result<LocalActionResponse, QQNTError> {
+    persist_member_action("report_user", member, session_id, None)
+}
+
+#[tauri::command]
+pub async fn block_local_user(
+    member: Value,
+    session_id: Option<String>,
+) -> Result<LocalActionResponse, QQNTError> {
+    persist_member_action("block_user", member, session_id, None)
+}
+
+#[tauri::command]
+pub async fn edit_local_group_nickname(
+    member: Value,
+    nickname: String,
+    session_id: Option<String>,
+) -> Result<LocalActionResponse, QQNTError> {
+    let nickname = require_trimmed(nickname, "nickname")?;
+    persist_member_action("edit_group_nickname", member, session_id, Some(json!({ "nickname": nickname })))
+}
+
+#[tauri::command]
+pub async fn get_local_chat_actions() -> Result<LocalChatActionsResponse, QQNTError> {
+    let mut cleared_sessions: Vec<ClearedLocalSession> = Vec::new();
+    let mut deleted_messages = Vec::new();
+    let mut favorite_messages = Vec::new();
+    let mut emoji_messages = Vec::new();
+    let mut selected_messages = Vec::new();
+    let mut quote_messages = Vec::new();
+    let mut essence_messages = Vec::new();
+    let mut recalled_messages = Vec::new();
+    let mut member_actions = Vec::new();
+    let directory = local_action_directory();
+    if !directory.is_dir() {
+        return Ok(LocalChatActionsResponse {
+            cleared_sessions,
+            deleted_messages,
+            favorite_messages,
+            emoji_messages,
+            selected_messages,
+            quote_messages,
+            essence_messages,
+            recalled_messages,
+            member_actions,
+        });
+    }
+
+    let entries = fs::read_dir(&directory).map_err(|err| {
+        QQNTError::rust(
+            "local_action_read_failed",
+            format!("Unable to read local action directory: {err}"),
+        )
+    })?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(data) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(payload) = serde_json::from_str::<Value>(&data) else {
+            continue;
+        };
+        let kind = payload.get("kind").and_then(Value::as_str).unwrap_or_default();
+        let saved_at = payload.get("savedAt").and_then(Value::as_u64).unwrap_or(0) as u128;
+        let message = payload.get("message").unwrap_or(&Value::Null);
+        match kind {
+            "clear_session" => {
+                if let Some(session_id) = message.get("sessionId").and_then(Value::as_str) {
+                    let session_id = session_id.trim();
+                    if !session_id.is_empty() {
+                        if let Some(existing) = cleared_sessions.iter_mut().find(|existing| existing.session_id == session_id) {
+                            existing.cleared_at = existing.cleared_at.max(saved_at);
+                        } else {
+                            cleared_sessions.push(ClearedLocalSession {
+                                session_id: session_id.to_string(),
+                                cleared_at: saved_at,
+                            });
+                        }
+                    }
+                }
+            }
+            "delete_message" => {
+                let session_id = message
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim();
+                let message_id = message
+                    .get("messageId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim();
+                if !session_id.is_empty() && !message_id.is_empty() {
+                    deleted_messages.push(DeletedLocalMessage {
+                        session_id: session_id.to_string(),
+                        message_id: message_id.to_string(),
+                    });
+                }
+            }
+            "favorite" => push_message_action(&mut favorite_messages, message, saved_at),
+            "emoji" => push_message_action(&mut emoji_messages, message, saved_at),
+            "multi_select" => push_message_action(&mut selected_messages, message, saved_at),
+            "quote" => push_message_action(&mut quote_messages, message, saved_at),
+            "essence" => push_message_action(&mut essence_messages, message, saved_at),
+            "recall" => push_message_action(&mut recalled_messages, message, saved_at),
+            "view_profile" | "add_friend" | "report_user" | "block_user" | "edit_group_nickname" => {
+                let member_id = message
+                    .get("member")
+                    .and_then(|member| member.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim();
+                if !member_id.is_empty() {
+                    member_actions.push(LocalMemberAction {
+                        kind: kind.to_string(),
+                        member_id: member_id.to_string(),
+                        session_id: message
+                            .get("sessionId")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(ToString::to_string),
+                        saved_at,
+                        value: message.clone(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(LocalChatActionsResponse {
+        cleared_sessions,
+        deleted_messages,
+        favorite_messages,
+        emoji_messages,
+        selected_messages,
+        quote_messages,
+        essence_messages,
+        recalled_messages,
+        member_actions,
+    })
+}
+
+#[tauri::command]
 pub async fn read_image_base64(file_path: String) -> Result<ImageBase64Response, QQNTError> {
     let path = Path::new(&file_path);
     if !path.is_file() {
@@ -422,21 +827,21 @@ pub async fn read_image_base64(file_path: String) -> Result<ImageBase64Response,
         ));
     }
 
-    let mime = image_mime_from_path(path)?;
     let bytes = fs::read(path).map_err(|err| {
         QQNTError::rust(
             "read_image_failed",
-            format!("Unable to read selected avatar image: {err}"),
+            format!("Unable to read selected image: {err}"),
         )
     })?;
 
     if bytes.is_empty() {
         return Err(QQNTError::rust(
             "empty_image_file",
-            "Selected avatar image is empty.",
+            "Selected image is empty.",
         ));
     }
 
+    let mime = image_mime_from_path_or_bytes(path, &bytes)?;
     let base64 = general_purpose::STANDARD.encode(bytes);
     Ok(ImageBase64Response {
         data_url: format!("data:{mime};base64,{base64}"),
@@ -472,6 +877,136 @@ async fn login_like(
     })
 }
 
+fn require_trimmed(value: String, field: &str) -> Result<String, QQNTError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(QQNTError::rust("missing_field", format!("{field} is required.")));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn persist_local_action(kind: &str, message: Value) -> Result<LocalActionResponse, QQNTError> {
+    persist_local_action_value(kind, message)
+}
+
+fn persist_member_action(
+    kind: &str,
+    member: Value,
+    session_id: Option<String>,
+    extra: Option<Value>,
+) -> Result<LocalActionResponse, QQNTError> {
+    let member_id = member
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if member_id.is_empty() {
+        return Err(QQNTError::rust("missing_field", "member.id is required."));
+    }
+
+    let mut payload = json!({
+        "id": member_id,
+        "member": member,
+    });
+    if let Some(session_id) = session_id.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+        payload["sessionId"] = json!(session_id);
+    }
+    if let Some(extra) = extra {
+        payload["extra"] = extra;
+    }
+
+    persist_local_action_value(kind, payload)
+}
+
+fn local_action_directory() -> PathBuf {
+    std::env::temp_dir().join("tauri-qqnt-local-actions")
+}
+
+fn safe_local_action_component(value: &str) -> String {
+    let mut safe = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+            safe.push(character);
+        } else {
+            safe.push('_');
+        }
+    }
+    if safe.is_empty() {
+        "local-message".to_string()
+    } else {
+        safe
+    }
+}
+
+fn persist_local_action_value(kind: &str, message: Value) -> Result<LocalActionResponse, QQNTError> {
+    let message_id = message
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| message.get("messageId").and_then(Value::as_str))
+        .unwrap_or("local-message")
+        .trim();
+    if message_id.is_empty() {
+        return Err(QQNTError::rust("missing_field", "message.id is required."));
+    }
+
+    let directory = local_action_directory();
+    fs::create_dir_all(&directory).map_err(|err| {
+        QQNTError::rust(
+            "local_action_write_failed",
+            format!("Unable to create local action directory: {err}"),
+        )
+    })?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| QQNTError::rust("clock_error", format!("System clock error: {err}")))?
+        .as_millis();
+    let id = format!("{}-{}-{now}", safe_local_action_component(kind), safe_local_action_component(message_id));
+    let path = directory.join(format!("{id}.json"));
+    let payload = json!({
+        "kind": kind,
+        "id": id,
+        "savedAt": now,
+        "message": message
+    });
+    let data = serde_json::to_vec_pretty(&payload).map_err(|err| {
+        QQNTError::rust(
+            "local_action_serialize_failed",
+            format!("Unable to serialize local action: {err}"),
+        )
+    })?;
+    fs::write(path, data).map_err(|err| {
+        QQNTError::rust(
+            "local_action_write_failed",
+            format!("Unable to write local action: {err}"),
+        )
+    })?;
+
+    Ok(LocalActionResponse { saved: true, id })
+}
+
+fn push_message_action(target: &mut Vec<LocalMessageAction>, message: &Value, saved_at: u128) {
+    let message_id = message
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| message.get("messageId").and_then(Value::as_str))
+        .or_else(|| message.get("clientMessageId").and_then(Value::as_str))
+        .unwrap_or_default()
+        .trim();
+    let session_id = message
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if message_id.is_empty() || session_id.is_empty() {
+        return;
+    }
+    target.push(LocalMessageAction {
+        session_id: session_id.to_string(),
+        message_id: message_id.to_string(),
+        saved_at,
+        value: message.clone(),
+    });
+}
 fn connect_payload(host: String, port: Value) -> Result<Value, QQNTError> {
     let payload = json!({
         "host": host,
@@ -526,11 +1061,16 @@ fn respond_friend_request_payload(sender_id: String, accepted: Value) -> Result<
     Ok(payload)
 }
 
-fn send_private_message_payload(receiver_id: String, content: String) -> Result<Value, QQNTError> {
-    let payload = json!({
+fn send_private_message_payload(
+    receiver_id: String,
+    content: String,
+    client_message_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    let payload = compact_payload(json!({
         "receiverId": receiver_id,
-        "content": content
-    });
+        "content": content,
+        "clientMessageId": client_message_id
+    }));
     validate_send_private_message_command_payload(&payload)?;
     Ok(payload)
 }
@@ -600,6 +1140,903 @@ fn image_mime_from_path(path: &Path) -> Result<&'static str, QQNTError> {
     }
 }
 
+#[tauri::command]
+pub async fn get_screenshot_monitor_info() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    get_screenshot_monitor_info_impl()
+}
+
+#[tauri::command]
+pub async fn get_screenshot_virtual_screen_info() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    get_screenshot_virtual_screen_info_impl()
+}
+
+#[tauri::command]
+pub async fn capture_screenshot() -> Result<ScreenshotResponse, QQNTError> {
+    capture_screenshot_impl()
+}
+
+#[tauri::command]
+pub async fn capture_screenshot_shared_buffer(
+    webview: tauri::Webview,
+    request_id: Option<String>,
+) -> Result<ScreenshotResponse, QQNTError> {
+    capture_screenshot_shared_buffer_impl(webview, request_id).await
+}
+
+#[tauri::command]
+pub async fn crop_screenshot(
+    payload: ScreenshotCropPayload,
+) -> Result<ScreenshotResponse, QQNTError> {
+    crop_screenshot_impl(payload)
+}
+
+#[tauri::command]
+pub async fn release_screenshot_capture(capture_id: String) -> Result<(), QQNTError> {
+    release_screenshot_capture_impl(&capture_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_screenshot_window_exclude_from_capture(
+    window: tauri::Window,
+    enable: bool,
+) -> Result<(), QQNTError> {
+    set_screenshot_window_exclude_from_capture_impl(window, enable)
+}
+
+#[tauri::command]
+pub async fn prepare_screenshot_window(window: tauri::Window) -> Result<(), QQNTError> {
+    prepare_screenshot_window_impl(window)
+}
+
+#[tauri::command]
+pub async fn save_file_to_directory(
+    source_path: String,
+    directory_path: String,
+    file_name: Option<String>,
+) -> Result<SavedLocalFileResponse, QQNTError> {
+    save_file_to_directory_impl(&source_path, &directory_path, file_name.as_deref())
+}
+
+#[tauri::command]
+pub async fn save_base64_file_to_directory(
+    base64: String,
+    directory_path: String,
+    file_name: String,
+) -> Result<SavedLocalFileResponse, QQNTError> {
+    save_base64_file_to_directory_impl(&base64, &directory_path, &file_name)
+}
+
+fn image_mime_from_path_or_bytes(path: &Path, bytes: &[u8]) -> Result<&'static str, QQNTError> {
+    if let Ok(mime) = image_mime_from_path(path) {
+        return Ok(mime);
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1A\n") {
+        return Ok("image/png");
+    }
+    if bytes.starts_with(b"\xFF\xD8\xFF") {
+        return Ok("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Ok("image/gif");
+    }
+    if bytes.starts_with(b"BM") {
+        return Ok("image/bmp");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Ok("image/webp");
+    }
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && matches!(&bytes[8..12], b"avif" | b"avis") {
+        return Ok("image/avif");
+    }
+
+    let prefix_len = bytes.len().min(256);
+    let prefix = String::from_utf8_lossy(&bytes[..prefix_len])
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .to_ascii_lowercase();
+    if prefix.starts_with("<svg") || prefix.starts_with("<?xml") && prefix.contains("<svg") {
+        return Ok("image/svg+xml");
+    }
+
+    Err(QQNTError::rust(
+        "unsupported_image_type",
+        "Image must be png, jpg, jpeg, gif, webp, bmp, svg, avif, or apng.",
+    ))
+}
+
+fn safe_leaf_name(candidate: Option<&str>, source_path: &Path) -> Result<String, QQNTError> {
+    let selected = candidate
+        .and_then(|value| Path::new(value).file_name())
+        .or_else(|| source_path.file_name())
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| QQNTError::rust("invalid_file_name", "File name is required."))?;
+
+    Ok(selected
+        .chars()
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            _ => ch,
+        })
+        .collect())
+}
+
+fn unique_destination_path(directory: &Path, file_name: &str) -> PathBuf {
+    let initial = directory.join(file_name);
+    if !initial.exists() {
+        return initial;
+    }
+
+    let path = Path::new(file_name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("file");
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    for index in 2..1000 {
+        let candidate_name = if extension.is_empty() {
+            format!("{stem}_{index}")
+        } else {
+            format!("{stem}_{index}.{extension}")
+        };
+        let candidate = directory.join(candidate_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    directory.join(format!("{stem}_{}", chrono_like_timestamp()))
+}
+
+fn paths_refer_to_same_file(first: &Path, second: &Path) -> bool {
+    match (first.canonicalize(), second.canonicalize()) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => false,
+    }
+}
+
+fn chrono_like_timestamp() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
+fn screenshot_temp_destination(prefix: &str) -> Result<(PathBuf, String), QQNTError> {
+    let directory = std::env::temp_dir().join("tauri-qqnt-screenshots");
+    fs::create_dir_all(&directory).map_err(|err| {
+        QQNTError::rust(
+            "screenshot_save_failed",
+            format!("Unable to create screenshot directory: {err}"),
+        )
+    })?;
+
+    let file_name = format!("{prefix}-{}.png", chrono_like_timestamp());
+    Ok((unique_destination_path(&directory, &file_name), file_name))
+}
+
+fn screenshot_response(
+    destination: &Path,
+    fallback_name: &str,
+    capture: ScreenshotCaptureInfo,
+) -> ScreenshotResponse {
+    ScreenshotResponse {
+        file_name: destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(fallback_name)
+            .to_string(),
+        file_path: destination.to_string_lossy().to_string(),
+        capture_id: None,
+        x: Some(capture.x),
+        y: Some(capture.y),
+        width: Some(capture.width),
+        height: Some(capture.height),
+    }
+}
+
+fn capture_screenshot_impl() -> Result<ScreenshotResponse, QQNTError> {
+    let (destination, file_name) = screenshot_temp_destination("screenshot")?;
+
+    let capture = capture_screenshot_to_path(&destination)?;
+    if !destination.is_file() {
+        return Err(QQNTError::rust(
+            "screenshot_save_failed",
+            "Screenshot command finished but no image file was created.",
+        ));
+    }
+
+    Ok(screenshot_response(&destination, &file_name, capture))
+}
+
+async fn capture_screenshot_shared_buffer_impl(
+    webview: tauri::Webview,
+    request_id: Option<String>,
+) -> Result<ScreenshotResponse, QQNTError> {
+    let capture = capture_screenshot_data()?;
+    let info = capture.info;
+    let capture_id = format!("screenshot-{}", chrono_like_timestamp());
+    let transfer_type = request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("screenshot:{value}"))
+        .unwrap_or_else(|| "screenshot".to_string());
+    let extra = screenshot_shared_buffer_extra(info.width, info.height);
+
+    crate::shared_buffer::create_shared_buffer(
+        webview,
+        capture.rgba.as_raw(),
+        &extra,
+        transfer_type,
+    )
+    .await
+    .map_err(|err| QQNTError::rust("screenshot_shared_buffer_failed", err))?;
+
+    cache_screenshot_capture(capture_id.clone(), capture)?;
+
+    Ok(ScreenshotResponse {
+        file_path: String::new(),
+        file_name: String::new(),
+        capture_id: Some(capture_id),
+        x: Some(info.x),
+        y: Some(info.y),
+        width: Some(info.width),
+        height: Some(info.height),
+    })
+}
+
+fn screenshot_shared_buffer_extra(width: u32, height: u32) -> [u8; 8] {
+    let mut extra = [0; 8];
+    extra[..4].copy_from_slice(&width.to_le_bytes());
+    extra[4..].copy_from_slice(&height.to_le_bytes());
+    extra
+}
+
+fn get_screenshot_monitor_info_impl() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    get_active_screenshot_monitor_info()
+}
+
+fn get_screenshot_virtual_screen_info_impl() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    get_virtual_screenshot_monitor_info()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScreenshotCaptureInfo {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+struct ScreenshotCaptureData {
+    info: ScreenshotCaptureInfo,
+    rgba: image::RgbaImage,
+}
+
+static SCREENSHOT_CAPTURE_CACHE: OnceLock<Mutex<HashMap<String, ScreenshotCaptureData>>> =
+    OnceLock::new();
+
+fn screenshot_capture_cache() -> &'static Mutex<HashMap<String, ScreenshotCaptureData>> {
+    SCREENSHOT_CAPTURE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_screenshot_capture(
+    capture_id: String,
+    capture: ScreenshotCaptureData,
+) -> Result<(), QQNTError> {
+    screenshot_capture_cache()
+        .lock()
+        .map_err(|_| QQNTError::rust("screenshot_cache_failed", "Screenshot cache is poisoned."))?
+        .insert(capture_id, capture);
+    Ok(())
+}
+
+fn take_screenshot_capture(capture_id: &str) -> Result<ScreenshotCaptureData, QQNTError> {
+    screenshot_capture_cache()
+        .lock()
+        .map_err(|_| QQNTError::rust("screenshot_cache_failed", "Screenshot cache is poisoned."))?
+        .remove(capture_id)
+        .ok_or_else(|| {
+            QQNTError::rust(
+                "screenshot_cache_miss",
+                "Screenshot cache has expired. Please capture again.",
+            )
+        })
+}
+
+fn release_screenshot_capture_impl(capture_id: &str) {
+    if capture_id.trim().is_empty() {
+        return;
+    }
+    if let Some(cache) = SCREENSHOT_CAPTURE_CACHE.get() {
+        if let Ok(mut captures) = cache.lock() {
+            captures.remove(capture_id);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_screenshot_window_exclude_from_capture_impl(
+    window: tauri::Window,
+    enable: bool,
+) -> Result<(), QQNTError> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    };
+
+    let hwnd = window.hwnd().map_err(|err| {
+        QQNTError::rust(
+            "screenshot_window_handle_failed",
+            format!("Unable to get screenshot window handle: {err}"),
+        )
+    })?;
+
+    unsafe {
+        SetWindowDisplayAffinity(
+            hwnd,
+            if enable {
+                WDA_EXCLUDEFROMCAPTURE
+            } else {
+                WDA_NONE
+            },
+        )
+    }
+    .map_err(|err| {
+        QQNTError::rust(
+            "screenshot_exclude_from_capture_failed",
+            format!("Unable to update screenshot window capture exclusion: {err}"),
+        )
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_screenshot_window_exclude_from_capture_impl(
+    _window: tauri::Window,
+    _enable: bool,
+) -> Result<(), QQNTError> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn prepare_screenshot_window_impl(window: tauri::Window) -> Result<(), QQNTError> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED,
+    };
+
+    let hwnd = window.hwnd().map_err(|err| {
+        QQNTError::rust(
+            "screenshot_window_handle_failed",
+            format!("Unable to get screenshot window handle: {err}"),
+        )
+    })?;
+
+    // Match Snow Shot: disable DWM show/hide animation so the overlay appears immediately.
+    let disable_transitions: i32 = 1;
+    unsafe {
+        DwmSetWindowAttribute(
+            HWND(hwnd.0),
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            &disable_transitions as *const _ as *const _,
+            std::mem::size_of::<i32>() as u32,
+        )
+    }
+    .map_err(|err| {
+        QQNTError::rust(
+            "screenshot_window_style_failed",
+            format!("Unable to prepare screenshot window style: {err}"),
+        )
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn prepare_screenshot_window_impl(_window: tauri::Window) -> Result<(), QQNTError> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn get_active_screenshot_monitor_info() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    use xcap::Monitor;
+
+    let (cursor_x, cursor_y) = cursor_position()?;
+    let monitor = Monitor::from_point(cursor_x, cursor_y)
+        .or_else(|_| {
+            let mut monitors = Monitor::all()?;
+            if let Some(primary_index) = monitors
+                .iter()
+                .position(|monitor| monitor.is_primary().unwrap_or(false))
+            {
+                return Ok(monitors.remove(primary_index));
+            }
+
+            monitors.into_iter().next().ok_or_else(|| {
+                xcap::XCapError::new("No display is available for screenshot capture.")
+            })
+        })
+        .map_err(|err| {
+            QQNTError::rust(
+                "screenshot_failed",
+                format!("Unable to find active monitor with xcap: {err}"),
+            )
+        })?;
+
+    let x = monitor.x().unwrap_or(0);
+    let y = monitor.y().unwrap_or(0);
+    let width = monitor.width().unwrap_or(960).max(1);
+    let height = monitor.height().unwrap_or(640).max(1);
+
+    Ok(ScreenshotMonitorInfo {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn get_virtual_screenshot_monitor_info() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    use xcap::Monitor;
+
+    let monitors = Monitor::all().map_err(|err| {
+        QQNTError::rust(
+            "screenshot_failed",
+            format!("Unable to enumerate monitors with xcap: {err}"),
+        )
+    })?;
+
+    let mut bounds: Option<(i64, i64, i64, i64)> = None;
+    for monitor in monitors {
+        let x = monitor.x().unwrap_or(0) as i64;
+        let y = monitor.y().unwrap_or(0) as i64;
+        let width = monitor.width().unwrap_or(1).max(1) as i64;
+        let height = monitor.height().unwrap_or(1).max(1) as i64;
+        bounds = Some(match bounds {
+            Some((min_x, min_y, max_x, max_y)) => (
+                min_x.min(x),
+                min_y.min(y),
+                max_x.max(x + width),
+                max_y.max(y + height),
+            ),
+            None => (x, y, x + width, y + height),
+        });
+    }
+
+    let (min_x, min_y, max_x, max_y) = bounds.ok_or_else(|| {
+        QQNTError::rust(
+            "screenshot_failed",
+            "No display is available for screenshot capture.",
+        )
+    })?;
+
+    Ok(ScreenshotMonitorInfo {
+        x: i32::try_from(min_x).unwrap_or(if min_x.is_negative() {
+            i32::MIN
+        } else {
+            i32::MAX
+        }),
+        y: i32::try_from(min_y).unwrap_or(if min_y.is_negative() {
+            i32::MIN
+        } else {
+            i32::MAX
+        }),
+        width: u32::try_from(max_x - min_x).unwrap_or(u32::MAX).max(1),
+        height: u32::try_from(max_y - min_y).unwrap_or(u32::MAX).max(1),
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn capture_screenshot_data() -> Result<ScreenshotCaptureData, QQNTError> {
+    use image::RgbaImage;
+    use xcap::Monitor;
+
+    let monitors = Monitor::all().map_err(|err| {
+        QQNTError::rust(
+            "screenshot_failed",
+            format!("Unable to enumerate monitors with xcap: {err}"),
+        )
+    })?;
+    if monitors.is_empty() {
+        return Err(QQNTError::rust(
+            "screenshot_failed",
+            "No display is available for screenshot capture.",
+        ));
+    }
+
+    let mut bounds: Option<(i64, i64, i64, i64)> = None;
+    let mut monitor_infos = Vec::with_capacity(monitors.len());
+    for monitor in monitors {
+        let x = monitor.x().unwrap_or(0) as i64;
+        let y = monitor.y().unwrap_or(0) as i64;
+        let width = monitor.width().unwrap_or(1).max(1) as i64;
+        let height = monitor.height().unwrap_or(1).max(1) as i64;
+        let right = x + width;
+        let bottom = y + height;
+        bounds = Some(match bounds {
+            Some((min_x, min_y, max_x, max_y)) => (
+                min_x.min(x),
+                min_y.min(y),
+                max_x.max(right),
+                max_y.max(bottom),
+            ),
+            None => (x, y, right, bottom),
+        });
+        monitor_infos.push((monitor, x, y));
+    }
+
+    let (min_x, min_y, max_x, max_y) = bounds.ok_or_else(|| {
+        QQNTError::rust(
+            "screenshot_failed",
+            "No display is available for screenshot capture.",
+        )
+    })?;
+    let virtual_width = u32::try_from(max_x - min_x).unwrap_or(u32::MAX).max(1);
+    let virtual_height = u32::try_from(max_y - min_y).unwrap_or(u32::MAX).max(1);
+    let mut rgba = RgbaImage::new(virtual_width, virtual_height);
+
+    for (monitor, monitor_x, monitor_y) in monitor_infos {
+        let image = monitor.capture_image().map_err(|err| {
+            QQNTError::rust(
+                "screenshot_failed",
+                format!("Unable to capture monitor image with xcap: {err}"),
+            )
+        })?;
+        image::imageops::overlay(&mut rgba, &image, monitor_x - min_x, monitor_y - min_y);
+    }
+
+    let info = ScreenshotCaptureInfo {
+        x: i32::try_from(min_x).unwrap_or(if min_x.is_negative() {
+            i32::MIN
+        } else {
+            i32::MAX
+        }),
+        y: i32::try_from(min_y).unwrap_or(if min_y.is_negative() {
+            i32::MIN
+        } else {
+            i32::MAX
+        }),
+        width: rgba.width(),
+        height: rgba.height(),
+    };
+
+    Ok(ScreenshotCaptureData { info, rgba })
+}
+
+#[cfg(target_os = "windows")]
+fn save_screenshot_capture_data(
+    capture: &ScreenshotCaptureData,
+    destination: &Path,
+) -> Result<(), QQNTError> {
+    image::save_buffer_with_format(
+        destination,
+        capture.rgba.as_raw(),
+        capture.info.width,
+        capture.info.height,
+        image::ColorType::Rgba8,
+        image::ImageFormat::Png,
+    )
+    .map_err(|err| {
+        QQNTError::rust(
+            "screenshot_save_failed",
+            format!("Unable to save xcap screenshot image: {err}"),
+        )
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn capture_screenshot_to_path(destination: &Path) -> Result<ScreenshotCaptureInfo, QQNTError> {
+    let capture = capture_screenshot_data()?;
+    save_screenshot_capture_data(&capture, destination)?;
+    Ok(capture.info)
+}
+
+#[cfg(target_os = "windows")]
+fn cursor_position() -> Result<(i32, i32), QQNTError> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let mut point = POINT { x: 0, y: 0 };
+    unsafe { GetCursorPos(&mut point) }.map_err(|err| {
+        QQNTError::rust(
+            "screenshot_failed",
+            format!("Unable to read cursor position for screenshot: {err}"),
+        )
+    })?;
+
+    Ok((point.x, point.y))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_active_screenshot_monitor_info() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    Err(QQNTError::rust(
+        "screenshot_unsupported",
+        "System screenshot capture is currently implemented for Windows.",
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_virtual_screenshot_monitor_info() -> Result<ScreenshotMonitorInfo, QQNTError> {
+    Err(QQNTError::rust(
+        "screenshot_unsupported",
+        "System screenshot capture is currently implemented for Windows.",
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn capture_screenshot_to_path(_destination: &Path) -> Result<ScreenshotCaptureInfo, QQNTError> {
+    Err(QQNTError::rust(
+        "screenshot_unsupported",
+        "System screenshot capture is currently implemented for Windows.",
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn capture_screenshot_data() -> Result<ScreenshotCaptureData, QQNTError> {
+    Err(QQNTError::rust(
+        "screenshot_unsupported",
+        "System screenshot capture is currently implemented for Windows.",
+    ))
+}
+
+fn crop_screenshot_impl(payload: ScreenshotCropPayload) -> Result<ScreenshotResponse, QQNTError> {
+    if payload.width == 0 || payload.height == 0 {
+        return Err(QQNTError::rust(
+            "invalid_screenshot_selection",
+            "Screenshot selection is empty.",
+        ));
+    }
+
+    if let Some(capture_id) = payload
+        .capture_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return crop_screenshot_from_capture(capture_id, &payload);
+    }
+
+    let Some(source_path) = payload
+        .source_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err(QQNTError::rust(
+            "invalid_screenshot_source",
+            "Screenshot source cache or file path is required.",
+        ));
+    };
+
+    let source = Path::new(source_path);
+    if !source.is_file() {
+        return Err(QQNTError::rust(
+            "invalid_screenshot_path",
+            "Screenshot source file is not readable.",
+        ));
+    }
+
+    let image = image::open(source).map_err(|err| {
+        QQNTError::rust(
+            "screenshot_crop_failed",
+            format!("Unable to open screenshot image: {err}"),
+        )
+    })?;
+
+    if payload.x >= image.width() || payload.y >= image.height() {
+        return Err(QQNTError::rust(
+            "invalid_screenshot_selection",
+            "Screenshot selection starts outside the image.",
+        ));
+    }
+
+    let width = payload.width.min(image.width() - payload.x);
+    let height = payload.height.min(image.height() - payload.y);
+    let cropped = image.crop_imm(payload.x, payload.y, width, height);
+
+    let directory = source
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    let file_name = format!("screenshot-crop-{}.png", chrono_like_timestamp());
+    let destination = unique_destination_path(&directory, &file_name);
+    cropped.save(&destination).map_err(|err| {
+        QQNTError::rust(
+            "screenshot_save_failed",
+            format!("Unable to save cropped screenshot image: {err}"),
+        )
+    })?;
+
+    Ok(ScreenshotResponse {
+        file_name: destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&file_name)
+            .to_string(),
+        file_path: destination.to_string_lossy().to_string(),
+        capture_id: None,
+        x: None,
+        y: None,
+        width: Some(width),
+        height: Some(height),
+    })
+}
+
+fn crop_screenshot_from_capture(
+    capture_id: &str,
+    payload: &ScreenshotCropPayload,
+) -> Result<ScreenshotResponse, QQNTError> {
+    let capture = take_screenshot_capture(capture_id)?;
+    let image_width = capture.rgba.width();
+    let image_height = capture.rgba.height();
+
+    if payload.x >= image_width || payload.y >= image_height {
+        return Err(QQNTError::rust(
+            "invalid_screenshot_selection",
+            "Screenshot selection starts outside the image.",
+        ));
+    }
+
+    let width = payload.width.min(image_width - payload.x);
+    let height = payload.height.min(image_height - payload.y);
+    let cropped =
+        image::imageops::crop_imm(&capture.rgba, payload.x, payload.y, width, height).to_image();
+    let (destination, file_name) = screenshot_temp_destination("screenshot-crop")?;
+
+    image::save_buffer_with_format(
+        &destination,
+        cropped.as_raw(),
+        width,
+        height,
+        image::ColorType::Rgba8,
+        image::ImageFormat::Png,
+    )
+    .map_err(|err| {
+        QQNTError::rust(
+            "screenshot_save_failed",
+            format!("Unable to save cropped screenshot image: {err}"),
+        )
+    })?;
+
+    Ok(ScreenshotResponse {
+        file_name: destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&file_name)
+            .to_string(),
+        file_path: destination.to_string_lossy().to_string(),
+        capture_id: None,
+        x: None,
+        y: None,
+        width: Some(width),
+        height: Some(height),
+    })
+}
+
+fn save_file_to_directory_impl(
+    source_path: &str,
+    directory_path: &str,
+    file_name: Option<&str>,
+) -> Result<SavedLocalFileResponse, QQNTError> {
+    let source = Path::new(source_path);
+    if !source.is_file() {
+        return Err(QQNTError::rust(
+            "invalid_file_path",
+            "Source file is not readable.",
+        ));
+    }
+
+    let directory = Path::new(directory_path);
+    if directory_path.trim().is_empty() {
+        return Err(QQNTError::rust(
+            "invalid_download_directory",
+            "Download directory is required.",
+        ));
+    }
+    fs::create_dir_all(directory).map_err(|err| {
+        QQNTError::rust(
+            "create_download_directory_failed",
+            format!("Unable to create download directory: {err}"),
+        )
+    })?;
+
+    let safe_name = safe_leaf_name(file_name, source)?;
+    let preferred_destination = directory.join(&safe_name);
+    if paths_refer_to_same_file(source, &preferred_destination) {
+        return Ok(SavedLocalFileResponse {
+            file_path: preferred_destination.to_string_lossy().to_string(),
+            file_name: safe_name,
+        });
+    }
+
+    if source
+        .parent()
+        .map(|parent| paths_refer_to_same_file(parent, directory))
+        .unwrap_or(false)
+    {
+        let source_name = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&safe_name)
+            .to_string();
+        return Ok(SavedLocalFileResponse {
+            file_path: source.to_string_lossy().to_string(),
+            file_name: source_name,
+        });
+    }
+
+    let destination = unique_destination_path(directory, &safe_name);
+    fs::copy(source, &destination).map_err(|err| {
+        QQNTError::rust(
+            "save_file_failed",
+            format!("Unable to save file to download directory: {err}"),
+        )
+    })?;
+
+    Ok(SavedLocalFileResponse {
+        file_name: destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&safe_name)
+            .to_string(),
+        file_path: destination.to_string_lossy().to_string(),
+    })
+}
+
+fn save_base64_file_to_directory_impl(
+    base64: &str,
+    directory_path: &str,
+    file_name: &str,
+) -> Result<SavedLocalFileResponse, QQNTError> {
+    let bytes = general_purpose::STANDARD
+        .decode(base64.trim())
+        .map_err(|err| {
+            QQNTError::rust(
+                "invalid_file_data",
+                format!("File data is not valid base64: {err}"),
+            )
+        })?;
+    if bytes.is_empty() {
+        return Err(QQNTError::rust("empty_file_data", "File data is empty."));
+    }
+
+    let directory = Path::new(directory_path);
+    if directory_path.trim().is_empty() {
+        return Err(QQNTError::rust(
+            "invalid_download_directory",
+            "Download directory is required.",
+        ));
+    }
+    fs::create_dir_all(directory).map_err(|err| {
+        QQNTError::rust(
+            "create_download_directory_failed",
+            format!("Unable to create download directory: {err}"),
+        )
+    })?;
+
+    let safe_name = safe_leaf_name(Some(file_name), Path::new("file.bin"))?;
+    let destination = unique_destination_path(directory, &safe_name);
+    fs::write(&destination, bytes).map_err(|err| {
+        QQNTError::rust(
+            "save_file_failed",
+            format!("Unable to save file to download directory: {err}"),
+        )
+    })?;
+
+    Ok(SavedLocalFileResponse {
+        file_name: destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&safe_name)
+            .to_string(),
+        file_path: destination.to_string_lossy().to_string(),
+    })
+}
+
 async fn send_file_like(
     state: &Arc<AppState>,
     op: &str,
@@ -634,11 +2071,16 @@ fn cancel_transfer_payload(transfer_id: String) -> Result<Value, QQNTError> {
     Ok(payload)
 }
 
-fn send_group_message_payload(group_id: String, content: String) -> Result<Value, QQNTError> {
-    let payload = json!({
+fn send_group_message_payload(
+    group_id: String,
+    content: String,
+    client_message_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    let payload = compact_payload(json!({
         "groupId": group_id,
-        "content": content
-    });
+        "content": content,
+        "clientMessageId": client_message_id
+    }));
     validate_send_group_message_command_payload(&payload)?;
     Ok(payload)
 }
@@ -904,9 +2346,14 @@ fn validate_respond_friend_request_command_payload(payload: &Value) -> Result<()
 }
 
 fn validate_send_private_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
-    require_command_payload_fields("send_private_message", payload, &["receiverId", "content"])?;
+    require_command_payload_fields(
+        "send_private_message",
+        payload,
+        &["receiverId", "content", "clientMessageId"],
+    )?;
     require_non_empty_command_string_field(payload, "receiverId")?;
     require_non_empty_command_string_field(payload, "content")?;
+    optional_command_string_field(payload, "clientMessageId", "invalid_client_message_id")?;
     Ok(())
 }
 
@@ -986,9 +2433,14 @@ fn validate_settings_sync_command_payload(payload: &Value) -> Result<(), QQNTErr
 }
 
 fn validate_send_group_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
-    require_command_payload_fields("send_group_message", payload, &["groupId", "content"])?;
+    require_command_payload_fields(
+        "send_group_message",
+        payload,
+        &["groupId", "content", "clientMessageId"],
+    )?;
     require_non_empty_command_string_field(payload, "groupId")?;
     require_non_empty_command_string_field(payload, "content")?;
+    optional_command_string_field(payload, "clientMessageId", "invalid_client_message_id")?;
     Ok(())
 }
 
@@ -1480,6 +2932,9 @@ fn validate_target_error_details(
 mod tests {
     use super::*;
 
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     const TYPED_COMMAND_OPS: &[&str] = &[
         "ready",
         "connect",
@@ -1510,6 +2965,92 @@ mod tests {
         "profile_update",
         "settings_sync",
     ];
+    static TEMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn temp_save_dir() -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_millis();
+        let index = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("qqnt-save-test-{stamp}-{index}"))
+    }
+
+    #[test]
+    fn save_file_to_directory_copies_source_and_avoids_collisions() {
+        let root = temp_save_dir();
+        let source_dir = root.join("source");
+        let download_dir = root.join("downloads");
+        fs::create_dir_all(&source_dir).expect("source dir should be created");
+        let source = source_dir.join("photo.png");
+        fs::write(&source, b"image-bytes").expect("source file should be written");
+
+        let first = save_file_to_directory_impl(
+            &source.to_string_lossy(),
+            &download_dir.to_string_lossy(),
+            Some("photo.png"),
+        )
+        .expect("first save should copy the source file");
+        let second = save_file_to_directory_impl(
+            &source.to_string_lossy(),
+            &download_dir.to_string_lossy(),
+            Some("photo.png"),
+        )
+        .expect("second save should choose a unique destination");
+
+        assert!(Path::new(&first.file_path).is_file());
+        assert!(Path::new(&second.file_path).is_file());
+        assert_ne!(first.file_path, second.file_path);
+        assert_eq!(
+            fs::read(&first.file_path).expect("saved file should be readable"),
+            b"image-bytes"
+        );
+        fs::remove_dir_all(root).expect("test save dir should be removable");
+    }
+
+    #[test]
+    fn save_file_to_directory_reuses_files_already_in_download_dir() {
+        let root = temp_save_dir();
+        let download_dir = root.join("downloads");
+        fs::create_dir_all(&download_dir).expect("download dir should be created");
+        let source = download_dir.join("photo.png");
+        fs::write(&source, b"image-bytes").expect("saved file should be written");
+
+        let saved = save_file_to_directory_impl(
+            &source.to_string_lossy(),
+            &download_dir.to_string_lossy(),
+            Some("photo.png"),
+        )
+        .expect("already saved file should be reused");
+
+        assert!(paths_refer_to_same_file(
+            Path::new(&saved.file_path),
+            &source
+        ));
+        assert_eq!(saved.file_name, "photo.png");
+        assert!(!download_dir.join("photo_2.png").exists());
+        fs::remove_dir_all(root).expect("test save dir should be removable");
+    }
+
+    #[test]
+    fn save_base64_file_to_directory_writes_payload_bytes() {
+        let root = temp_save_dir();
+        let download_dir = root.join("downloads");
+
+        let saved = save_base64_file_to_directory_impl(
+            "ZG9jLWJ5dGVz",
+            &download_dir.to_string_lossy(),
+            "report.txt",
+        )
+        .expect("base64 save should write bytes");
+
+        assert_eq!(saved.file_name, "report.txt");
+        assert_eq!(
+            fs::read(&saved.file_path).expect("saved payload should be readable"),
+            b"doc-bytes"
+        );
+        fs::remove_dir_all(root).expect("test save dir should be removable");
+    }
 
     fn protocol_contract() -> Value {
         serde_json::from_str(include_str!(
@@ -2817,7 +4358,7 @@ mod tests {
 
     #[test]
     fn send_private_message_payload_requires_content() {
-        let error = send_private_message_payload("10001".to_string(), "".to_string())
+        let error = send_private_message_payload("10001".to_string(), "".to_string(), None)
             .expect_err("typed send_private_message payload should require content");
 
         assert_eq!(error.code, "missing_field");
@@ -2861,6 +4402,17 @@ mod tests {
         assert_eq!(packet["payload"]["userName"], "Alice");
         assert_eq!(packet["payload"]["avatarBase64"], "aGVsbG8=");
         assert_eq!(error.code, "invalid_profile_field");
+    }
+
+    #[test]
+    fn image_mime_detection_accepts_extensionless_png_bytes() {
+        let mime = image_mime_from_path_or_bytes(
+            Path::new("5f79699f-4cd3-42b9-9340"),
+            b"\x89PNG\r\n\x1A\npng-data",
+        )
+        .expect("extensionless PNG data should be accepted");
+
+        assert_eq!(mime, "image/png");
     }
 
     #[test]
@@ -2919,7 +4471,7 @@ mod tests {
 
     #[test]
     fn send_group_message_payload_requires_content() {
-        let error = send_group_message_payload("group-1".to_string(), "".to_string())
+        let error = send_group_message_payload("group-1".to_string(), "".to_string(), None)
             .expect_err("typed send_group_message payload should require content");
 
         assert_eq!(error.code, "missing_field");
@@ -2927,7 +4479,7 @@ mod tests {
 
     #[test]
     fn send_group_message_payload_requires_group_id() {
-        let error = send_group_message_payload(" ".to_string(), "hello".to_string())
+        let error = send_group_message_payload(" ".to_string(), "hello".to_string(), None)
             .expect_err("typed send_group_message payload should require groupId");
 
         assert_eq!(error.code, "missing_field");
@@ -3417,19 +4969,19 @@ mod tests {
     }
 
     #[test]
-    fn ack_payload_validates_bool_ack_contract_fields() {
+    fn ack_payload_validates_file_send_contract_fields() {
         let error = ack_payload(
             json!({
                 "type": "ack",
                 "op": "send_file",
                 "reqId": "req-file",
                 "status": "ok",
-                "payload": {}
+                "payload": { "accepted": true }
             }),
             "send_file",
             "req-file",
         )
-        .expect_err("send_file ack without accepted should fail");
+        .expect_err("send_file ack without transferId should fail");
 
         assert_eq!(error.code, "invalid_send_file_payload");
     }
