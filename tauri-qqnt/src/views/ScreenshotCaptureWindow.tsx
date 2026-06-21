@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { emit, listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -158,6 +158,25 @@ function drawSharedBufferToCanvas(buffer: ArrayBuffer, canvas: HTMLCanvasElement
   return { width, height }
 }
 
+function drawImageToCanvas(source: string, canvas: HTMLCanvasElement) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      canvas.width = image.naturalWidth
+      canvas.height = image.naturalHeight
+      const context = canvas.getContext('2d')
+      if (!context) {
+        reject(new Error('无法创建截图画布。'))
+        return
+      }
+      context.drawImage(image, 0, 0)
+      resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    }
+    image.onerror = () => reject(new Error('截图数据加载失败。'))
+    image.src = convertFileSrc(source)
+  })
+}
+
 function viewportFromPhysicalSize(width: number, height: number): ViewportSize {
   // Snow Shot uses the WebView devicePixelRatio after the physical window rect is set.
   const scale = window.devicePixelRatio || 1
@@ -266,7 +285,7 @@ export function ScreenshotCaptureWindow() {
         if (hideMainWindow) await hideMainWindowForCapture()
 
         const transferType = nextRequestId ? `screenshot:${nextRequestId}` : 'screenshot'
-        const sharedBufferPromise = waitForSharedBuffer(transferType)
+        const sharedBufferPromise = waitForSharedBuffer(transferType).catch(() => undefined)
         const screenshot = await invoke<ScreenshotResponse>('capture_screenshot_shared_buffer', { requestId: nextRequestId })
         const sharedBuffer = await sharedBufferPromise
         const nextCaptureId = responseCaptureId(screenshot)
@@ -274,8 +293,10 @@ export function ScreenshotCaptureWindow() {
 
         const canvas = canvasRef.current
         if (!canvas) throw new Error('截图画布还没有准备好。')
-        const renderedImage = drawSharedBufferToCanvas(sharedBuffer, canvas)
-        releaseSharedBuffer(sharedBuffer)
+        const renderedImage = sharedBuffer
+          ? drawSharedBufferToCanvas(sharedBuffer, canvas)
+          : await drawImageToCanvas(responsePath(screenshot), canvas)
+        if (sharedBuffer) releaseSharedBuffer(sharedBuffer)
 
         if (!cancelled) {
           const physicalWidth = screenshot.width || renderedImage.width

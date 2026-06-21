@@ -105,6 +105,8 @@ pub async fn restore_main_window(
         return Ok(RestoreMainWindowResponse { restored: false });
     };
 
+    let _ = set_window_capture_exclusion(main_window.clone(), false);
+    let _ = set_window_alpha(main_window.clone(), 255);
     let _ = main_window.show();
     let _ = main_window.unminimize();
     let _ = main_window.set_focus();
@@ -117,7 +119,9 @@ pub async fn hide_main_window(app_handle: AppHandle) -> Result<HideMainWindowRes
         return Ok(HideMainWindowResponse { hidden: false });
     };
 
-    let _ = main_window.hide();
+    let _ = set_window_capture_exclusion(main_window.clone(), true);
+    let _ = set_window_alpha(main_window.clone(), 1);
+    let _ = main_window.minimize();
     Ok(HideMainWindowResponse { hidden: true })
 }
 
@@ -1361,6 +1365,8 @@ async fn capture_screenshot_shared_buffer_impl(
     let capture = capture_screenshot_data()?;
     let info = capture.info;
     let capture_id = format!("screenshot-{}", chrono_like_timestamp());
+    let (destination, file_name) = screenshot_temp_destination("screenshot")?;
+    save_screenshot_capture_data(&capture, &destination)?;
     let transfer_type = request_id
         .as_deref()
         .map(str::trim)
@@ -1376,13 +1382,13 @@ async fn capture_screenshot_shared_buffer_impl(
         transfer_type,
     )
     .await
-    .map_err(|err| QQNTError::rust("screenshot_shared_buffer_failed", err))?;
+    .ok();
 
     cache_screenshot_capture(capture_id.clone(), capture)?;
 
     Ok(ScreenshotResponse {
-        file_path: String::new(),
-        file_name: String::new(),
+        file_path: destination.to_string_lossy().into_owned(),
+        file_name,
         capture_id: Some(capture_id),
         x: Some(info.x),
         y: Some(info.y),
@@ -1466,16 +1472,34 @@ fn set_screenshot_window_exclude_from_capture_impl(
     window: tauri::Window,
     enable: bool,
 ) -> Result<(), QQNTError> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
-    };
-
     let hwnd = window.hwnd().map_err(|err| {
         QQNTError::rust(
             "screenshot_window_handle_failed",
             format!("Unable to get screenshot window handle: {err}"),
         )
     })?;
+    set_hwnd_capture_exclusion(hwnd, enable)
+}
+
+#[cfg(target_os = "windows")]
+fn set_window_capture_exclusion(window: tauri::WebviewWindow, enable: bool) -> Result<(), QQNTError> {
+    let hwnd = window.hwnd().map_err(|err| {
+        QQNTError::rust(
+            "screenshot_window_handle_failed",
+            format!("Unable to get screenshot window handle: {err}"),
+        )
+    })?;
+    set_hwnd_capture_exclusion(hwnd, enable)
+}
+
+#[cfg(target_os = "windows")]
+fn set_hwnd_capture_exclusion(
+    hwnd: windows::Win32::Foundation::HWND,
+    enable: bool,
+) -> Result<(), QQNTError> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    };
 
     unsafe {
         SetWindowDisplayAffinity(
@@ -1500,6 +1524,46 @@ fn set_screenshot_window_exclude_from_capture_impl(
     _window: tauri::Window,
     _enable: bool,
 ) -> Result<(), QQNTError> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_window_capture_exclusion(_window: tauri::WebviewWindow, _enable: bool) -> Result<(), QQNTError> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn set_window_alpha(window: tauri::WebviewWindow, alpha: u8) -> Result<(), QQNTError> {
+    use windows::Win32::Foundation::COLORREF;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongW, SetLayeredWindowAttributes, SetWindowLongW, GWL_EXSTYLE, LWA_ALPHA,
+        WS_EX_LAYERED,
+    };
+
+    let hwnd = window.hwnd().map_err(|err| {
+        QQNTError::rust(
+            "screenshot_window_handle_failed",
+            format!("Unable to get main window handle: {err}"),
+        )
+    })?;
+
+    unsafe {
+        let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let layered_style = style | WS_EX_LAYERED.0 as i32;
+        let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, layered_style);
+        SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA).map_err(|err| {
+            QQNTError::rust(
+                "screenshot_window_alpha_failed",
+                format!("Unable to update main window alpha: {err}"),
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_window_alpha(_window: tauri::WebviewWindow, _alpha: u8) -> Result<(), QQNTError> {
     Ok(())
 }
 

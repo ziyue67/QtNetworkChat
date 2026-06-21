@@ -111,7 +111,6 @@ interface ScreenshotWindowEventPayload {
 }
 
 const SCREENSHOT_WINDOW_READY_EVENT = 'qqnt://screenshot/window-ready'
-const SCREENSHOT_OVERLAY_READY_EVENT = 'qqnt://screenshot/overlay-ready'
 const SCREENSHOT_START_EVENT = 'qqnt://screenshot/start'
 const SCREENSHOT_FAILED_EVENT = 'qqnt://screenshot/failed'
 const SCREENSHOT_WINDOW_OPTIONS = {
@@ -447,37 +446,6 @@ export function MessageView() {
           .catch(reject)
       })
 
-      const overlayReady = new Promise<void>((resolve) => {
-        let settled = false
-        const cleanups: Array<() => void> = []
-        const cleanupAll = () => cleanups.splice(0).forEach((cleanup) => cleanup())
-        const timer = window.setTimeout(() => {
-          if (settled) return
-          settled = true
-          cleanupAll()
-          resolve()
-        }, 6000)
-
-        listen<ScreenshotWindowEventPayload>(SCREENSHOT_OVERLAY_READY_EVENT, (event) => {
-          if (event.payload?.requestId !== requestId) return
-          settled = true
-          window.clearTimeout(timer)
-          cleanupAll()
-          resolve()
-        })
-          .then((cleanup) => {
-            cleanups.push(cleanup)
-          })
-          .catch(() => {
-            if (!settled) {
-              settled = true
-              window.clearTimeout(timer)
-              cleanupAll()
-              resolve()
-            }
-          })
-      })
-
       screenshotWindow = new WebviewWindow(screenshotWindowLabel, {
         ...SCREENSHOT_WINDOW_OPTIONS,
         url: `index.html#/screenshot-capture?request=${encodeURIComponent(requestId)}`
@@ -488,7 +456,6 @@ export function MessageView() {
 
       await waitForScreenshotWindowReady
       await emit(SCREENSHOT_START_EVENT, { requestId, hideMainWindow: hideWindowBeforeScreenshot }).catch(() => undefined)
-      await overlayReady
 
       const selectedPath = await captured
       await restoreHiddenMainWindow()
