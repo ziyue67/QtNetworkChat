@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
-import { emit } from '@tauri-apps/api/event'
+import { emit, listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { Check, X } from 'lucide-react'
@@ -31,6 +30,11 @@ interface SharedBufferEvent {
 interface CloseOptions {
   silent?: boolean
   keepHiddenMainWindow?: boolean
+}
+
+interface ScreenshotStartPayload {
+  requestId?: string
+  hideMainWindow?: boolean
 }
 
 interface Point {
@@ -191,20 +195,13 @@ async function hideCaptureWindow() {
   await getCurrentWindow().hide().catch(() => undefined)
 }
 
-async function closeCaptureWindow(delayMs = 120) {
-  const currentWindow = getCurrentWindow()
-  await currentWindow.hide().catch(() => undefined)
-  if (delayMs > 0) await wait(delayMs)
-  await currentWindow.close().catch(() => undefined)
-}
-
 const SCREENSHOT_OVERLAY_READY_EVENT = 'qqnt://screenshot/overlay-ready'
 const SCREENSHOT_FAILED_EVENT = 'qqnt://screenshot/failed'
+const SCREENSHOT_READY_EVENT = 'qqnt://screenshot/ready'
+const SCREENSHOT_PING_EVENT = 'qqnt://screenshot/ping'
+const SCREENSHOT_START_EVENT = 'qqnt://screenshot/start'
 
 export function ScreenshotCaptureWindow() {
-  const [searchParams] = useSearchParams()
-  const initialRequestId = searchParams.get('request') || ''
-  const initialHideMainWindow = searchParams.get('hideMainWindow') === '1'
   const [captureId, setCaptureId] = useState('')
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
@@ -214,11 +211,12 @@ export function ScreenshotCaptureWindow() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragStartRef = useRef<Point | null>(null)
   const captureIdRef = useRef('')
-  const requestIdRef = useRef(initialRequestId)
+  const requestIdRef = useRef('')
   const closingRef = useRef(false)
   const startedRef = useRef(false)
   const hiddenMainWindowRef = useRef(false)
   const restoreTimerRef = useRef<number | undefined>(undefined)
+  const runSerialRef = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -245,6 +243,8 @@ export function ScreenshotCaptureWindow() {
 
     async function captureAndLoad(nextRequestId = '', hideMainWindow = false) {
       if (startedRef.current) return
+      const runSerial = runSerialRef.current + 1
+      runSerialRef.current = runSerial
       startedRef.current = true
       requestIdRef.current = nextRequestId
       closingRef.current = false
@@ -264,6 +264,11 @@ export function ScreenshotCaptureWindow() {
         const sharedBuffer = await sharedBufferPromise
         const nextCaptureId = responseCaptureId(screenshot)
         if (!nextCaptureId) throw new Error('截图已完成，但客户端没有返回截图缓存 ID。')
+        if (runSerial !== runSerialRef.current || closingRef.current) {
+          await invoke('release_screenshot_capture', { captureId: nextCaptureId }).catch(() => undefined)
+          startedRef.current = false
+          return
+        }
 
         const canvas = canvasRef.current
         if (!canvas) throw new Error('截图画布还没有准备好。')
@@ -275,7 +280,7 @@ export function ScreenshotCaptureWindow() {
           releaseSharedBuffer(sharedBuffer)
         }
 
-        if (!cancelled) {
+        if (!cancelled && runSerial === runSerialRef.current && !closingRef.current) {
           const physicalWidth = screenshot.width || renderedImage.width
           const physicalHeight = screenshot.height || renderedImage.height
           await setWindowRect(physicalWidth, physicalHeight, screenshot.x || 0, screenshot.y || 0)
@@ -294,33 +299,60 @@ export function ScreenshotCaptureWindow() {
         const message = err instanceof Error ? err.message : '截图加载失败'
         await restoreMainWindow()
         await emit(SCREENSHOT_FAILED_EVENT, { requestId: requestIdRef.current, message }).catch(() => undefined)
-        if (!cancelled) await closeCaptureWindow(0)
+        if (!cancelled) {
+          setError(message)
+          await hideCaptureWindow()
+        }
         startedRef.current = false
       }
     }
 
     async function prepareAndWaitForStart() {
+      let unlistenStart: (() => void) | undefined
+      let unlistenPing: (() => void) | undefined
       try {
         await invoke('prepare_screenshot_window').catch(() => undefined)
         await invoke('set_screenshot_window_exclude_from_capture', { enable: true }).catch(() => undefined)
         await hideCaptureWindow()
         await currentWindow.setIgnoreCursorEvents(false).catch(() => undefined)
-        void captureAndLoad(initialRequestId, initialHideMainWindow)
+        unlistenStart = await listen<ScreenshotStartPayload>(SCREENSHOT_START_EVENT, (event) => {
+          const nextRequestId = event.payload?.requestId || `screenshot-${Date.now()}`
+          const shouldHideMainWindow = Boolean(event.payload?.hideMainWindow)
+          if (startedRef.current) {
+            void closeWindow({ silent: true }).then(() => captureAndLoad(nextRequestId, shouldHideMainWindow))
+            return
+          }
+          void captureAndLoad(nextRequestId, shouldHideMainWindow)
+        })
+        unlistenPing = await listen(SCREENSHOT_PING_EVENT, () => {
+          void emit(SCREENSHOT_READY_EVENT)
+        })
+        await emit(SCREENSHOT_READY_EVENT)
       } catch (err) {
         const message = err instanceof Error ? err.message : '截图窗口准备失败'
-        await emit(SCREENSHOT_FAILED_EVENT, { requestId: initialRequestId, message }).catch(() => undefined)
-        if (!cancelled) await closeCaptureWindow(0)
+        await emit(SCREENSHOT_FAILED_EVENT, { requestId: requestIdRef.current, message }).catch(() => undefined)
+        if (!cancelled) await hideCaptureWindow()
+      }
+
+      return () => {
+        unlistenStart?.()
+        unlistenPing?.()
       }
     }
 
-    void prepareAndWaitForStart()
+    let cleanupListeners: (() => void) | undefined
+    void prepareAndWaitForStart().then((cleanup) => {
+      if (cancelled) cleanup?.()
+      else cleanupListeners = cleanup
+    })
 
     return () => {
       cancelled = true
+      cleanupListeners?.()
       window.clearTimeout(restoreTimerRef.current)
       void restoreMainWindow()
     }
-  }, [initialHideMainWindow, initialRequestId])
+  }, [])
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -335,6 +367,7 @@ export function ScreenshotCaptureWindow() {
   async function closeWindow(options: CloseOptions = {}) {
     if (closingRef.current) return
     closingRef.current = true
+    runSerialRef.current += 1
     const id = captureIdRef.current || captureId
     const currentRequestId = requestIdRef.current
     await hideCaptureWindow()
@@ -354,7 +387,9 @@ export function ScreenshotCaptureWindow() {
     setSelection(null)
     setSaving(false)
     startedRef.current = false
-    await closeCaptureWindow()
+    await hideCaptureWindow()
+    closingRef.current = false
+    await emit(SCREENSHOT_READY_EVENT).catch(() => undefined)
   }
 
   function clientPoint(event: React.PointerEvent<HTMLDivElement>): Point {

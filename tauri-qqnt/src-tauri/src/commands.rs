@@ -80,6 +80,19 @@ pub struct HideMainWindowResponse {
     pub hidden: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MainWindowSnapshot {
+    was_visible: bool,
+    was_minimized: bool,
+}
+
+static SCREENSHOT_MAIN_WINDOW_SNAPSHOT: OnceLock<Mutex<Option<MainWindowSnapshot>>> =
+    OnceLock::new();
+
+fn screenshot_main_window_snapshot() -> &'static Mutex<Option<MainWindowSnapshot>> {
+    SCREENSHOT_MAIN_WINDOW_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotResponse {
@@ -105,10 +118,18 @@ pub async fn restore_main_window(
         return Ok(RestoreMainWindowResponse { restored: false });
     };
 
+    let snapshot = screenshot_main_window_snapshot()
+        .lock()
+        .ok()
+        .and_then(|mut value| value.take());
     let _ = set_window_capture_exclusion(main_window.clone(), false);
-    let _ = main_window.show();
-    let _ = main_window.unminimize();
-    let _ = main_window.set_focus();
+    if snapshot.map(|value| value.was_visible).unwrap_or(true) {
+        let _ = main_window.show();
+        if !snapshot.map(|value| value.was_minimized).unwrap_or(false) {
+            let _ = main_window.unminimize();
+        }
+        let _ = main_window.set_focus();
+    }
     Ok(RestoreMainWindowResponse { restored: true })
 }
 
@@ -118,6 +139,14 @@ pub async fn hide_main_window(app_handle: AppHandle) -> Result<HideMainWindowRes
         return Ok(HideMainWindowResponse { hidden: false });
     };
 
+    if let Ok(mut snapshot) = screenshot_main_window_snapshot().lock() {
+        if snapshot.is_none() {
+            *snapshot = Some(MainWindowSnapshot {
+                was_visible: main_window.is_visible().unwrap_or(true),
+                was_minimized: main_window.is_minimized().unwrap_or(false),
+            });
+        }
+    }
     let _ = set_window_capture_exclusion(main_window.clone(), true);
     let _ = main_window.hide();
     Ok(HideMainWindowResponse { hidden: true })

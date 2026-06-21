@@ -115,7 +115,15 @@ interface ScreenshotWindowHandle {
   once?: <T = unknown>(event: string, handler: (event: { payload: T }) => void) => Promise<() => void>
 }
 
+interface ScreenshotStartPayload {
+  requestId: string
+  hideMainWindow: boolean
+}
+
 const SCREENSHOT_FAILED_EVENT = 'qqnt://screenshot/failed'
+const SCREENSHOT_READY_EVENT = 'qqnt://screenshot/ready'
+const SCREENSHOT_PING_EVENT = 'qqnt://screenshot/ping'
+const SCREENSHOT_START_EVENT = 'qqnt://screenshot/start'
 const SCREENSHOT_WINDOW_LABEL = 'screenshot-capture'
 const SCREENSHOT_WINDOW_OPTIONS = {
   url: 'index.html#/screenshot-capture',
@@ -188,6 +196,98 @@ async function waitForScreenshotWindowCreated(windowHandle: ScreenshotWindowHand
       .then((cleanup) => cleanups.push(cleanup))
       .catch((error) => finish(error instanceof Error ? error : new Error('截图窗口创建失败。')))
   })
+}
+
+async function waitForScreenshotWindowReady(timeoutMs = 5000) {
+  const { listen } = await import('@tauri-apps/api/event')
+  const cleanups: Array<() => void> = []
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      cleanups.splice(0).forEach((cleanup) => cleanup())
+      if (error) reject(error)
+      else resolve()
+    }
+    const timer = window.setTimeout(() => finish(new Error('截图窗口准备超时，请重试。')), timeoutMs)
+
+    listen(SCREENSHOT_READY_EVENT, () => finish())
+      .then((cleanup) => cleanups.push(cleanup))
+      .catch((error) => finish(error instanceof Error ? error : new Error('截图窗口准备失败。')))
+  })
+}
+
+async function createScreenshotWindow(WebviewWindow: typeof import('@tauri-apps/api/webviewWindow').WebviewWindow) {
+  const ready = waitForScreenshotWindowReady()
+  const windowHandle = new WebviewWindow(SCREENSHOT_WINDOW_LABEL, SCREENSHOT_WINDOW_OPTIONS)
+  await waitForScreenshotWindowCreated(windowHandle)
+  await ready
+  return windowHandle
+}
+
+async function ensureScreenshotWindow(WebviewWindow: typeof import('@tauri-apps/api/webviewWindow').WebviewWindow) {
+  const { emit } = await import('@tauri-apps/api/event')
+  const existingWindow = await WebviewWindow.getByLabel(SCREENSHOT_WINDOW_LABEL).catch(() => null)
+  if (!existingWindow) {
+    return createScreenshotWindow(WebviewWindow)
+  }
+
+  try {
+    const ready = waitForScreenshotWindowReady(900)
+    await emit(SCREENSHOT_PING_EVENT)
+    await ready
+    return existingWindow
+  } catch {
+    await closeScreenshotWindow(existingWindow)
+    await wait(120)
+    return createScreenshotWindow(WebviewWindow)
+  }
+}
+
+async function waitForScreenshotResult(requestId: string) {
+  const { listen } = await import('@tauri-apps/api/event')
+  const cleanups: Array<() => void> = []
+  let settled = false
+  let timer = 0
+
+  const promise = new Promise<string>((resolve, reject) => {
+    const cleanupAll = () => cleanups.splice(0).forEach((cleanup) => cleanup())
+    const finish = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      cleanupAll()
+      callback()
+    }
+    timer = window.setTimeout(() => {
+      finish(() => reject(new Error('截图窗口已超时，请重试。')))
+    }, 30000)
+
+    Promise.all([
+      listen<ScreenshotCapturedPayload>('qqnt://screenshot/captured', (event) => {
+        if (event.payload?.requestId !== requestId) return
+        const selectedPath = event.payload.filePath || ''
+        finish(() => {
+          if (selectedPath) resolve(selectedPath)
+          else reject(new Error('截图完成，但没有返回选区图片路径。'))
+        })
+      }),
+      listen<ScreenshotCapturedPayload>('qqnt://screenshot/cancelled', (event) => {
+        if (event.payload?.requestId !== requestId) return
+        finish(() => reject(new Error('已取消截图。')))
+      }),
+      listen<ScreenshotWindowEventPayload>(SCREENSHOT_FAILED_EVENT, (event) => {
+        if (event.payload?.requestId !== requestId) return
+        finish(() => reject(new Error(event.payload.message || '截图窗口启动失败。')))
+      })
+    ])
+      .then((nextCleanups) => cleanups.push(...nextCleanups))
+      .catch((error) => finish(() => reject(error)))
+  })
+
+  return promise
 }
 
 export function MessageView() {
@@ -420,71 +520,18 @@ export function MessageView() {
     try {
       setAttachmentError('')
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-      const { listen } = await import('@tauri-apps/api/event')
+      const { emit } = await import('@tauri-apps/api/event')
       const requestId = `screenshot-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-      const captured = new Promise<string>((resolve, reject) => {
-        let settled = false
-        const cleanups: Array<() => void> = []
-        const cleanupAll = () => cleanups.splice(0).forEach((cleanup) => cleanup())
-        const timer = window.setTimeout(() => {
-          if (settled) return
-          settled = true
-          cleanupAll()
-          reject(new Error('截图窗口已超时，请重试。'))
-        }, 30000)
-
-        listen<ScreenshotCapturedPayload>('qqnt://screenshot/captured', (event) => {
-          if (event.payload?.requestId !== requestId) return
-          const selectedPath = event.payload.filePath || ''
-          settled = true
-          window.clearTimeout(timer)
-          cleanupAll()
-          if (selectedPath) resolve(selectedPath)
-          else reject(new Error('截图完成，但没有返回选区图片路径。'))
-        })
-          .then((cleanup) => {
-            cleanups.push(cleanup)
-          })
-          .catch(reject)
-        listen<ScreenshotCapturedPayload>('qqnt://screenshot/cancelled', (event) => {
-          if (event.payload?.requestId !== requestId) return
-          settled = true
-          window.clearTimeout(timer)
-          cleanupAll()
-          reject(new Error('已取消截图。'))
-        })
-          .then((cleanup) => {
-            cleanups.push(cleanup)
-          })
-          .catch(reject)
-        listen<ScreenshotWindowEventPayload>(SCREENSHOT_FAILED_EVENT, (event) => {
-          if (event.payload?.requestId !== requestId) return
-          settled = true
-          window.clearTimeout(timer)
-          cleanupAll()
-          reject(new Error(event.payload.message || '截图窗口启动失败。'))
-        })
-          .then((cleanup) => {
-            cleanups.push(cleanup)
-          })
-          .catch(reject)
-      })
-
-      const existingScreenshotWindow = await WebviewWindow.getByLabel(SCREENSHOT_WINDOW_LABEL).catch(() => null)
-      if (existingScreenshotWindow) {
-        await closeScreenshotWindow(existingScreenshotWindow)
-        await wait(80)
-      }
-
-      screenshotWindow = new WebviewWindow(SCREENSHOT_WINDOW_LABEL, {
-        ...SCREENSHOT_WINDOW_OPTIONS,
-        url: `index.html#/screenshot-capture?request=${encodeURIComponent(requestId)}&hideMainWindow=${hideWindowBeforeScreenshot ? '1' : '0'}`
-      })
+      screenshotWindow = await ensureScreenshotWindow(WebviewWindow)
       screenshotWindow.once?.('tauri://destroyed', () => {
         void restoreHiddenMainWindow()
       }).then((cleanup) => unlistens.push(cleanup)).catch(() => undefined)
-      await waitForScreenshotWindowCreated(screenshotWindow)
+      const captured = waitForScreenshotResult(requestId)
+      await emit(SCREENSHOT_START_EVENT, {
+        requestId,
+        hideMainWindow: hideWindowBeforeScreenshot
+      } satisfies ScreenshotStartPayload)
 
       const selectedPath = await captured
       await restoreHiddenMainWindow()
@@ -498,7 +545,6 @@ export function MessageView() {
     } finally {
       unlistens.splice(0).forEach((cleanup) => cleanup())
       await restoreHiddenMainWindow()
-      if (screenshotWindow) await closeScreenshotWindow(screenshotWindow)
       screenshotInFlightRef.current = false
       setScreenshotBusy(false)
     }
