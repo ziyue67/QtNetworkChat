@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAuthStore } from '@/stores/authStore'
+import { useUIStore } from '@/stores/uiStore'
 import { useTheme } from '@/hooks/useTheme'
 import { useEngine } from '@/hooks/useEngine'
-import { profileUpdate } from '@/api/qqnt'
+import { profileUpdate, settingsSync } from '@/api/qqnt'
 import { TitleBar } from '@/components/frame/TitleBar'
 import { MainLayout } from '@/views/MainLayout'
 import { LoginView } from '@/views/LoginView'
@@ -21,11 +22,16 @@ import { CalendarView } from '@/views/CalendarView'
 import { MeetingView } from '@/views/MeetingView'
 import { FavoritesView } from '@/views/FavoritesView'
 import { WalletView } from '@/views/WalletView'
+import { ImagePreviewWindow } from '@/views/ImagePreviewWindow'
+import { RegisterWindow } from '@/views/RegisterWindow'
+import { NoticeFilterWindow } from '@/views/NoticeFilterWindow'
+import { ScreenshotCaptureWindow } from '@/views/ScreenshotCaptureWindow'
+import { ForwardWindow } from '@/views/ForwardWindow'
 import './styles/index.css'
 import type { UseEngineReturn } from '@/hooks/useEngine'
 
-export const LOGIN_SIZE = { width: 300, height: 460 }
-export const LOGIN_MIN_SIZE = { width: 300, height: 460 }
+export const LOGIN_SIZE = { width: 400, height: 640 }
+export const LOGIN_MIN_SIZE = { width: 400, height: 640 }
 export const MAIN_SIZE = { width: 1100, height: 740 }
 export const MAIN_MIN_SIZE = { width: 860, height: 540 }
 
@@ -66,15 +72,25 @@ function useResizeForAuth(isAuthenticated: boolean) {
   }, [isAuthenticated])
 }
 
-function App() {
+function MainApp() {
   useTheme()
   const engine = useEngine()
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const ensureDefaultDownloadPath = useUIStore((state) => state.ensureDefaultDownloadPath)
+  const settings = useUIStore((state) => state.settings)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
     setReady(true)
-  }, [])
+    void ensureDefaultDownloadPath()
+  }, [ensureDefaultDownloadPath])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      settingsSync({ ...settings }).catch(() => undefined)
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [settings])
 
   useResizeForAuth(isAuthenticated)
 
@@ -112,6 +128,31 @@ function App() {
   )
 }
 
+function PreviewApp() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route path="/image-preview" element={<ImagePreviewWindow />} />
+        <Route path="/register" element={<RegisterWindow />} />
+        <Route path="/notice-filter" element={<NoticeFilterWindow />} />
+        <Route path="/screenshot-capture" element={<ScreenshotCaptureWindow />} />
+        <Route path="/forward" element={<ForwardWindow />} />
+      </Routes>
+    </HashRouter>
+  )
+}
+
+function App() {
+  if (
+    window.location.hash.startsWith('#/image-preview') ||
+    window.location.hash.startsWith('#/notice-filter') ||
+    window.location.hash.startsWith('#/register') ||
+    window.location.hash.startsWith('#/screenshot-capture') ||
+    window.location.hash.startsWith('#/forward')
+  ) return <PreviewApp />
+  return <MainApp />
+}
+
 export async function submitLogin(engine: UseEngineReturn, account: string, password: string) {
   const auth = await engine.login(account, password)
   if (!auth.ok || !auth.requiresConnect) return
@@ -141,8 +182,7 @@ function LoginScreen({ engine }: { engine: UseEngineReturn }) {
         loading={engine.engine.connecting || engine.engine.loggingIn}
         error={engine.engine.error}
         onLogin={(account, password) => submitLogin(engine, account, password)}
-        onRegister={(form) => submitRegister(engine, form)}
-      />
+        />
     </div>
   )
 }

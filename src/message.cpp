@@ -15,6 +15,9 @@ QByteArray Message::toJson() const {
     obj["timestamp"] = timestamp.toString(Qt::ISODate);
     obj["fileName"] = fileName;
     obj["transferId"] = transferId;
+    if (!clientMessageId.isEmpty()) {
+        obj["clientMessageId"] = clientMessageId;
+    }
     obj["fileSize"] = QString::number(fileSize);
     obj["fileHash"] = fileHash;
     obj["chunkSize"] = QString::number(chunkSize);
@@ -62,6 +65,7 @@ Message Message::fromJson(const QByteArray& json) {
     msg.timestamp = QDateTime::fromString(obj["timestamp"].toString(), Qt::ISODate);
     msg.fileName = obj["fileName"].toString();
     msg.transferId = obj["transferId"].toString();
+    msg.clientMessageId = obj["clientMessageId"].toString();
     msg.fileSize = obj["fileSize"].toVariant().toLongLong();
     msg.fileHash = obj["fileHash"].toString();
     msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();

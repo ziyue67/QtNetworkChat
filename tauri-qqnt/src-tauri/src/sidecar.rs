@@ -41,6 +41,18 @@ pub fn start_server(app: AppHandle, state: Arc<AppState>) {
     });
 }
 
+pub async fn stop_sidecars(state: &Arc<AppState>) {
+    let engine_child = state.engine.child.lock().await.take();
+    if let Some(child) = engine_child {
+        let _ = child.kill();
+    }
+
+    let server_child = state.server.child.lock().await.take();
+    if let Some(child) = server_child {
+        let _ = child.kill();
+    }
+}
+
 async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
     let command = app
         .shell()
@@ -424,6 +436,24 @@ mod tests {
     }
 
     #[test]
+    fn stop_sidecars_script_does_not_touch_tauri_app_exe() {
+        let script = include_str!("../../scripts/stop-sidecars.ps1");
+
+        assert!(
+            !script.contains("'tauri-qqnt'") && !script.contains("\"tauri-qqnt\""),
+            "stop-sidecars.ps1 must not kill the Tauri app process"
+        );
+        assert!(
+            !script.contains("tauri-qqnt.exe"),
+            "stop-sidecars.ps1 must not delete the Tauri app executable"
+        );
+        assert!(
+            !script.contains("Remove-Item"),
+            "stop-sidecars.ps1 must not delete sidecar executables copied for dev/build"
+        );
+    }
+
+    #[test]
     fn tauri_packaging_contract_keeps_backend_bundle_entrypoints() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json"))
             .expect("tauri.conf.json should parse");
@@ -446,10 +476,17 @@ mod tests {
 
         assert_eq!(config["app"]["windows"][0]["label"], "main");
         assert_eq!(config["app"]["windows"][0]["decorations"], false);
-        assert_eq!(string_array(&capability, "windows"), vec!["main"]);
+        let capability_windows = string_array(&capability, "windows");
+        assert!(capability_windows.contains(&"main"));
+        assert!(capability_windows.contains(&"image-preview-*"));
         assert!(
             string_array(&capability, "permissions").contains(&"core:default"),
             "default capability should keep core desktop permissions"
+        );
+        assert!(
+            string_array(&capability, "permissions")
+                .contains(&"core:webview:allow-create-webview-window"),
+            "main window should be able to open image preview windows"
         );
     }
 

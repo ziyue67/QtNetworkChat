@@ -3,8 +3,9 @@ import { cn } from '@/lib/utils'
 import type { Session } from '@/types/qqnt'
 
 function formatTime(ts?: number) {
-  if (!ts) return ''
-  const d = new Date(ts)
+  if (!Number.isFinite(ts)) return ''
+  const d = new Date(ts as number)
+  if (!Number.isFinite(d.getTime())) return ''
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
@@ -24,7 +25,7 @@ export function SessionItem({ session, active, onClick }: SessionItemProps) {
       )}
     >
       <div className="relative">
-        <Avatar fallback={session.name} size={44} />
+        <Avatar src={session.avatar} fallback={session.name} size={44} />
         {session.pinned ? (
           <span className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-[var(--qq-warning)] text-[8px] text-white">
             ★
@@ -34,7 +35,7 @@ export function SessionItem({ session, active, onClick }: SessionItemProps) {
       <div className="min-w-0 flex-1 text-left">
         <div className="flex items-center justify-between">
           <span className="truncate text-sm font-medium text-[var(--qq-text)]">{session.name}</span>
-          {session.lastTime ? (
+          {formatTime(session.lastTime) ? (
             <span className="text-xs text-[var(--qq-text-tertiary)]">{formatTime(session.lastTime)}</span>
           ) : null}
         </div>
@@ -52,3 +53,6 @@ export function SessionItem({ session, active, onClick }: SessionItemProps) {
     </button>
   )
 }
+
+
+

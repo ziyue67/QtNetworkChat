@@ -11,13 +11,36 @@ interface ChatPanelProps {
   onSend: (content: string) => void
   onPickFiles?: () => void
   onPickImages?: () => void
+  onScreenshot?: () => void
+  screenshotBusy?: boolean
+  screenshotShortcutLabel?: string
+  hideWindowBeforeScreenshot?: boolean
+  onHideWindowBeforeScreenshotChange?: (checked: boolean) => void
   onRetry?: (id: string) => void
   onCancelFile?: (id: string) => void
   onDownloadFile?: (message: Message) => void
   onOpenFolder?: (message: Message) => void
+  onPreviewImage?: (message: Message) => void
+  onCopyMessage?: (message: Message) => void
+  onForwardMessage?: (message: Message) => void
+  onFavoriteMessage?: (message: Message) => void
+  onMultiSelectMessage?: (message: Message) => void
+  onQuoteMessage?: (message: Message) => void
+  onSetEssenceMessage?: (message: Message) => void
+  onRecallMessage?: (message: Message) => void
+  onDeleteMessage?: (message: Message) => void
+  onAddEmoji?: (message: Message) => void
+  onOpenDirectMessage?: (member: MentionCandidate) => void
+  onViewProfile?: (member: MentionCandidate) => void
+  onAddFriend?: (member: MentionCandidate) => void
+  onEditGroupNickname?: (member: MentionCandidate) => void
+  onReportUser?: (member: MentionCandidate) => void
+  onBlockUser?: (member: MentionCandidate) => void
+  onClearSessionMessages?: (sessionId: string) => void
   loading?: boolean
   dragActive?: boolean
   attachmentError?: string
+  actionNotice?: string
   peerStatus?: User['status']
 }
 
@@ -36,13 +59,36 @@ export function ChatPanel({
   onSend,
   onPickFiles,
   onPickImages,
+  onScreenshot,
+  screenshotBusy,
+  screenshotShortcutLabel,
+  hideWindowBeforeScreenshot,
+  onHideWindowBeforeScreenshotChange,
   onRetry,
   onCancelFile,
   onDownloadFile,
   onOpenFolder,
+  onPreviewImage,
+  onCopyMessage,
+  onForwardMessage,
+  onFavoriteMessage,
+  onMultiSelectMessage,
+  onQuoteMessage,
+  onSetEssenceMessage,
+  onRecallMessage,
+  onDeleteMessage,
+  onAddEmoji,
+  onOpenDirectMessage,
+  onViewProfile,
+  onAddFriend,
+  onEditGroupNickname,
+  onReportUser,
+  onBlockUser,
+  onClearSessionMessages,
   loading,
   dragActive,
   attachmentError,
+  actionNotice,
   peerStatus
 }: ChatPanelProps) {
   const [pendingMention, setPendingMention] = useState<MentionCandidate | null>(null)
@@ -66,6 +112,7 @@ export function ChatPanel({
         </div>
       ) : null}
       <MessageList
+        sessionId={session.id}
         messages={messages}
         currentUser={currentUser}
         members={members}
@@ -74,21 +121,50 @@ export function ChatPanel({
         onCancelFile={onCancelFile}
         onDownloadFile={onDownloadFile}
         onOpenFolder={onOpenFolder}
+        onPreviewImage={onPreviewImage}
+        onCopyMessage={onCopyMessage}
+        onForwardMessage={onForwardMessage}
+        onFavoriteMessage={onFavoriteMessage}
+        onMultiSelectMessage={onMultiSelectMessage}
+        onQuoteMessage={onQuoteMessage}
+        onSetEssenceMessage={onSetEssenceMessage}
+        onRecallMessage={onRecallMessage}
+        onDeleteMessage={onDeleteMessage}
+        onAddEmoji={onAddEmoji}
+        onOpenDirectMessage={onOpenDirectMessage}
+        onViewProfile={onViewProfile}
+        onAddFriend={onAddFriend}
+        onEditGroupNickname={onEditGroupNickname}
+        onReportUser={onReportUser}
+        onBlockUser={onBlockUser}
+        onClearSessionMessages={onClearSessionMessages}
       />
       <Composer
         onSend={onSend}
         onPickFiles={onPickFiles}
         onPickImages={onPickImages}
+        onScreenshot={onScreenshot}
+        screenshotBusy={screenshotBusy}
+        screenshotShortcutLabel={screenshotShortcutLabel}
+        hideWindowBeforeScreenshot={hideWindowBeforeScreenshot}
+        onHideWindowBeforeScreenshotChange={onHideWindowBeforeScreenshotChange}
         disabled={loading || !currentUser}
         canSendFiles={Boolean(currentUser)}
         dragActive={dragActive}
         mentionCandidates={members.filter((member) => member.id !== currentUser?.id)}
         pendingMention={pendingMention}
         onMentionConsumed={() => setPendingMention(null)}
+        messages={messages}
+        sessionName={session.name}
       />
       {attachmentError ? (
         <div className="border-t border-[var(--qq-border)] bg-[var(--qq-danger)]/10 px-4 py-2 text-xs text-[var(--qq-danger)]">
           {attachmentError}
+        </div>
+      ) : null}
+      {actionNotice ? (
+        <div className="border-t border-[var(--qq-border)] bg-[#eef7ff] px-4 py-2 text-xs text-[#1677ff]">
+          {actionNotice}
         </div>
       ) : null}
     </main>

@@ -2801,7 +2801,7 @@ bool Client::sendMessage(const QString& content) {
     return sendJson(obj);
 }
 
-bool Client::sendPrivateMessage(const QString& receiverId, const QString& content) {
+bool Client::sendPrivateMessage(const QString& receiverId, const QString& content, const QString& clientMessageId) {
     if (!isConnected()) return false;
 
     QJsonObject obj;
@@ -2811,6 +2811,10 @@ bool Client::sendPrivateMessage(const QString& receiverId, const QString& conten
     obj["senderName"] = m_userName;
     obj["receiverId"] = receiverId;
     obj["content"] = content;
+    const QString trimmedClientMessageId = clientMessageId.trimmed();
+    if (!trimmedClientMessageId.isEmpty()) {
+        obj["clientMessageId"] = trimmedClientMessageId;
+    }
 
     return sendJson(obj);
 }
@@ -3009,7 +3013,7 @@ bool Client::createPrivateServerGroup(const QString& groupName, const QString& a
     return sendJson(obj);
 }
 
-bool Client::sendServerGroupMessage(const QString& groupId, const QString& content) {
+bool Client::sendServerGroupMessage(const QString& groupId, const QString& content, const QString& clientMessageId) {
     if (!isConnected() || groupId.trimmed().isEmpty() || content.trimmed().isEmpty()) return false;
 
     QJsonObject obj;
@@ -3018,6 +3022,10 @@ bool Client::sendServerGroupMessage(const QString& groupId, const QString& conte
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
     obj["content"] = content;
+    const QString trimmedClientMessageId = clientMessageId.trimmed();
+    if (!trimmedClientMessageId.isEmpty()) {
+        obj["clientMessageId"] = trimmedClientMessageId;
+    }
     return sendJson(obj);
 }
 
@@ -3761,6 +3769,7 @@ bool Client::sendFilePayload(const QString& filePath,
     }
     m_cancelOutgoingTransfer = false;
     m_currentOutgoingTransferId.clear();
+    m_lastOutgoingTransferId.clear();
     m_currentOutgoingReceiverId.clear();
     m_currentOutgoingGroupId.clear();
     m_currentOutgoingFileName.clear();
@@ -3957,6 +3966,7 @@ bool Client::sendFilePayload(const QString& filePath,
 
     if (!e2eFileRequired && !file.open(QIODevice::ReadOnly)) return false;
     m_currentOutgoingTransferId = transferId;
+    m_lastOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
     m_currentOutgoingGroupId = trimmedServerGroupId;
     m_currentOutgoingFileName = displayFileName;
@@ -4545,6 +4555,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.senderAvatar = obj["senderAvatar"].toString();
         msg.receiverId = obj["receiverId"].toString();
         msg.content = obj["content"].toString();
+        msg.clientMessageId = obj["clientMessageId"].toString();
         msg.timestamp = QDateTime::currentDateTime();
         if (obj.value("e2eEnvelope").isObject()) {
             const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
@@ -4609,6 +4620,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.senderAvatar = obj["senderAvatar"].toString();
         msg.receiverId = obj["groupId"].toString(obj["receiverId"].toString());
         msg.content = obj["content"].toString();
+        msg.clientMessageId = obj["clientMessageId"].toString();
         msg.timestamp = QDateTime::currentDateTime();
         emit newMessage(msg);
         return;

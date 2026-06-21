@@ -127,8 +127,8 @@
 | `search_friend` | `{account}` | 搜索 QQ 号 |
 | `send_friend_request` | `{receiverId}` | 发送好友申请 |
 | `respond_friend_request` | `{senderId, accepted}` | 接受或拒绝好友申请 |
-| `send_private_message` | `{receiverId, content}` | 发送私聊文本 |
-| `send_group_message` | `{groupId, content}` | 发送群聊文本 |
+| `send_private_message` | `{receiverId, content, clientMessageId?}` | 发送私聊文本 |
+| `send_group_message` | `{groupId, content, clientMessageId?}` | 发送群聊文本 |
 | `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 创建私有群聊；`members` 为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId`，服务端加入已存在账号 |
 | `update_group_announcement` | `{groupId, announcement}` | 更新群公告 |
 | `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 管理群成员；`action` 必须精确匹配小写枚举值 |
@@ -162,13 +162,13 @@
 | `search_friend` | `{accepted}` | 命令已发送到服务端 |
 | `send_friend_request` | `{accepted}` | 命令已发送到服务端 |
 | `respond_friend_request` | `{accepted}` | 命令已发送到服务端 |
-| `send_private_message` | `{receiverId}` | 私聊发送目标 |
-| `send_group_message` | `{accepted}` | 命令已发送到服务端 |
+| `send_private_message` | `{receiverId, clientMessageId?}` | 私聊发送目标 |
+| `send_group_message` | `{accepted, groupId, clientMessageId?}` | 群聊发送目标 |
 | `create_group` | `{accepted}` | 命令已发送到服务端 |
 | `update_group_announcement` | `{accepted}` | 命令已发送到服务端 |
 | `update_group_member` | `{accepted}` | 命令已发送到服务端 |
-| `send_file` | `{accepted}` | 文件发送任务已接收 |
-| `send_image` | `{accepted}` | 图片发送任务已接收 |
+| `send_file` | `{accepted, transferId}` | 文件发送任务已接收；`transferId` 用于关联后续进度与完成事件 |
+| `send_image` | `{accepted, transferId}` | 图片发送任务已接收；`transferId` 用于关联后续进度与完成事件 |
 | `cancel_transfer` | `{cancelled, transferId}` | 当前活动传输已取消 |
 | `query_resume` | `{canResume, transferId, confirmedBytes, nextChunkIndex, fileSize, chunkSize, chunkCount, fileHash, receivedChunks, resumed, mode}` | 断点续传状态；计数字段和 `receivedChunks` 项以无符号整数字符串表示，`mode` 为 `query` 或 `resume` |
 | `e2e_status` | `{localIdentity, peerId?, session?, identity?}` | 省略 `peerId` 时仅返回本地身份；提供 `peerId` 时同时返回会话与对端身份 |

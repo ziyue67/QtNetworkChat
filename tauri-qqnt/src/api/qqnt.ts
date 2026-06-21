@@ -70,17 +70,19 @@ export async function logout() {
   return sendCommand<void, void>('logout')
 }
 
-export async function sendPrivateMessage(receiverId: string, content: string) {
+export async function sendPrivateMessage(receiverId: string, content: string, clientMessageId?: string) {
   return sendCommand<SendPrivateMessagePayload, SendMessageResult>('send_private_message', {
     receiverId,
-    content
+    content,
+    clientMessageId
   })
 }
 
-export async function sendGroupMessage(groupId: string, content: string) {
+export async function sendGroupMessage(groupId: string, content: string, clientMessageId?: string) {
   return sendCommand<SendGroupMessagePayload, SendMessageResult>('send_group_message', {
     groupId,
-    content
+    content,
+    clientMessageId
   })
 }
 
@@ -170,8 +172,89 @@ export async function profileUpdate(patch: ProfileUpdatePayload) {
   return sendCommand<ProfileUpdatePayload, void>('profile_update', patch)
 }
 
+export function settingsToEnginePayload(settings: SettingsSyncPayload): SettingsSyncPayload {
+  const downloadPath = typeof settings.downloadPath === 'string' ? settings.downloadPath.trim() : ''
+  if (!downloadPath) return settings
+  return {
+    ...settings,
+    fileDownloadDir: downloadPath
+  }
+}
+
 export async function settingsSync(settings: SettingsSyncPayload) {
-  return sendCommand<SettingsSyncPayload, void>('settings_sync', { settings })
+  return sendCommand<SettingsSyncPayload, void>('settings_sync', { settings: settingsToEnginePayload(settings) })
+}
+
+export async function clearSessionHistory(sessionId: string) {
+  return invokeCommand<{ cleared: boolean; sessionId: string }>('clear_session_history', { sessionId })
+}
+
+export async function deleteLocalMessage(sessionId: string, messageId: string) {
+  return invokeCommand<{ deleted: boolean; sessionId: string; messageId: string }>('delete_local_message', { sessionId, messageId })
+}
+
+export async function favoriteLocalMessage(message: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('favorite_local_message', { message })
+}
+
+export async function addLocalEmoji(message: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('add_local_emoji', { message })
+}
+
+export async function multiSelectLocalMessage(message: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('multi_select_local_message', { message })
+}
+
+export async function quoteLocalMessage(message: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('quote_local_message', { message })
+}
+
+export async function setEssenceLocalMessage(message: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('set_essence_local_message', { message })
+}
+
+export async function recallLocalMessage(message: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('recall_local_message', { message })
+}
+
+export async function forwardLocalMessage(message: unknown, target: unknown, note?: string) {
+  return invokeCommand<{ saved: boolean; id: string }>('forward_local_message', { message, target, note })
+}
+
+export async function viewLocalProfile(member: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('view_local_profile', { member })
+}
+
+export async function addLocalFriend(member: unknown) {
+  return invokeCommand<{ saved: boolean; id: string }>('add_local_friend', { member })
+}
+
+export async function reportLocalUser(member: unknown, sessionId?: string) {
+  return invokeCommand<{ saved: boolean; id: string }>('report_local_user', { member, sessionId })
+}
+
+export async function blockLocalUser(member: unknown, sessionId?: string) {
+  return invokeCommand<{ saved: boolean; id: string }>('block_local_user', { member, sessionId })
+}
+
+export async function editLocalGroupNickname(member: unknown, nickname: string, sessionId?: string) {
+  return invokeCommand<{ saved: boolean; id: string }>('edit_local_group_nickname', { member, nickname, sessionId })
+}
+
+export interface LocalChatActions {
+  clearedSessions: Array<{ sessionId: string; clearedAt: number }>
+  deletedMessages: Array<{ sessionId: string; messageId: string }>
+  favoriteMessages?: Array<{ sessionId: string; messageId: string }>
+  emojiMessages?: Array<{ sessionId: string; messageId: string }>
+  selectedMessages?: Array<{ sessionId: string; messageId: string }>
+  quoteMessages?: Array<{ sessionId: string; messageId: string; value?: unknown }>
+  essenceMessages?: Array<{ sessionId: string; messageId: string }>
+  recalledMessages?: Array<{ sessionId: string; messageId: string }>
+  memberActions?: Array<{ kind: string; memberId: string; sessionId?: string; value?: unknown }>
+}
+
+export async function getLocalChatActions() {
+  return invokeCommand<LocalChatActions>('get_local_chat_actions', {})
 }
 
 // -- ack 结果类型（按需扩展）--

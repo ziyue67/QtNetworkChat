@@ -1,56 +1,89 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { LogicalSize } from '@tauri-apps/api/dpi'
-import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
-import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
-import { X, ImagePlus } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { startWindowDrag } from '@/lib/window'
 import { Avatar } from '@/components/common/Avatar'
-
-interface RegisterForm {
-  account: string
-  password: string
-  nickname: string
-  avatar?: string
-  avatarBase64?: string
-}
-
-interface ImageBase64Response {
-  base64: string
-  dataUrl: string
-}
+import { startWindowDrag } from '@/lib/window'
 
 interface LoginViewProps {
   loading: boolean
   error?: string
   onLogin: (account: string, password: string) => Promise<void> | void
-  onRegister: (form: RegisterForm) => Promise<boolean>
 }
 
-const LOGIN_WINDOW_SIZE = { width: 300, height: 460 }
-const REGISTER_WINDOW_SIZE = { width: 480, height: 640 }
+export const REGISTER_HINT_KEY = 'qqnt:last-registered-account'
 
-async function resizeAuthWindow(size: { width: number; height: number }) {
+async function openRegisterWindow() {
   try {
-    const win = getCurrentWindow()
-    await win.setMinSize(new LogicalSize(size.width, size.height))
-    await win.setSize(new LogicalSize(size.width, size.height))
-    await win.center()
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    new WebviewWindow('register-account', {
+      url: 'index.html#/register',
+      title: '注册账号',
+      width: 480,
+      height: 680,
+      minWidth: 400,
+      minHeight: 560,
+      center: true,
+      resizable: true,
+      decorations: false,
+      visible: true
+    })
   } catch {
+    window.open('#/register', '_blank', 'width=480,height=680')
   }
 }
 
-export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProps) {
+function Checkbox({
+  checked,
+  onChange,
+  label,
+  disabled
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  label: React.ReactNode
+  disabled?: boolean
+}) {
+  return (
+    <label className={cn('flex cursor-pointer items-center gap-2', disabled && 'cursor-not-allowed opacity-60')}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'flex h-4 w-4 items-center justify-center rounded-full border transition-colors',
+          checked
+            ? 'border-[#1296db] bg-[#1296db] text-white'
+            : 'border-[var(--qq-border)] bg-white text-transparent hover:border-[#1296db]'
+        )}
+        aria-checked={checked}
+        role="checkbox"
+      >
+        <Check size={10} strokeWidth={3} />
+      </button>
+      <span className="select-none text-xs text-[var(--qq-text-secondary)]">{label}</span>
+    </label>
+  )
+}
+
+export function LoginView({ loading, error, onLogin }: LoginViewProps) {
   const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
+  const [autoLogin, setAutoLogin] = useState(true)
+  const [rememberPassword, setRememberPassword] = useState(true)
+  const [agreed, setAgreed] = useState(false)
   const [localError, setLocalError] = useState('')
   const [registeredHint, setRegisteredHint] = useState(false)
-  const [registerOpen, setRegisterOpen] = useState(false)
 
   useEffect(() => {
-    void resizeAuthWindow(registerOpen ? REGISTER_WINDOW_SIZE : LOGIN_WINDOW_SIZE)
-  }, [registerOpen])
+    if (typeof localStorage === 'undefined') return
+    const lastAccount = localStorage.getItem(REGISTER_HINT_KEY)
+    if (lastAccount) {
+      setAccount(lastAccount)
+      setPassword('')
+      setRegisteredHint(true)
+      localStorage.removeItem(REGISTER_HINT_KEY)
+    }
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -61,290 +94,119 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
       setLocalError('请输入账号和密码')
       return
     }
+    if (!agreed) {
+      setLocalError('请阅读并同意服务协议和隐私政策')
+      return
+    }
 
     await onLogin(account, password)
   }
 
-  async function handleRegister(form: RegisterForm) {
-    const ok = await onRegister(form)
-    if (ok) {
-      setAccount(form.account)
-      setPassword('')
-      setRegisteredHint(true)
-      setRegisterOpen(false)
-    }
-    return ok
-  }
-
   const displayError = localError || error
+  const canSubmit = account.trim() && password.trim() && agreed && !loading
 
   return (
     <div
-      className="relative flex h-full w-full items-center justify-center bg-[var(--qq-bg)] px-4 pb-5 pt-3"
+      className="relative flex h-full w-full select-none flex-col bg-gradient-to-b from-[#eaf6ff] via-[#f8fbff] to-[#f0f4ff] px-8 pb-5 pt-3"
       onMouseDown={startWindowDrag}
     >
-      <form
-        onSubmit={handleSubmit}
-        className="flex h-full w-full flex-col rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] px-5 pb-4 pt-5 shadow-[var(--qq-shadow)]"
-      >
-        <div className="flex flex-col items-center">
-          <Avatar fallback={account || 'Q'} size={48} className="mb-2 h-12 w-12 text-lg" />
-          <h1 className="text-base font-semibold text-[var(--qq-text)]">QQ NT</h1>
-          <p className="mt-1 text-xs text-[var(--qq-text-secondary)]">账号密码登录</p>
-        </div>
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <h1 className="bg-gradient-to-r from-[#1296db] to-[#a78bfa] bg-clip-text text-4xl font-extrabold text-transparent">
+          QQ
+        </h1>
 
-        <div className="mt-5 space-y-3">
-          <div>
-            <label htmlFor="qqnt-account" className="mb-1 block text-xs text-[var(--qq-text-secondary)]">账号</label>
-            <input
-              id="qqnt-account"
-              value={account}
-              onChange={(e) => setAccount(e.target.value)}
-              className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
-              placeholder="QQ 号 / 手机号"
-              disabled={loading}
+        <div className="mt-6 flex flex-col items-center">
+          <div className="rounded-full p-1 shadow-lg shadow-[#1296db]/10">
+            <Avatar
+              fallback={account || 'Q'}
+              size={88}
+              className="h-[88px] w-[88px] border-4 border-white text-3xl"
             />
           </div>
-          <div>
-            <label htmlFor="qqnt-password" className="mb-1 block text-xs text-[var(--qq-text-secondary)]">密码</label>
-            <input
-              id="qqnt-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
-              placeholder="请输入密码"
-              disabled={loading}
-            />
-          </div>
-        </div>
-
-        <div className="min-h-8">
-          {displayError ? (
-            <p className="mt-2 text-center text-xs text-[var(--qq-danger)]">{displayError}</p>
-          ) : null}
           {registeredHint ? (
-            <p className="mt-2 text-center text-xs text-[var(--qq-success)]">注册成功，请登录</p>
+            <p className="mt-3 text-xs text-[var(--qq-success)]">注册成功，请登录</p>
           ) : null}
         </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-auto w-full rounded-md bg-[var(--qq-primary)] py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)] disabled:opacity-60"
+        <form
+          onSubmit={handleSubmit}
+          className="mt-8 flex w-full flex-col gap-4"
+          data-no-drag
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          {loading ? '登录中…' : '登录'}
-        </button>
-
-        <div className="mt-3 flex items-center justify-center gap-2 text-xs">
-          <button
-            type="button"
-            disabled={loading}
-            className="font-medium text-[var(--qq-primary)] transition-colors disabled:opacity-60"
-          >
-            账号密码登录
-          </button>
-          <span className="text-[var(--qq-text-tertiary)]">|</span>
-          <button
-            type="button"
-            onClick={() => {
-              setLocalError('')
-              setRegisteredHint(false)
-              setRegisterOpen(true)
-            }}
-            disabled={loading}
-            className="text-[var(--qq-text-secondary)] transition-colors hover:text-[var(--qq-primary)] disabled:opacity-60"
-          >
-            注册账号
-          </button>
-        </div>
-      </form>
-
-      <RegisterWindow
-        open={registerOpen}
-        loading={loading}
-        initialAccount={account}
-        onClose={() => setRegisterOpen(false)}
-        onRegister={handleRegister}
-      />
-    </div>
-  )
-}
-
-function RegisterWindow({
-  open,
-  loading,
-  initialAccount,
-  onClose,
-  onRegister
-}: {
-  open: boolean
-  loading: boolean
-  initialAccount: string
-  onClose: () => void
-  onRegister: (form: RegisterForm) => Promise<boolean>
-}) {
-  const [account, setAccount] = useState(initialAccount)
-  const [nickname, setNickname] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [avatar, setAvatar] = useState('')
-  const [selectedAvatarBase64, setSelectedAvatarBase64] = useState('')
-  const [choosingAvatar, setChoosingAvatar] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    setAccount(initialAccount)
-    setNickname('')
-    setPassword('')
-    setConfirmPassword('')
-    setAvatar('')
-    setSelectedAvatarBase64('')
-    setChoosingAvatar(false)
-    setError('')
-  }, [initialAccount, open])
-
-  if (!open) return null
-
-  async function chooseAvatar() {
-    setChoosingAvatar(true)
-    setError('')
-
-    try {
-      const selected = await openDialog()
-      if (!selected) return
-
-      const image = await invoke<ImageBase64Response>('read_image_base64', { filePath: selected })
-      setAvatar(image.dataUrl)
-      setSelectedAvatarBase64(image.base64)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '头像读取失败，请重新选择')
-    } finally {
-      setChoosingAvatar(false)
-    }
-  }
-
-  async function openDialog() {
-    const selected = await openFileDialog({
-      multiple: false,
-      directory: false,
-      title: '选择头像图片',
-      filters: [
-        {
-          name: '图片',
-          extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'apng']
-        }
-      ]
-    })
-
-    return typeof selected === 'string' ? selected : undefined
-  }
-
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    setError('')
-    if (!account.trim()) {
-      setError('账号不能为空')
-      return
-    }
-    if (!nickname.trim()) {
-      setError('昵称不可以为空')
-      return
-    }
-    if (!password.trim()) {
-      setError('密码不能为空')
-      return
-    }
-    if (password !== confirmPassword) {
-      setError('两次输入的密码不一致')
-      return
-    }
-    await onRegister({
-      account: account.trim(),
-      password,
-      nickname: nickname.trim(),
-      avatar: avatar || undefined,
-      avatarBase64: selectedAvatarBase64 || undefined
-    })
-  }
-
-  return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-white">
-      <form
-        onSubmit={submit}
-        className="flex h-full w-full max-w-[480px] flex-col bg-white px-14 pb-10 pt-5 text-[var(--qq-text)]"
-      >
-        <div className="flex cursor-move justify-end" onMouseDown={startWindowDrag} data-tauri-drag-region>
-          <button
-            type="button"
-            aria-label="关闭注册"
-            onClick={onClose}
-            className="rounded p-1 text-black hover:bg-black/5"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <h1 className="mt-7 text-3xl font-black text-black">欢迎注册QQ</h1>
-
-        <div className="mt-8 flex flex-col items-center gap-2">
-          <Avatar src={avatar} fallback={nickname || account || 'Q'} size={56} className="h-14 w-14 text-xl" />
-          <button
-            type="button"
-            onClick={chooseAvatar}
-            disabled={loading || choosingAvatar}
-            className="inline-flex items-center gap-1 rounded-full bg-[#dff2ff] px-3 py-1 text-xs font-medium text-[#1296db] disabled:opacity-60"
-          >
-            <ImagePlus size={12} /> {choosingAvatar ? '正在打开…' : '选择头像图片'}
-          </button>
-        </div>
-
-        <div className="mt-6 space-y-4" data-no-drag>
           <input
             value={account}
             onChange={(e) => setAccount(e.target.value)}
-            className={cn('h-12 w-full rounded-xl border-0 bg-[#f5f5f5] px-4 text-sm text-black outline-none focus:ring-2 focus:ring-[#1296db]', error.includes('账号') && 'ring-2 ring-[var(--qq-danger)]')}
+            className="h-12 w-full rounded-2xl bg-white px-5 text-center text-base text-[var(--qq-text)] shadow-sm outline-none placeholder:text-[var(--qq-text-tertiary)] focus:ring-2 focus:ring-[#1296db]"
             placeholder="请输入账号 / 手机号"
-            disabled={loading}
-          />
-          <input
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            className={cn('h-12 w-full rounded-xl border-0 bg-[#f5f5f5] px-4 text-sm text-black outline-none focus:ring-2 focus:ring-[#1296db]', error.includes('昵称') && 'ring-2 ring-[var(--qq-danger)]')}
-            placeholder="请输入昵称"
             disabled={loading}
           />
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             type="password"
-            className={cn('h-12 w-full rounded-xl border-0 bg-[#f5f5f5] px-4 text-sm text-black outline-none focus:ring-2 focus:ring-[#1296db]', error.includes('密码') && 'ring-2 ring-[var(--qq-danger)]')}
-            placeholder="请设置 QQ 密码"
+            className="h-12 w-full rounded-2xl bg-white px-5 text-center text-base text-[var(--qq-text)] shadow-sm outline-none placeholder:text-[var(--qq-text-tertiary)] focus:ring-2 focus:ring-[#1296db]"
+            placeholder="请输入密码"
             disabled={loading}
           />
-          <input
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            type="password"
-            className="h-12 w-full rounded-xl border-0 bg-[#f5f5f5] px-4 text-sm text-black outline-none focus:ring-2 focus:ring-[#1296db]"
-            placeholder="请再次输入密码"
-            disabled={loading}
-          />
-        </div>
 
-        <div className="min-h-8">
-          {error ? <p className="mt-2 text-xs text-[var(--qq-danger)]">ⓘ {error}</p> : null}
-        </div>
+          <div className="flex items-center justify-between px-1">
+            <Checkbox checked={autoLogin} onChange={setAutoLogin} label="自动登录" />
+            <Checkbox checked={rememberPassword} onChange={setRememberPassword} label="记住密码" />
+          </div>
 
+          {displayError ? (
+            <p className="text-center text-xs text-[var(--qq-danger)]">{displayError}</p>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className={cn(
+              'mt-1 h-12 w-full rounded-2xl text-base font-semibold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-80',
+              canSubmit
+                ? 'bg-[#1296db] shadow-md shadow-[#1296db]/25 hover:bg-[#1089c8]'
+                : 'bg-[#aee0ff]'
+            )}
+          >
+            {loading ? '登录中…' : '登 录'}
+          </button>
+
+          <label className="mx-auto flex cursor-pointer items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAgreed((value) => !value)}
+              className={cn(
+                'mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border transition-colors',
+                agreed
+                  ? 'border-[#1296db] bg-[#1296db] text-white'
+                  : 'border-[var(--qq-border)] bg-white text-transparent hover:border-[#1296db]'
+              )}
+              aria-checked={agreed}
+              role="checkbox"
+            >
+              <Check size={10} strokeWidth={3} />
+            </button>
+            <span className="select-none text-xs text-[var(--qq-text-secondary)]">
+              已阅读并同意
+              <span className="mx-0.5 cursor-pointer text-[#1296db] hover:underline">服务协议</span>
+              和
+              <span className="mx-0.5 cursor-pointer text-[#1296db] hover:underline">隐私政策</span>
+            </span>
+          </label>
+        </form>
+      </div>
+
+      <div className="flex items-center justify-center gap-2 pb-2 text-xs text-[var(--qq-text-secondary)]">
         <button
-          type="submit"
+          type="button"
           disabled={loading}
-          className="mt-auto h-12 w-full rounded-xl bg-[#aee0ff] text-base font-medium text-white hover:bg-[#8fd3ff] disabled:opacity-60"
+          onClick={openRegisterWindow}
+          className="font-medium text-[#1296db] transition-colors hover:text-[#1089c8] disabled:opacity-60"
         >
-          {loading ? '注册中…' : '立即注册'}
+          注册账号
         </button>
-      </form>
+      </div>
     </div>
   )
 }

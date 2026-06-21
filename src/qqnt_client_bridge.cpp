@@ -431,6 +431,10 @@ QJsonObject QQNTClientBridge::messageToJson(const Message& message) const {
     object[QStringLiteral("timestamp")] = QString::number(message.timestamp.toMSecsSinceEpoch());
     object[QStringLiteral("contentType")] = messageTypeName(message.type);
     object[QStringLiteral("status")] = QStringLiteral("received");
+    if (!message.clientMessageId.trimmed().isEmpty()) {
+        object[QStringLiteral("clientMessageId")] = message.clientMessageId.trimmed();
+        object[QStringLiteral("messageId")] = message.clientMessageId.trimmed();
+    }
     return object;
 }
 

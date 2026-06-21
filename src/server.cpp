@@ -1752,6 +1752,7 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     msg.senderId = obj["senderId"].toString();
     msg.senderName = obj["senderName"].toString();
     msg.content = obj["content"].toString();
+    msg.clientMessageId = obj["clientMessageId"].toString();
     msg.receiverId = obj["receiverId"].toString();
     msg.timestamp = QDateTime::currentDateTime();
 
@@ -2157,6 +2158,7 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
     msg.senderAvatar = sender->avatar;
     msg.receiverId = groupId;
     msg.content = content;
+    msg.clientMessageId = obj.value("clientMessageId").toString().trimmed();
     msg.type = MessageType::Text;
     msg.timestamp = QDateTime::currentDateTime();
 

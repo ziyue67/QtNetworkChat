@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import {
   sendCommand,
   connectServer,
   login as apiLogin,
-  register as apiRegister
+  register as apiRegister,
+  getLocalChatActions
 } from '@/api/qqnt'
 import { useAuthStore } from '@/stores/authStore'
 import { useContactStore } from '@/stores/contactStore'
 import { useFileStore } from '@/stores/fileStore'
 import { useMessageStore } from '@/stores/messageStore'
-import { useSessionStore } from '@/stores/sessionStore'
+import { isGroupSessionId, normalizeSessionId, useSessionStore } from '@/stores/sessionStore'
+import { useUIStore } from '@/stores/uiStore'
 import type {
   ConnectionStatePayload,
   Contact,
@@ -39,6 +42,21 @@ const AUTH_BEFORE_CONNECT_MESSAGE = '请先提交账号密码，再连接本地�
 const AUTH_BEFORE_CONNECT_RAW_MESSAGE = 'Send login or register credentials before connect'
 const SERVER_CONNECT_FAILED_MESSAGE = '无法连接到本地聊天服务，请确认 QQNTServer 已启动。'
 const SERVER_CONNECT_FAILED_RAW_MESSAGE = 'Unable to connect to server'
+
+interface SavedLocalFileResponse {
+  filePath?: string
+  fileName?: string
+  file_path?: string
+  file_name?: string
+}
+
+function savedFilePath(saved?: SavedLocalFileResponse) {
+  return saved?.filePath || saved?.file_path || ''
+}
+
+function savedFileName(saved?: SavedLocalFileResponse) {
+  return saved?.fileName || saved?.file_name || ''
+}
 
 export interface AuthHandshakeResult {
   ok: boolean
@@ -89,7 +107,7 @@ function rawToMessage(raw: RawMessage): Message {
     id: raw.clientMessageId || raw.messageId,
     messageId: raw.messageId,
     clientMessageId: raw.clientMessageId,
-    sessionId: raw.sessionId,
+    sessionId: normalizeSessionId(raw.sessionId),
     senderId: raw.senderId,
     senderName: raw.senderName,
     type: raw.contentType,
@@ -109,13 +127,14 @@ function sessionPreview(message: Message) {
 function upsertIncomingSession(message: Message, currentUserId?: string) {
   const sessionStore = useSessionStore.getState()
   const activeSessionId = sessionStore.activeSessionId
-  const existing = sessionStore.sessions.find((session) => session.id === message.sessionId)
+  const sessionId = normalizeSessionId(message.sessionId)
+  const existing = sessionStore.sessions.find((session) => normalizeSessionId(session.id) === sessionId)
   const isMine = message.senderId === currentUserId
-  const unread = activeSessionId === message.sessionId || isMine ? existing?.unread ?? 0 : (existing?.unread ?? 0) + 1
-  const fallbackName = isMine ? existing?.name || message.sessionId : message.senderName
+  const unread = activeSessionId === sessionId || isMine ? existing?.unread ?? 0 : (existing?.unread ?? 0) + 1
+  const fallbackName = isMine ? existing?.name || sessionId : message.senderName
   const session: Session = {
-    id: message.sessionId,
-    type: message.sessionId.startsWith('g-') ? 'group' : 'private',
+    id: sessionId,
+    type: isGroupSessionId(sessionId) ? 'group' : 'private',
     name: existing?.name || fallbackName,
     avatar: existing?.avatar,
     unread,
@@ -128,9 +147,30 @@ function upsertIncomingSession(message: Message, currentUserId?: string) {
 }
 
 function handleMessageEvent(payload: MessageEventPayload) {
-  const message = rawToMessage({ ...payload.message, sessionId: payload.sessionId || payload.message.sessionId })
+  const raw = { ...payload.message, sessionId: normalizeSessionId(payload.sessionId || payload.message.sessionId) }
+  const message = rawToMessage(raw)
   useMessageStore.getState().addMessage(message.sessionId, message)
   upsertIncomingSession(message, useAuthStore.getState().currentUser?.id)
+  if ((message.type === 'file' || message.type === 'image') && raw.fileData && !message.fileInfo?.path) {
+    void saveIncomingFileData(message, raw.fileData)
+  }
+}
+
+async function saveIncomingFileData(message: Message, fileData: string) {
+  const directoryPath = await useUIStore.getState().ensureDefaultDownloadPath()
+  const saved = await invoke<SavedLocalFileResponse>('save_base64_file_to_directory', {
+    base64: fileData,
+    directoryPath,
+    fileName: message.fileInfo?.name || message.content || 'file.bin'
+  })
+  const filePath = savedFilePath(saved)
+  const fileName = savedFileName(saved)
+  if (!filePath) return
+  useMessageStore.getState().updateFileMessage(message.fileInfo?.id || message.id, {
+    path: filePath,
+    name: fileName || message.fileInfo?.name || message.content || 'file.bin',
+    progress: 100
+  }, message.status)
 }
 
 function handleFileProgress(payload: FileProgressPayload) {
@@ -251,6 +291,12 @@ export function useEngine(): UseEngineReturn {
     let cancelled = false
 
     async function bind() {
+      getLocalChatActions()
+        .then((actions) => {
+          if (!cancelled) useMessageStore.getState().applyLocalChatActions(actions)
+        })
+        .catch(() => undefined)
+
       const handlers: Array<[QQNTEventType | string, (payload: unknown) => void]> = [
         ['qqnt://engine/ready', (payload) => {
           const readyPayload = payload as EngineReadyPayload
@@ -429,3 +475,4 @@ export function useEngine(): UseEngineReturn {
     logout
   }
 }
+

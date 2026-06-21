@@ -117,11 +117,13 @@ export interface LogoutPayload {}
 export interface SendPrivateMessagePayload {
   receiverId: string
   content: string
+  clientMessageId?: string
 }
 
 export interface SendGroupMessagePayload {
   groupId: string
   content: string
+  clientMessageId?: string
 }
 
 export interface SendFilePayload {
@@ -345,6 +347,7 @@ export interface RawMessage {
   fileName?: string
   fileSize?: number
   filePath?: string
+  fileData?: string
   transferId?: string
   transferProgress?: number
   timestamp: number
@@ -369,6 +372,9 @@ export interface QQNTAppEntry {
 
 export interface Contact extends User {
   remark?: string
+  group?: string
+  category?: string
+  tags?: string[]
   announcement?: string
   memberCount?: number
   members?: Contact[]
@@ -398,6 +404,13 @@ export interface Message {
   timestamp: number
   status: MessageStatus
   fileInfo?: FileInfo
+  localFavorite?: boolean
+  localEmoji?: boolean
+  localSelected?: boolean
+  localQuote?: string
+  localEssence?: boolean
+  localRecalled?: boolean
+  localBlocked?: boolean
 }
 
 export interface FileInfo {

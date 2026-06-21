@@ -502,14 +502,16 @@ void QQNTEngineCommandRouter::handleRespondFriendRequest(const QString& op, cons
 }
 
 void QQNTEngineCommandRouter::handleSendPrivateMessage(const QString& op, const QString& reqId, const QJsonObject& payload) {
-    if (!requireOnlyFields(payload, {QStringLiteral("receiverId"), QStringLiteral("content")}, op, reqId)) {
+    if (!requireOnlyFields(payload, {QStringLiteral("receiverId"), QStringLiteral("content"), QStringLiteral("clientMessageId")}, op, reqId)) {
         return;
     }
 
     QString receiverId;
     QString content;
+    QString clientMessageId;
     if (!requireString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)
-        || !requireString(payload, QStringLiteral("content"), &content, op, reqId)) {
+        || !requireString(payload, QStringLiteral("content"), &content, op, reqId)
+        || !optionalStringField(payload, QStringLiteral("clientMessageId"), &clientMessageId, QStringLiteral("invalid_client_message_id"), op, reqId)) {
         return;
     }
 
@@ -518,32 +520,47 @@ void QQNTEngineCommandRouter::handleSendPrivateMessage(const QString& op, const 
         return;
     }
 
-    if (!m_bridge->client()->sendPrivateMessage(receiverId, content)) {
+    if (!m_bridge->client()->sendPrivateMessage(receiverId, content, clientMessageId)) {
         m_bridge->sendErrorAck(op, reqId, QStringLiteral("send_failed"), QStringLiteral("Client rejected private message send."));
         return;
     }
 
     QJsonObject response;
     response[QStringLiteral("receiverId")] = receiverId;
+    if (!clientMessageId.trimmed().isEmpty()) {
+        response[QStringLiteral("clientMessageId")] = clientMessageId.trimmed();
+    }
     m_bridge->sendAck(op, reqId, response);
 }
 
 void QQNTEngineCommandRouter::handleSendGroupMessage(const QString& op, const QString& reqId, const QJsonObject& payload) {
-    if (!requireOnlyFields(payload, {QStringLiteral("groupId"), QStringLiteral("content")}, op, reqId)) {
+    if (!requireOnlyFields(payload, {QStringLiteral("groupId"), QStringLiteral("content"), QStringLiteral("clientMessageId")}, op, reqId)) {
         return;
     }
 
     QString groupId;
     QString content;
+    QString clientMessageId;
     if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
-        || !requireString(payload, QStringLiteral("content"), &content, op, reqId)) {
+        || !requireString(payload, QStringLiteral("content"), &content, op, reqId)
+        || !optionalStringField(payload, QStringLiteral("clientMessageId"), &clientMessageId, QStringLiteral("invalid_client_message_id"), op, reqId)) {
         return;
     }
-    sendBoolAck(op,
-                reqId,
-                m_bridge->client()->sendServerGroupMessage(groupId, content),
-                QStringLiteral("send_group_failed"),
-                QStringLiteral("Group message requires an active server connection and valid group."));
+    if (!m_bridge->client()->sendServerGroupMessage(groupId, content, clientMessageId)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("send_group_failed"),
+                               QStringLiteral("Group message requires an active server connection and valid group."));
+        return;
+    }
+
+    QJsonObject response;
+    response[QStringLiteral("accepted")] = true;
+    response[QStringLiteral("groupId")] = groupId;
+    if (!clientMessageId.trimmed().isEmpty()) {
+        response[QStringLiteral("clientMessageId")] = clientMessageId.trimmed();
+    }
+    m_bridge->sendAck(op, reqId, response);
 }
 
 void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString& reqId, const QJsonObject& payload) {
@@ -685,11 +702,27 @@ void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QStrin
     const bool accepted = groupId.isEmpty()
         ? (imageMode ? m_bridge->client()->sendImage(filePath, receiverId) : m_bridge->client()->sendFile(filePath, receiverId))
         : (imageMode ? m_bridge->client()->sendServerGroupImage(groupId, filePath) : m_bridge->client()->sendServerGroupFile(groupId, filePath));
-    sendBoolAck(op,
-                reqId,
-                accepted,
-                QStringLiteral("file_send_failed"),
-                QStringLiteral("File send requires an active server connection and readable file."));
+    if (!accepted) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("file_send_failed"),
+                               QStringLiteral("File send requires an active server connection and readable file."));
+        return;
+    }
+
+    const QString transferId = m_bridge->client()->lastOutgoingTransferId().trimmed();
+    if (transferId.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("file_send_failed"),
+                               QStringLiteral("File send did not create a transfer id."));
+        return;
+    }
+
+    QJsonObject response;
+    response[QStringLiteral("accepted")] = true;
+    response[QStringLiteral("transferId")] = transferId;
+    m_bridge->sendAck(op, reqId, response);
 }
 
 void QQNTEngineCommandRouter::handleCancelTransfer(const QString& op, const QString& reqId, const QJsonObject& payload) {

@@ -109,7 +109,13 @@ bool readProcessOutput(QProcess* process,
         }
     }
 
-    return missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty();
+    const QSet<QString> missing = missingAckReqIds(expectedAckReqIds, seenAckReqIds);
+    if (!missing.isEmpty()) {
+        QStringList missingIds = missing.values();
+        missingIds.sort();
+        std::fprintf(stderr, "missing ack reqIds: %s\n", qPrintable(missingIds.join(QLatin1String(", "))));
+    }
+    return missing.isEmpty();
 }
 
 bool writeCommand(QProcess* process, const QByteArray& command) {
@@ -324,12 +330,14 @@ bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload)
                || op == QLatin1String("create_group")
                || op == QLatin1String("update_group_announcement")
                || op == QLatin1String("update_group_member")
-               || op == QLatin1String("send_file")
-               || op == QLatin1String("send_image")
                || op == QLatin1String("e2e_announce_identity")
                || op == QLatin1String("e2e_pin_identity")
                || op == QLatin1String("e2e_request_rotation")) {
         ok = expectExactAcceptedPayload(op, payload) && ok;
+    } else if (op == QLatin1String("send_file") || op == QLatin1String("send_image")) {
+        ok = expectExactPayloadFieldCount(op, payload, 2) && ok;
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
     } else if (op == QLatin1String("send_private_message")) {
         ok = expectNonEmptyStringField(op, payload, QStringLiteral("receiverId")) && ok;
     } else if (op == QLatin1String("cancel_transfer")) {

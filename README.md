@@ -29,6 +29,7 @@ Build the Tauri NSIS package:
 ```powershell
 cd tauri-qqnt
 npm run tauri build
+npm run tauri dev
 ```
 
 ## Documentation Index

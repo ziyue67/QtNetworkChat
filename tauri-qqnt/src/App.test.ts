@@ -22,7 +22,7 @@ function fakeEngine(overrides: Partial<UseEngineReturn> = {}): UseEngineReturn {
 
 describe('window sizes', () => {
   it('keeps login/register compact and main shell resizable', () => {
-    expect(LOGIN_SIZE).toEqual({ width: 300, height: 460 })
+    expect(LOGIN_SIZE).toEqual({ width: 400, height: 640 })
     expect(LOGIN_MIN_SIZE).toEqual(LOGIN_SIZE)
     expect(MAIN_SIZE.width).toBeGreaterThan(LOGIN_SIZE.width)
     expect(MAIN_SIZE.height).toBeGreaterThan(LOGIN_SIZE.height)

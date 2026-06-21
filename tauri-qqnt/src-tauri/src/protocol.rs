@@ -92,16 +92,15 @@ pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()>
         "search_friend"
         | "send_friend_request"
         | "respond_friend_request"
-        | "send_group_message"
         | "create_group"
         | "update_group_announcement"
         | "update_group_member"
-        | "send_file"
-        | "send_image"
         | "e2e_announce_identity"
         | "e2e_pin_identity"
         | "e2e_request_rotation" => validate_bool_ack_payload(payload, op),
         "send_private_message" => validate_send_private_message_ack_payload(payload),
+        "send_group_message" => validate_send_group_message_ack_payload(payload),
+        "send_file" | "send_image" => validate_file_send_ack_payload(payload, op),
         "cancel_transfer" => validate_cancel_transfer_ack_payload(payload),
         "query_resume" => validate_query_resume_ack_payload(payload),
         "e2e_status" => validate_e2e_status_ack_payload(payload),
@@ -147,6 +146,14 @@ fn validate_bool_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult
     Ok(())
 }
 
+fn validate_file_send_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
+    require_true_bool_field(payload, "accepted", contract_name)?;
+    require_non_empty_string_field(payload, "transferId", contract_name)?;
+    require_exact_object_fields(payload, &["accepted", "transferId"], contract_name)?;
+
+    Ok(())
+}
+
 fn validate_empty_object_ack_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
     if matches!(payload, Value::Object(map) if map.is_empty()) {
         return Ok(());
@@ -160,7 +167,25 @@ fn validate_empty_object_ack_payload(payload: &Value, contract_name: &str) -> QQ
 
 fn validate_send_private_message_ack_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "receiverId", "send_private_message")?;
-    require_exact_object_fields(payload, &["receiverId"], "send_private_message")?;
+    require_optional_string_field(payload, "clientMessageId", "send_private_message")?;
+    require_exact_object_fields(
+        payload,
+        &["receiverId", "clientMessageId"],
+        "send_private_message",
+    )?;
+
+    Ok(())
+}
+
+fn validate_send_group_message_ack_payload(payload: &Value) -> QQNTResult<()> {
+    require_true_bool_field(payload, "accepted", "send_group_message")?;
+    require_non_empty_string_field(payload, "groupId", "send_group_message")?;
+    require_optional_string_field(payload, "clientMessageId", "send_group_message")?;
+    require_exact_object_fields(
+        payload,
+        &["accepted", "groupId", "clientMessageId"],
+        "send_group_message",
+    )?;
 
     Ok(())
 }
@@ -571,9 +596,10 @@ fn validate_user_item_payload(payload: &Value, contract_name: &str) -> QQNTResul
     require_string_field(payload, "avatar", contract_name)?;
     require_bool_field(payload, "online", contract_name)?;
     require_string_field(payload, "lastActive", contract_name)?;
-    require_exact_object_fields(
+    require_optional_string_field(payload, "group", contract_name)?;
+    require_only_object_fields(
         payload,
-        &["id", "name", "avatar", "online", "lastActive"],
+        &["id", "name", "avatar", "online", "lastActive", "group"],
         contract_name,
     )?;
 
@@ -1343,16 +1369,21 @@ mod tests {
             "search_friend"
             | "send_friend_request"
             | "respond_friend_request"
-            | "send_group_message"
             | "create_group"
             | "update_group_announcement"
             | "update_group_member"
-            | "send_file"
-            | "send_image"
             | "e2e_announce_identity"
             | "e2e_pin_identity"
             | "e2e_request_rotation" => json!({ "accepted": true }),
+            "send_file" | "send_image" => json!({
+                "accepted": true,
+                "transferId": "transfer-1"
+            }),
             "send_private_message" => json!({ "receiverId": "10001" }),
+            "send_group_message" => json!({
+                "accepted": true,
+                "groupId": "public"
+            }),
             "cancel_transfer" => json!({
                 "cancelled": true,
                 "transferId": "transfer-1"
@@ -1958,6 +1989,20 @@ mod tests {
         .expect_err("friend_list without online should fail");
 
         assert_eq!(error.code, "invalid_friend_list_payload");
+    }
+
+    #[test]
+    fn friend_list_payload_accepts_optional_group() {
+        let mut friend = user_contract_item();
+        friend["group"] = json!("家人");
+
+        validate_event_payload(
+            "friend_list",
+            &json!({
+                "friends": [friend]
+            }),
+        )
+        .expect("friend_list with optional group should pass");
     }
 
     #[test]
@@ -3212,20 +3257,20 @@ mod tests {
     #[test]
     fn bool_ack_payload_requires_accepted_true() {
         let error = validate_command_ack_payload(
-            "send_file",
+            "search_friend",
             &json!({
                 "accepted": false
             }),
         )
         .expect_err("successful bool ack with accepted false should fail");
 
-        assert_eq!(error.code, "invalid_send_file_payload");
+        assert_eq!(error.code, "invalid_search_friend_payload");
     }
 
     #[test]
     fn bool_ack_payload_rejects_extra_fields() {
         let error = validate_command_ack_payload(
-            "send_file",
+            "search_friend",
             &json!({
                 "accepted": true,
                 "extra": true
@@ -3233,7 +3278,32 @@ mod tests {
         )
         .expect_err("successful bool ack with extra fields should fail");
 
-        assert_eq!(error.code, "invalid_send_file_payload");
+        assert_eq!(error.code, "invalid_search_friend_payload");
+    }
+
+    #[test]
+    fn file_send_ack_payload_accepts_contract_fields() {
+        validate_command_ack_payload(
+            "send_file",
+            &json!({
+                "accepted": true,
+                "transferId": "transfer-1"
+            }),
+        )
+        .expect("send_file ack with transfer id should pass");
+    }
+
+    #[test]
+    fn file_send_ack_payload_requires_transfer_id() {
+        let error = validate_command_ack_payload(
+            "send_image",
+            &json!({
+                "accepted": true
+            }),
+        )
+        .expect_err("send_image ack without transferId should fail");
+
+        assert_eq!(error.code, "invalid_send_image_payload");
     }
 
     #[test]

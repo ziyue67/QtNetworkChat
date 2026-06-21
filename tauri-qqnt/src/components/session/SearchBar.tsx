@@ -6,9 +6,10 @@ interface SearchBarProps {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  onFocus?: () => void
 }
 
-export function SearchBar({ value, onChange, placeholder = '搜索', className }: SearchBarProps) {
+export function SearchBar({ value, onChange, placeholder = '搜索', className, onFocus }: SearchBarProps) {
   return (
     <div
       className={cn(
@@ -20,6 +21,7 @@ export function SearchBar({ value, onChange, placeholder = '搜索', className }
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
         placeholder={placeholder}
         className="flex-1 bg-transparent text-sm text-[var(--qq-text)] outline-none placeholder:text-[var(--qq-text-tertiary)]"
       />

@@ -355,6 +355,7 @@ export function MessageView() {
   const handleFileDrop = useCallback(async (paths: string[], mode: AttachmentMode = 'auto') => {
     if (!activeSession || !currentUser) return
     setAttachmentError('')
+    const normalizedSessionId = normalizeSessionId(activeSession.id)
 
     for (const filePath of paths.filter(Boolean)) {
       const image = mode === 'image' || isImagePath(filePath)
@@ -362,7 +363,7 @@ export function MessageView() {
       const fileName = baseName(filePath)
       const optimistic: Message = {
         id: clientId,
-        sessionId: activeSession.id,
+        sessionId: normalizedSessionId,
         senderId: currentUser.id,
         senderName: currentUser.nickname,
         type: image ? 'image' : 'file',
@@ -379,18 +380,18 @@ export function MessageView() {
         }
       }
 
-      addMessage(activeSession.id, optimistic)
-      updateSession(activeSession.id, { lastMessage: image ? '[图片]' : `[文件] ${fileName}`, lastTime: optimistic.timestamp })
+      addMessage(normalizedSessionId, optimistic)
+      updateSession(normalizedSessionId, { lastMessage: image ? '[图片]' : `[文件] ${fileName}`, lastTime: optimistic.timestamp })
 
       try {
         const args = activeSession.type === 'group'
-          ? { groupId: activeSession.id, filePath }
-          : { receiverId: activeSession.id, filePath }
+          ? { groupId: normalizedSessionId, filePath }
+          : { receiverId: normalizedSessionId, filePath }
         const ack = image ? await sendImage(args) : await sendFile(args)
         const transferId = ack.payload?.transferId
         const accepted = ack.status === 'ok' && (ack.payload?.accepted ?? true)
         if (accepted) {
-          useMessageStore.getState().updateFileMessage(clientId, transferId ? { id: transferId } : {})
+          useMessageStore.getState().updateFileMessage(clientId, transferId ? { id: transferId } : {}, 'sent')
           void saveMessageFileToDownloads({
             ...optimistic,
             status: 'sent',
@@ -402,11 +403,11 @@ export function MessageView() {
             setAttachmentError(error instanceof Error ? error.message : '文件保存到下载目录失败')
           })
         } else {
-          updateMessageStatus(activeSession.id, clientId, 'failed')
+          updateMessageStatus(normalizedSessionId, clientId, 'failed')
         }
       } catch (error) {
         setAttachmentError(error instanceof Error ? error.message : '文件发送失败')
-        updateMessageStatus(activeSession.id, clientId, 'failed')
+        updateMessageStatus(normalizedSessionId, clientId, 'failed')
       }
     }
   }, [activeSession, addMessage, currentUser, saveMessageFileToDownloads, updateMessageStatus, updateSession])
@@ -627,7 +628,27 @@ export function MessageView() {
   }
 
   const handleOpenFolder = async (message: Message) => {
-    if (message.fileInfo?.path) await revealItemInDir(message.fileInfo.path)
+    try {
+      setAttachmentError('')
+      const saved = await saveMessageFileToDownloads(message)
+      const savedPath = saved?.filePath || message.fileInfo?.path || ''
+      if (!savedPath) {
+        setAttachmentError('文件还没有保存到本地。')
+        return
+      }
+      await revealItemInDir(savedPath)
+    } catch (error) {
+      const fallbackPath = message.fileInfo?.path || ''
+      if (fallbackPath) {
+        try {
+          await revealItemInDir(fallbackPath)
+          return
+        } catch {
+          // 使用下面统一错误提示。
+        }
+      }
+      setAttachmentError(error instanceof Error ? `打开文件夹失败：${error.message}` : '打开文件夹失败')
+    }
   }
 
   const handleCopyMessage = async (message: Message) => {
@@ -850,10 +871,10 @@ export function MessageView() {
       new WebviewWindow(label, {
         url,
         title: '图片预览',
-        width: 620,
-        height: 760,
-        minWidth: 360,
-        minHeight: 420,
+        width: 900,
+        height: 680,
+        minWidth: 420,
+        minHeight: 320,
         center: true,
         resizable: true,
         decorations: true,

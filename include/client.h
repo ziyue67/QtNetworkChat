@@ -53,7 +53,7 @@ public:
                                    const QString& reason = QString(),
                                    QString* rejectReason = nullptr);
     bool sendMessage(const QString& content);
-    bool sendPrivateMessage(const QString& receiverId, const QString& content);
+    bool sendPrivateMessage(const QString& receiverId, const QString& content, const QString& clientMessageId = QString());
     bool sendEncryptedPrivateMessage(const QString& receiverId, const QString& content, QString* rejectReason = nullptr);
     bool sendFriendRequest(const QString& receiverId);
     bool searchFriendByAccount(const QString& account);
@@ -61,7 +61,7 @@ public:
     bool sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement);
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
     bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString(), const QStringList& initialMemberIds = QStringList());
-    bool sendServerGroupMessage(const QString& groupId, const QString& content);
+    bool sendServerGroupMessage(const QString& groupId, const QString& content, const QString& clientMessageId = QString());
     bool sendServerGroupFile(const QString& groupId, const QString& filePath);
     bool sendServerGroupImage(const QString& groupId, const QString& filePath);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
@@ -115,6 +115,7 @@ public:
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
     QString currentOutgoingTransferId() const { return m_currentOutgoingTransferId; }
+    QString lastOutgoingTransferId() const { return m_lastOutgoingTransferId; }
     QVector<ChatUser> onlineUsers() const { return m_onlineUsers; }
     QVector<ChatUser> friends() const { return m_friends; }
     QString transportSecurityDescription() const;
@@ -298,6 +299,7 @@ private:
     bool m_hasServerGroupSnapshot;
     bool m_cancelOutgoingTransfer;
     QString m_currentOutgoingTransferId;
+    QString m_lastOutgoingTransferId;
     QString m_currentOutgoingReceiverId;
     QString m_currentOutgoingGroupId;
     QString m_currentOutgoingFileName;

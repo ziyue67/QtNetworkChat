@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useSessionStore } from './sessionStore'
+import { PUBLIC_SESSION_ID, useSessionStore } from './sessionStore'
 import type { Session } from '@/types/qqnt'
 
 const sessions: Session[] = [
@@ -55,4 +55,32 @@ describe('sessionStore', () => {
 
     expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual(['g-100', '10002', '10001'])
   })
+  it('normalizes public room aliases into one group session', () => {
+    useSessionStore.getState().setSessions([
+      { id: 'public', type: 'group', name: '公共聊天室', unread: 0, pinned: false },
+      { id: 'group:public', type: 'private', name: 'group:public', unread: 2, pinned: false, lastMessage: 'hi' }
+    ])
+
+    expect(useSessionStore.getState().sessions).toHaveLength(1)
+    expect(useSessionStore.getState().sessions[0]).toMatchObject({
+      id: PUBLIC_SESSION_ID,
+      type: 'group',
+      name: '公共聊天室'
+    })
+
+    useSessionStore.getState().upsertSession({
+      id: 'group:public',
+      type: 'private',
+      name: 'group:public',
+      unread: 1,
+      pinned: false,
+      lastMessage: 'new'
+    })
+
+    const publicSessions = useSessionStore.getState().sessions.filter((session) => session.id === PUBLIC_SESSION_ID)
+    expect(publicSessions).toHaveLength(1)
+    expect(publicSessions[0]).toMatchObject({ type: 'group', name: '公共聊天室', lastMessage: 'new' })
+  })
 })
+
+
