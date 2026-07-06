@@ -1,0 +1,190 @@
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { LogicalSize } from '@tauri-apps/api/dpi'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useAuthStore } from '@/stores/authStore'
+import { useUIStore } from '@/stores/uiStore'
+import { useTheme } from '@/hooks/useTheme'
+import { useEngine } from '@/hooks/useEngine'
+import { profileUpdate, settingsSync } from '@/api/qqnt'
+import { TitleBar } from '@/components/frame/TitleBar'
+import { MainLayout } from '@/views/MainLayout'
+import { LoginView } from '@/views/LoginView'
+import { MessageView } from '@/views/MessageView'
+import { ContactsView } from '@/views/ContactsView'
+import { SettingsView } from '@/views/SettingsView'
+import { ProfileView } from '@/views/ProfileView'
+import { SpaceView } from '@/views/SpaceView'
+import { ChannelView } from '@/views/ChannelView'
+import { MailView } from '@/views/MailView'
+import { DocsView } from '@/views/DocsView'
+import { CalendarView } from '@/views/CalendarView'
+import { MeetingView } from '@/views/MeetingView'
+import { FavoritesView } from '@/views/FavoritesView'
+import { WalletView } from '@/views/WalletView'
+import { ImagePreviewWindow } from '@/views/ImagePreviewWindow'
+import { RegisterWindow } from '@/views/RegisterWindow'
+import { NoticeFilterWindow } from '@/views/NoticeFilterWindow'
+import { ScreenshotCaptureWindow } from '@/views/ScreenshotCaptureWindow'
+import { ForwardWindow } from '@/views/ForwardWindow'
+import './styles/index.css'
+import type { UseEngineReturn } from '@/hooks/useEngine'
+
+export const LOGIN_SIZE = { width: 400, height: 640 }
+export const LOGIN_MIN_SIZE = { width: 400, height: 640 }
+export const MAIN_SIZE = { width: 1100, height: 740 }
+export const MAIN_MIN_SIZE = { width: 860, height: 540 }
+
+export interface RegisterForm {
+  account: string
+  password: string
+  nickname: string
+  avatar?: string
+  avatarBase64?: string
+}
+
+function useResizeForAuth(isAuthenticated: boolean) {
+  useEffect(() => {
+    let mounted = true
+
+    async function resize() {
+      try {
+        const win = getCurrentWindow()
+        const size = isAuthenticated ? MAIN_SIZE : LOGIN_SIZE
+        const minSize = isAuthenticated ? MAIN_MIN_SIZE : LOGIN_MIN_SIZE
+
+        if (!mounted) return
+        await win.setResizable(isAuthenticated)
+        await win.setMinSize(new LogicalSize(minSize.width, minSize.height))
+        await win.setSize(new LogicalSize(size.width, size.height))
+        if (isAuthenticated) {
+          await win.center()
+        }
+      } catch {
+        // Not running inside Tauri (e.g. browser preview).
+      }
+    }
+
+    resize()
+    return () => {
+      mounted = false
+    }
+  }, [isAuthenticated])
+}
+
+function MainApp() {
+  useTheme()
+  const engine = useEngine()
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const ensureDefaultDownloadPath = useUIStore((state) => state.ensureDefaultDownloadPath)
+  const settings = useUIStore((state) => state.settings)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    setReady(true)
+    void ensureDefaultDownloadPath()
+  }, [ensureDefaultDownloadPath])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      settingsSync({ ...settings }).catch(() => undefined)
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [settings])
+
+  useResizeForAuth(isAuthenticated)
+
+  if (!ready) {
+    return <div className="h-full w-full bg-[var(--qq-bg)]" />
+  }
+
+  return (
+    <HashRouter>
+      <Routes>
+        <Route
+          path="/login"
+          element={<LoginScreen engine={engine} />}
+        />
+        <Route
+          path="/"
+          element={isAuthenticated ? <MainLayout /> : <Navigate to="/login" replace />}
+        >
+          <Route index element={<Navigate to="/messages" replace />} />
+          <Route path="messages" element={<MessageView />} />
+          <Route path="contacts" element={<ContactsView />} />
+          <Route path="spaces" element={<SpaceView />} />
+          <Route path="channels" element={<ChannelView />} />
+          <Route path="mail" element={<MailView />} />
+          <Route path="docs" element={<DocsView />} />
+          <Route path="calendar" element={<CalendarView />} />
+          <Route path="meetings" element={<MeetingView />} />
+          <Route path="favorites" element={<FavoritesView />} />
+          <Route path="wallet" element={<WalletView />} />
+          <Route path="settings" element={<SettingsView />} />
+          <Route path="profile" element={<ProfileView />} />
+        </Route>
+      </Routes>
+    </HashRouter>
+  )
+}
+
+function PreviewApp() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route path="/image-preview" element={<ImagePreviewWindow />} />
+        <Route path="/register" element={<RegisterWindow />} />
+        <Route path="/notice-filter" element={<NoticeFilterWindow />} />
+        <Route path="/screenshot-capture" element={<ScreenshotCaptureWindow />} />
+        <Route path="/forward" element={<ForwardWindow />} />
+      </Routes>
+    </HashRouter>
+  )
+}
+
+function App() {
+  if (
+    window.location.hash.startsWith('#/image-preview') ||
+    window.location.hash.startsWith('#/notice-filter') ||
+    window.location.hash.startsWith('#/register') ||
+    window.location.hash.startsWith('#/screenshot-capture') ||
+    window.location.hash.startsWith('#/forward')
+  ) return <PreviewApp />
+  return <MainApp />
+}
+
+export async function submitLogin(engine: UseEngineReturn, account: string, password: string) {
+  const auth = await engine.login(account, password)
+  if (!auth.ok || !auth.requiresConnect) return
+  await engine.connect()
+}
+
+export async function submitRegister(engine: UseEngineReturn, form: RegisterForm) {
+  const auth = await engine.register(form.account, form.password, form.nickname)
+  if (!auth.ok) return false
+  const connected = auth.requiresConnect ? await engine.connect() : true
+  if (connected && form.avatarBase64) {
+    await profileUpdate({ userName: form.nickname, avatarBase64: form.avatarBase64 }).catch(() => undefined)
+  }
+  return connected
+}
+
+function LoginScreen({ engine }: { engine: UseEngineReturn }) {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  if (isAuthenticated) {
+    return <Navigate to="/messages" replace />
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--qq-bg)]">
+      <TitleBar variant="close-only" />
+      <LoginView
+        loading={engine.engine.connecting || engine.engine.loggingIn}
+        error={engine.engine.error}
+        onLogin={(account, password) => submitLogin(engine, account, password)}
+        />
+    </div>
+  )
+}
+
+export default App

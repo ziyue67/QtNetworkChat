@@ -10,6 +10,7 @@ param(
     [string]$ArchivePublishingStatus = "",
     [string]$ArchivePublishingChannel = "",
     [switch]$RunDeliveryDrill,
+    [switch]$NoDeploy,
     [switch]$IncludePostgresSql,
     [switch]$FailOnMissingPostgresSql,
     [switch]$FailOnMissingRuntime,
@@ -246,6 +247,9 @@ $packageWindowsArgs = @(
 )
 if (-not [string]::IsNullOrWhiteSpace($QtRoot)) {
     $packageWindowsArgs += @("-QtRoot", $QtRoot)
+}
+if ($NoDeploy.IsPresent) {
+    $packageWindowsArgs += "-NoDeploy"
 }
 if (-not [string]::IsNullOrWhiteSpace($PostgresBinDir)) {
     $packageWindowsArgs += @("-PostgresBinDir", $PostgresBinDir)

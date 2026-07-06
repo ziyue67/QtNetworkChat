@@ -68,6 +68,16 @@ int main(int argc, char** argv) {
     info = describeFileTransferReason(QStringLiteral("chunk-ack-timeout"));
     ok = expect(info.category == QStringLiteral("chunk-delivery-failed") && info.retryable,
                 "chunk ack timeout should keep chunk delivery guidance instead of generic timeout") && ok;
+    ok = expect(canonicalFileTransferDirection(QStringLiteral("completed"), QStringLiteral("outgoing")) == QStringLiteral("outgoing"),
+                "outgoing direction should pass through unchanged") && ok;
+    ok = expect(canonicalFileTransferDirection(QStringLiteral("completed"), QStringLiteral(" INCOMING ")) == QStringLiteral("incoming"),
+                "incoming direction should be trimmed and lower-cased") && ok;
+    ok = expect(canonicalFileTransferDirection(QStringLiteral("receive-completed"), QString()) == QStringLiteral("incoming"),
+                "empty receiver-side direction should fall back to incoming") && ok;
+    ok = expect(canonicalFileTransferDirection(QStringLiteral("completed"), QStringLiteral("sideways")) == QStringLiteral("outgoing"),
+                "invalid sender-side direction should fall back to outgoing") && ok;
+    ok = expect(canonicalFileTransferDirection(QStringLiteral("receive-save-failed"), QStringLiteral("sideways")) == QStringLiteral("incoming"),
+                "invalid receiver-side direction should fall back to incoming") && ok;
     ok = expect(fileTransferUserMessage(QStringLiteral("auth")).contains(QString::fromUtf8("权限")),
                 "auth reason should produce user-facing permission text") && ok;
     ok = expect(fileTransferUserMessage(QString(), QString::fromUtf8("备用提示")) == QString::fromUtf8("备用提示"),

@@ -8,6 +8,7 @@
 #include <QVector>
 #include <QSet>
 #include <QJsonObject>
+#include <QStringList>
 #include "chatuser.h"
 #include "message.h"
 #include <functional>
@@ -15,8 +16,7 @@
 
 class QTimer;
 class ObjectStore;
-class RedisClient;
-class RedisSubscriber;
+class QQNTRedisService;
 class HeartbeatMonitor;
 struct LargeFileDeliveredReceiptDecision;
 
@@ -54,9 +54,17 @@ private slots:
 private:
     void broadcastMessage(const Message& msg, QTcpSocket* excludeSocket = nullptr);
     void sendUserList(QTcpSocket* socket);
+    void sendFriendListSnapshot(const QString& userId, QTcpSocket* socket) const;
     void sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) const;
+    void sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& groupId, const QString& memberId, const QString& action) const;
     void sendToUser(const Message& msg);
     bool sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket);
+    bool sendFileChunkAndWaitForAck(QTcpSocket* socket,
+                                    const QByteArray& data,
+                                    const QString& transferId,
+                                    qint64 chunkIndex,
+                                    QString* rejectReason = nullptr,
+                                    qint64* receivedBytes = nullptr);
     void handleLogin(const QJsonObject& obj, QTcpSocket* socket);
     void handleMessage(const QJsonObject& obj, QTcpSocket* socket = nullptr);
     void handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket);
@@ -71,7 +79,6 @@ private:
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket);
-    bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     void cleanupExpiredFileTransfers();
     bool ensureRedisReadyForStartup();
     void tryRecoverRedisCommandAvailability();
@@ -83,6 +90,11 @@ private:
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
     bool publishRedisPresenceEvent(const QString& userId, const QString& action) const;
+    bool publishRedisServerGroupSnapshotRefresh(const QStringList& userIds,
+                                                const QString& groupId,
+                                                const QString& notice,
+                                                const QString& memberId = QString(),
+                                                const QString& memberAction = QString()) const;
     void refreshConnectedClientViews();
     bool isRedisUserOnline(const QString& userId, bool* online = nullptr) const;
     bool canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const;
@@ -93,11 +105,12 @@ private:
     bool publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const;
     bool publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const;
     void handleRedisMessageEvent(const QByteArray& payload);
+    void handleRedisServerGroupSnapshotRefresh(const QJsonObject& event);
     void handleRedisE2EControlEvent(const QJsonObject& event);
     void handleRedisLargeFileOffer(const QJsonObject& event);
     void handleRedisLargeFileDelivered(const QJsonObject& event);
     void handleRedisLargeFileFailed(const QJsonObject& event);
-    bool deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket);
+    bool deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket, bool publishDeliveredReceipt = true);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -109,6 +122,7 @@ private:
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;
     bool isServerGroupMember(const QString& groupId, const QString& userId) const;
+    bool isServerGroupRemovedMember(const QString& groupId, const QString& userId) const;
     QStringList serverGroupMemberIds(const QString& groupId) const;
     bool recordServerGroupAuditEvent(const QString& groupId,
                                      const QString& action,
@@ -125,6 +139,11 @@ private:
                                  const QString& queryAccount,
                                  const QString& eventState,
                                  bool accepted = false) const;
+    bool saveAcceptedFriendshipToSqlite(const QString& userId,
+                                        const QString& userName,
+                                        const QString& friendId,
+                                        const QString& friendName) const;
+    QVector<ChatUser> loadFriendListFromSqlite(const QString& userId) const;
     QString generateAccountId(const QJsonObject& accounts) const;
     QString accountDbPath() const;
     QJsonObject loadAccounts() const;
@@ -137,6 +156,8 @@ private:
     qint64 offlineAttachmentUsedBytes() const;
     bool hasOfflineAttachmentCapacity(qint64 incomingBytes) const;
     bool shouldPublishLargeFileOffer(const Message& msg) const;
+    bool shouldPublishServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const;
+    bool publishRedisServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const;
     QString objectStoreType() const;
     QString objectStoreRootDir() const;
     std::unique_ptr<ObjectStore> createConfiguredObjectStore(QString* error = nullptr) const;
@@ -175,8 +196,7 @@ private:
     };
 
     QTcpServer* m_tcpServer;
-    RedisClient* m_redisClient;
-    RedisSubscriber* m_redisSubscriber;
+    QQNTRedisService* m_redisService;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
     HeartbeatMonitor* m_heartbeatMonitor;
@@ -185,8 +205,6 @@ private:
     QString m_instanceId;
     bool m_serviceReady = false;
     QString m_serviceReadinessReason;
-    bool m_redisCommandReady = false;
-    bool m_redisSubscriberReady = false;
     bool m_stopping = false;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket

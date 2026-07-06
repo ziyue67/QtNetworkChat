@@ -11,6 +11,24 @@ function Assert-Contains([string]$Text, [string]$Needle) {
     }
 }
 
+function Assert-NotContains([string]$Text, [string]$Needle) {
+    if ($Text.Contains($Needle)) {
+        throw "Unexpected README IA text: $Needle"
+    }
+}
+
+function Assert-Equals([object]$Actual, [object]$Expected, [string]$Label) {
+    if ($Actual -ne $Expected) {
+        throw ("Unexpected {0}: expected '{1}', got '{2}'" -f $Label, $Expected, $Actual)
+    }
+}
+
+function Assert-ArrayContains([object[]]$Values, [string]$Expected, [string]$Label) {
+    if ($Values -notcontains $Expected) {
+        throw ("Missing expected {0}: {1}" -f $Label, $Expected)
+    }
+}
+
 function Assert-File([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Missing documentation file: $Path"
@@ -25,7 +43,7 @@ function Read-Utf8Lines([string]$Path) {
     return [System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8)
 }
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $resolvedReadmePath = if ([System.IO.Path]::IsPathRooted($ReadmePath)) {
     $ReadmePath
 } else {
@@ -38,8 +56,16 @@ $resolvedDocsDir = if ([System.IO.Path]::IsPathRooted($DocsDir)) {
 }
 $readme = Read-Utf8Text $resolvedReadmePath
 $docsRoot = $resolvedDocsDir
+$packagePath = Join-Path $repoRoot "tauri-qqnt/package.json"
+$tauriConfigPath = Join-Path $repoRoot "tauri-qqnt/src-tauri/tauri.conf.json"
+$implementationPlanPath = Join-Path $docsRoot "qqnt-implementation-plan.md"
+$branchPlanPath = Join-Path $docsRoot "qqnt-concurrent-branches-plan.md"
+$coveragePath = Join-Path $docsRoot "testing-coverage.md"
 
 $requiredDocs = @(
+    "qqnt-implementation-plan.md",
+    "qqnt-concurrent-branches-plan.md",
+    "qqnt-ipcv1.md",
     "testing-coverage.md",
     "postgresql-operations.md",
     "large-file-governance.md",
@@ -52,12 +78,116 @@ foreach ($doc in $requiredDocs) {
     Assert-Contains $readme ("docs/$doc")
 }
 
+Assert-File $packagePath
+Assert-File $tauriConfigPath
+Assert-File $implementationPlanPath
+Assert-File $branchPlanPath
+Assert-File $coveragePath
+
 Assert-Contains $readme "docs/automation-status.md"
+Assert-Contains $readme "docs/qqnt-implementation-plan.md"
+Assert-Contains $readme "docs/qqnt-concurrent-branches-plan.md"
+Assert-Contains $readme "docs/qqnt-ipcv1.md"
 Assert-Contains $readme "docs/testing-coverage.md"
 Assert-Contains $readme "docs/postgresql-operations.md"
 Assert-Contains $readme "docs/large-file-governance.md"
 Assert-Contains $readme "docs/e2e-hardening-status.md"
 Assert-Contains $readme "docs/release-closeout.md"
+
+Assert-Contains $readme "cmake --build build-qt6-mingw --target QQNTEngine QQNTServer"
+Assert-Contains $readme "QQNTEngineSmoke|QQNTEngineEndToEnd|QQNTProtocolDrift|QQNTServerRedis|RedisServerReadiness|RedisStartupRequirement"
+Assert-Contains $readme "cd tauri-qqnt/src-tauri"
+Assert-Contains $readme "cargo fmt --check"
+Assert-Contains $readme "cargo test"
+Assert-Contains $readme "cd tauri-qqnt"
+Assert-Contains $readme "npm run tauri build"
+Assert-Contains $readme 'Backend work happens on `codex/qqnt-backend`'
+Assert-Contains $readme 'Frontend work happens on `codex/qqnt-frontend`'
+Assert-Contains $readme "tauri-qqnt/src-tauri/"
+Assert-Contains $readme "tauri-qqnt/src/"
+
+$package = Read-Utf8Text $packagePath | ConvertFrom-Json
+$tauriConfig = Read-Utf8Text $tauriConfigPath | ConvertFrom-Json
+
+Assert-Equals $package.scripts.build "tsc && vite build" "package build script"
+Assert-Equals $package.scripts.tauri "tauri" "package tauri script"
+Assert-Contains $readme ("npm run {0} build" -f $package.scripts.tauri)
+
+Assert-Equals $tauriConfig.build.beforeBuildCommand "npm run build" "Tauri beforeBuildCommand"
+Assert-Equals $tauriConfig.build.frontendDist "../dist" "Tauri frontendDist"
+Assert-Equals $tauriConfig.bundle.active $true "Tauri bundle.active"
+Assert-ArrayContains @($tauriConfig.bundle.targets) "nsis" "Tauri bundle target"
+Assert-ArrayContains @($tauriConfig.bundle.resources) "binaries/*.dll" "Tauri bundle resources"
+Assert-ArrayContains @($tauriConfig.bundle.resources) "binaries/**/*.dll" "Tauri bundle resources"
+Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTEngine" "Tauri externalBin"
+Assert-ArrayContains @($tauriConfig.bundle.externalBin) "binaries/QQNTServer" "Tauri externalBin"
+
+$branchPlan = Read-Utf8Text $branchPlanPath
+$implementationPlan = Read-Utf8Text $implementationPlanPath
+$ipcContractPath = Join-Path $docsRoot "qqnt-ipcv1.md"
+$ipcContract = Read-Utf8Text $ipcContractPath
+
+Assert-Contains $implementationPlan 'cmake -S . -B build-qt6-mingw'
+Assert-Contains $implementationPlan 'cmake --build build-qt6-mingw --target QQNTEngine QQNTServer'
+Assert-Contains $implementationPlan '.\scripts\copy-sidecars.ps1 -BuildDir build-qt6-mingw'
+Assert-Contains $implementationPlan 'Qt6Core.dll'
+Assert-Contains $implementationPlan 'sqldrivers/qsqlite.dll'
+Assert-Contains $implementationPlan 'binaries/**/*.dll'
+Assert-Contains $implementationPlan 'ctest --test-dir build-qt6-mingw --output-on-failure'
+Assert-Contains $implementationPlan 'tauri_qqnt_lib::run()'
+Assert-Contains $implementationPlan '`ServerState`'
+Assert-Contains $implementationPlan 'app.shell().sidecar("binaries/QQNTEngine")'
+Assert-Contains $implementationPlan 'app.shell().sidecar("binaries/...")'
+Assert-NotContains $implementationPlan 'cmake -S . -B build -DCMAKE_PREFIX_PATH'
+Assert-NotContains $implementationPlan 'cmake --build build --target QQNTEngine QQNTServer'
+Assert-NotContains $implementationPlan 'ctest --test-dir build --output-on-failure'
+Assert-NotContains $implementationPlan 'Copy-Item -Path "build/QQNTEngine.exe"'
+Assert-NotContains $implementationPlan 'Copy-Item -Path "build/QQNTServer.exe"'
+Assert-NotContains $implementationPlan 'tauri::api::process::Command::new_sidecar'
+Assert-NotContains $implementationPlan 'Command::new_sidecar("QQNTEngine")'
+
+Assert-Contains $branchPlan "| B14 |"
+Assert-Contains $branchPlan 'cmake --build build-qt6-mingw --target QQNTEngine QQNTServer'
+Assert-Contains $branchPlan 'ctest --test-dir build-qt6-mingw --output-on-failure'
+Assert-Contains $branchPlan 'tauri-qqnt/src-tauri/tauri.conf.json'
+Assert-Contains $branchPlan 'externalBin: ["binaries/QQNTEngine", "binaries/QQNTServer"]'
+Assert-Contains $branchPlan 'tauri_qqnt_lib::run()'
+Assert-Contains $branchPlan 'shell/opener plugin'
+Assert-Contains $branchPlan 'sidecar'
+Assert-Contains $branchPlan 'tauri-qqnt/src-tauri/binaries/'
+Assert-Contains $branchPlan 'Qt sidecar runtime'
+Assert-Contains $branchPlan 'npm run tauri build'
+Assert-Contains $branchPlan "| BM6 | B14 |"
+Assert-Contains $branchPlan '`codex/qqnt-backend`'
+Assert-Contains $branchPlan '`codex/qqnt-frontend`'
+Assert-Contains $branchPlan "tauri-qqnt/src-tauri/"
+Assert-Contains $branchPlan "tauri-qqnt/src/"
+Assert-NotContains $branchPlan '`tauri-qqnt/tauri.conf.json`'
+Assert-NotContains $branchPlan 'cmake --build build --target QQNTEngine QQNTServer'
+Assert-NotContains $branchPlan 'ctest --test-dir build --output-on-failure'
+Assert-NotContains $branchPlan 'externalBin: ["QQNTEngine", "QQNTServer"]'
+Assert-NotContains $branchPlan 'shell plugin'
+Assert-NotContains $branchPlan 'empty module export'
+Assert-NotContains $branchPlan 'placeholder script'
+
+Assert-Contains $ipcContract "listen('qqnt://engine/error', handler)"
+Assert-Contains $ipcContract "listen('qqnt://server/fatal', handler)"
+Assert-Contains $ipcContract 'code=engine_terminated'
+Assert-Contains $ipcContract 'code=server_terminated'
+Assert-Contains $ipcContract 'details.codeValue'
+Assert-Contains $ipcContract 'details.signal'
+Assert-Contains $ipcContract 'codeValue'
+Assert-Contains $ipcContract 'signal'
+
+$coverage = Read-Utf8Text $coveragePath
+Assert-Contains $coverage "npm run tauri build"
+Assert-Contains $coverage "ReadmeInformationArchitecture"
+Assert-Contains $coverage 'details.targetFields'
+Assert-Contains $coverage "target-validation errors"
+Assert-Contains $coverage "RuntimeArtifactHygiene"
+Assert-Contains $coverage "Phase 8.4 runtime databases"
+Assert-Contains $coverage "Backend validation should stay scoped"
+Assert-Contains $coverage 'Frontend rendering and mock UI behavior belong to `codex/qqnt-frontend`'
 
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
