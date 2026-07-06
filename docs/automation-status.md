@@ -1,6 +1,6 @@
 # Automation Status
 
-Current repository work is in closeout, not feature expansion. The QQNT backend branch keeps the automation surface focused on reproducible local validation, protocol drift checks, Rust bridge tests, packaging manifest checks, and branch-owned backend evidence.
+Current repository work is in closeout, not feature expansion. The QtNetworkChat backend branch keeps the automation surface focused on reproducible local validation, protocol drift checks, QtNetworkChat tests, packaging manifest checks, and branch-owned backend evidence.
 
 E2E production crypto evidence remains the deepest closeout evidence lane for this branch. It is tracked as evidence that must remain explicit, reviewable, and synchronized with release status rather than silently implied by unrelated test success.
 

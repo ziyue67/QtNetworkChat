@@ -61,12 +61,6 @@ received-files/
 transfer-payloads/
 transfer_payloads/
 
-# Tauri generated outputs
-tauri-qqnt/node_modules/
-tauri-qqnt/dist/
-tauri-qqnt/src-tauri/target/
-tauri-qqnt/src-tauri/binaries/*.exe
-tauri-qqnt/src-tauri/gen/schemas/
 
 # OS files
 .DS_Store
@@ -75,3 +69,4 @@ Thumbs.db
 # Local automation / verification artifacts
 automation_status_sample_*/
 automation_status_configured_missing_sample_*/
+

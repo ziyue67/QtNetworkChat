@@ -16,7 +16,8 @@
 
 class QTimer;
 class ObjectStore;
-class QQNTRedisService;
+class RedisClient;
+class RedisSubscriber;
 class HeartbeatMonitor;
 struct LargeFileDeliveredReceiptDecision;
 
@@ -196,7 +197,11 @@ private:
     };
 
     QTcpServer* m_tcpServer;
-    QQNTRedisService* m_redisService;
+    RedisClient* m_redisClient;
+    RedisSubscriber* m_redisSubscriber;
+    bool m_redisCommandAvailable = false;
+    bool m_redisSubscriberAvailable = false;
+    QString m_redisLastError;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
     HeartbeatMonitor* m_heartbeatMonitor;

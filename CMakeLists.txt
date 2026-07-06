@@ -141,10 +141,6 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     include/qtnetworkchat_e2e_provider_api.h
 )
 
-set(QTNETWORKCHAT_REDIS_SERVICE_SOURCES
-    src/qqnt_redis_service.cpp
-    include/qqnt_redis_service.h
-)
 
 set(QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES)
 if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
@@ -169,7 +165,6 @@ add_executable(QtNetworkChat
     src/historyservice.cpp
     src/historymetadata.cpp
     src/server.cpp
-    ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
     src/client.cpp
     src/redisclient.cpp
     src/message.cpp
@@ -213,66 +208,8 @@ add_custom_command(TARGET QtNetworkChat POST_BUILD
     VERBATIM
 )
 
-function(qtnetworkchat_copy_sidecar target_name)
-    add_custom_command(TARGET ${target_name} POST_BUILD
-        COMMAND powershell -ExecutionPolicy Bypass -File
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/copy-sidecars.ps1
-            -BuildDir $<TARGET_FILE_DIR:${target_name}>
-            -QtBinDir $<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -Sidecars ${target_name}
-        COMMENT "Copying ${target_name} sidecar into Tauri binaries"
-        VERBATIM
-    )
-endfunction()
 
-set(QTNETWORKCHAT_ENGINE_SOURCES
-    tools/qqnt_engine.cpp
-    src/qqnt_client_bridge.cpp
-    src/qqnt_engine_command_router.cpp
-    src/client.cpp
-    src/message.cpp
-    src/objectstore.cpp
-    ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
-    include/qqnt_client_bridge.h
-    include/qqnt_engine_command_router.h
-    include/client.h
-    include/message.h
-    include/objectstore.h
-    include/chatuser.h
-)
 
-add_executable(QQNTEngine ${QTNETWORKCHAT_ENGINE_SOURCES})
-target_include_directories(QQNTEngine PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
-target_link_libraries(QQNTEngine PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
-qtnetworkchat_attach_production_adapter(QQNTEngine)
-qtnetworkchat_copy_sidecar(QQNTEngine)
-
-set(QTNETWORKCHAT_SERVER_SOURCES
-    tools/qqnt_server.cpp
-    src/server.cpp
-    ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-    src/redisclient.cpp
-    src/message.cpp
-    src/objectstore.cpp
-    src/heartbeatmonitor.cpp
-    src/e2eenvelope.cpp
-    include/server.h
-    include/redisclient.h
-    include/message.h
-    include/objectstore.h
-    include/heartbeatmonitor.h
-    include/e2eenvelope.h
-    include/chatuser.h
-    include/qtnetworkchat_e2e_provider_api.h
-)
-
-add_executable(QQNTServer ${QTNETWORKCHAT_SERVER_SOURCES} ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES})
-target_include_directories(QQNTServer PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
-target_link_libraries(QQNTServer PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
-if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
-    target_link_libraries(QQNTServer PRIVATE OpenSSL::Crypto)
-endif()
-qtnetworkchat_copy_sidecar(QQNTServer)
 
 add_executable(sqlite_to_postgres_migrator
     tools/sqlite_to_postgres_migrator.cpp
@@ -331,18 +268,6 @@ if(BUILD_TESTING)
         target_link_libraries(e2e_envelope_test PRIVATE OpenSSL::Crypto)
     endif()
 
-    add_executable(qqnt_engine_smoke_test
-        tests/qqnt_engine_smoke_test.cpp
-    )
-    qtnetworkchat_target_include_dirs(qqnt_engine_smoke_test)
-    target_link_libraries(qqnt_engine_smoke_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
-    add_dependencies(qqnt_engine_smoke_test QQNTEngine)
-
-    add_executable(qqnt_protocol_drift_test
-        tests/qqnt_protocol_drift_test.cpp
-    )
-    qtnetworkchat_target_include_dirs(qqnt_protocol_drift_test)
-    target_link_libraries(qqnt_protocol_drift_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(e2e_production_adapter_runtime_test
         tests/e2e_production_adapter_runtime_test.cpp
@@ -360,8 +285,7 @@ if(BUILD_TESTING)
         tests/e2e_private_message_delivery_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -411,8 +335,7 @@ if(BUILD_TESTING)
         tests/server_group_member_update_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -434,8 +357,7 @@ if(BUILD_TESTING)
         tests/server_friend_persistence_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -457,8 +379,7 @@ if(BUILD_TESTING)
         tests/account_password_kdf_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -598,8 +519,7 @@ if(BUILD_TESTING)
         tests/file_transfer_cancel_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -621,8 +541,7 @@ if(BUILD_TESTING)
         tests/public_image_transfer_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -644,8 +563,7 @@ if(BUILD_TESTING)
         tests/file_chunk_duplicate_ack_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -682,8 +600,7 @@ if(BUILD_TESTING)
         tests/offline_attachment_quota_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -720,8 +637,7 @@ if(BUILD_TESTING)
     add_executable(redis_startup_requirement_test
         tests/redis_startup_requirement_test.cpp
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -743,8 +659,7 @@ if(BUILD_TESTING)
         tests/database_health_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -765,8 +680,7 @@ if(BUILD_TESTING)
     add_executable(postgres_qpsql_protocol_smoke_test
         tests/postgres_qpsql_protocol_smoke_test.cpp
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -795,8 +709,7 @@ if(BUILD_TESTING)
     add_executable(redis_server_readiness_test
         tests/redis_server_readiness_test.cpp
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/redisclient.cpp
+            src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
         src/objectstore.cpp
@@ -812,58 +725,10 @@ if(BUILD_TESTING)
     target_link_libraries(redis_server_readiness_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
     qtnetworkchat_attach_production_adapter(redis_server_readiness_test)
 
-    add_executable(qqnt_server_redis_test
-        tests/qqnt_server_redis_test.cpp
-        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
-        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
-        src/redisclient.cpp
-        src/message.cpp
-        src/objectstore.cpp
-        src/heartbeatmonitor.cpp
-        include/server.h
-        include/client.h
-        include/redisclient.h
-        include/message.h
-        include/objectstore.h
-        include/chatuser.h
-        include/heartbeatmonitor.h
-    )
-    qtnetworkchat_target_include_dirs(qqnt_server_redis_test)
-    target_link_libraries(qqnt_server_redis_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
-    qtnetworkchat_attach_production_adapter(qqnt_server_redis_test)
-
-    add_executable(qqnt_engine_end_to_end_test
-        tests/qqnt_engine_end_to_end_test.cpp
-        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
-        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
-        src/redisclient.cpp
-        src/message.cpp
-        src/objectstore.cpp
-        src/heartbeatmonitor.cpp
-        include/server.h
-        include/client.h
-        include/redisclient.h
-        include/message.h
-        include/objectstore.h
-        include/chatuser.h
-        include/heartbeatmonitor.h
-    )
-    qtnetworkchat_target_include_dirs(qqnt_engine_end_to_end_test)
-    target_link_libraries(qqnt_engine_end_to_end_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
-    qtnetworkchat_attach_production_adapter(qqnt_engine_end_to_end_test)
-    add_dependencies(qqnt_engine_end_to_end_test QQNTEngine)
-
     add_executable(redis_cross_instance_chat_test
         tests/redis_cross_instance_chat_test.cpp
         src/server.cpp
-        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
-        src/client.cpp
+            src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
@@ -906,30 +771,6 @@ if(BUILD_TESTING)
         NAME E2EEnvelopeProtocol
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:e2e_envelope_test>
-            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
-    )
-    add_test(
-        NAME QQNTEngineSmoke
-        COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:qqnt_engine_smoke_test>
-            "-DTEST_ARGS=$<TARGET_FILE:QQNTEngine>;${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/protocol_contract.json"
-            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
-    )
-    add_test(
-        NAME QQNTEngineEndToEnd
-        COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:qqnt_engine_end_to_end_test>
-            "-DTEST_ARGS=$<TARGET_FILE:QQNTEngine>"
-            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
-    )
-    add_test(
-        NAME QQNTProtocolDrift
-        COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:qqnt_protocol_drift_test>
-            "-DTEST_ARGS=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ready.json;${CMAKE_CURRENT_SOURCE_DIR}/docs/qqnt-ipcv1.md;${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/protocol_contract.json;${CMAKE_CURRENT_SOURCE_DIR}/src/qqnt_engine_command_router.cpp;${CMAKE_CURRENT_SOURCE_DIR}/src/qqnt_client_bridge.cpp;${CMAKE_CURRENT_SOURCE_DIR}/tauri-qqnt/src-tauri/src/commands.rs;${CMAKE_CURRENT_SOURCE_DIR}/docs/qqnt-implementation-plan.md"
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
@@ -1269,13 +1110,6 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     add_test(
-        NAME QQNTServerRedis
-        COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:qqnt_server_redis_test>
-            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
-    )
-    add_test(
         NAME RedisCrossInstanceChatRouting
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:redis_cross_instance_chat_test>
@@ -1433,12 +1267,6 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-local-infra.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_infra_config.cmake
-    )
-    add_test(
-        NAME RuntimeArtifactHygiene
-        COMMAND powershell -ExecutionPolicy Bypass -File
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-runtime-artifact-hygiene.ps1
-            -RepoRoot ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(
         NAME AutomationStatus
