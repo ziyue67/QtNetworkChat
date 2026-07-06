@@ -404,11 +404,9 @@ int main(int argc, char** argv) {
 
     const QString friendDialogStyle = NotificationPanelManager::friendNoticeDialogStyleSheet();
     const QString groupDialogStyle = NotificationPanelManager::groupNoticeDialogStyleSheet();
-    ok = expect(friendDialogStyle.contains(QStringLiteral("QDialog#noticeDialog"))
-                    && friendDialogStyle.contains(QStringLiteral("QPushButton#noticeDangerBtn"))
-                    && groupDialogStyle.contains(QStringLiteral("QLabel#noticeHint"))
-                    && groupDialogStyle.contains(QStringLiteral("QListWidget#noticeList::item:selected")),
-                "notice dialog styles should be centralized in notification panel manager") && ok;
+    ok = expect(friendDialogStyle.isEmpty()
+                    && groupDialogStyle.isEmpty(),
+                "notice dialog styles are now defined in ui/style.qss") && ok;
 
     const QString batchPlanText = NotificationPanelManager::groupNoticeBatchPlanText(
         QString::fromUtf8("项目"),

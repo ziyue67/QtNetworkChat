@@ -161,6 +161,8 @@ endfunction()
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
+    src/chatbubbledelegate.cpp
+    src/iconhelper.cpp
     src/transferchatitemrenderer.cpp
     src/notificationpanelmanager.cpp
     src/clientstorage.cpp
@@ -177,6 +179,8 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
+    include/chatbubbledelegate.h
+    include/iconhelper.h
     include/transferchatitemrenderer.h
     include/notificationpanelmanager.h
     include/clientstorage.h

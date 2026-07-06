@@ -12,6 +12,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     src/main.cpp \
     src/mainwindow.cpp \
+    src/chatbubbledelegate.cpp \
     src/logincredentialstore.cpp \
     src/historyservice.cpp \
     src/historymetadata.cpp \
@@ -39,6 +40,7 @@ SOURCES += \
 
 HEADERS += \
     include/mainwindow.h \
+    include/chatbubbledelegate.h \
     include/logincredentialstore.h \
     include/historyservice.h \
     include/historymetadata.h \

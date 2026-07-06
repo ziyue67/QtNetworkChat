@@ -270,6 +270,8 @@ private:
     bool handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     void insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
+    void updateEmptyStateVisibility();
+    void setSendButtonSending(bool sending);
     ChatContextComposerState currentChatContextComposerState() const;
     bool applyChatContextComposerCommand(const QString& commandId);
     QAction* addChatContextAction(QMenu& menu,
