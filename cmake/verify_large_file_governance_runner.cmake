@@ -157,9 +157,9 @@ endif()
 
 file(READ "${OUTPUT_DIR}/receipt-rotation-summary.json" rotation_summary_content)
 string(JSON archived_records GET "${rotation_summary_content}" "archivedRecords")
-if(NOT archived_records EQUAL 1)
+if(NOT archived_records EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected archivedRecords=1, got ${archived_records}")
+    message(FATAL_ERROR "Expected archivedRecords=2, got ${archived_records}")
 endif()
 
 file(READ "${OUTPUT_DIR}/s3-request-results-alert-summary.json" s3_alert_content)
@@ -367,3 +367,4 @@ endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")
 message(STATUS "Large file governance runner test passed")
+

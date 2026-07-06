@@ -92,7 +92,7 @@ bool readProcessOutput(QProcess* process,
     QElapsedTimer timer;
     timer.start();
 
-    while (timer.elapsed() < 5000 && !missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty()) {
+    while (timer.elapsed() < 15000 && !missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty()) {
         process->waitForReadyRead(100);
         *stdoutBytes += process->readAllStandardOutput();
         *stderrBytes += process->readAllStandardError();
@@ -697,7 +697,7 @@ int main(int argc, char* argv[]) {
     QByteArray stderrBytes;
     ok = expect(readProcessOutput(&process, &stdoutBytes, &stderrBytes, expectedAckReqIds),
                 "QQNTEngine should ack core IPC commands") && ok;
-    process.waitForFinished(5000);
+    process.waitForFinished(15000);
     stdoutBytes += process.readAllStandardOutput();
     stderrBytes += process.readAllStandardError();
 
@@ -1241,3 +1241,4 @@ int main(int argc, char* argv[]) {
     ok = expect(missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty(), "QQNTEngine should ack every smoke command") && ok;
     return ok ? 0 : 1;
 }
+

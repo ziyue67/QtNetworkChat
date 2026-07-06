@@ -225,7 +225,7 @@ int main(int argc, char* argv[]) {
 {
   "op": "send_private_message",
   "reqId": "uuid",
-  "payload": { "receiverId": "10001", "content": "hello" }
+  "payload": { "receiverId": "10001", "content": "hello", "clientMessageId": "uuid" }
 }
 ```
 
@@ -266,8 +266,8 @@ int main(int argc, char* argv[]) {
 | `search_friend` | `{account}` | 搜 QQ 号 |
 | `send_friend_request` | `{receiverId}` | 加好友 |
 | `respond_friend_request` | `{senderId, accepted}` | 接受/拒绝 |
-| `send_private_message` | `{receiverId, content}` | 私聊 |
-| `send_group_message` | `{groupId, content}` | 群聊 |
+| `send_private_message` | `{receiverId, content, clientMessageId?}` | 私聊 |
+| `send_group_message` | `{groupId, content, clientMessageId?}` | 群聊 |
 | `create_group` | `{groupName, members?: string[]/memberRef[], announcement?}` | 建私有群；`members` 可为初始成员账号或成员对象数组，成员对象可使用 `account`/`id`/`userId`/`memberId` |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
 | `update_group_member` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 成员管理；`action` 必须精确匹配小写枚举值 |
@@ -586,7 +586,7 @@ export async function sendPrivateMessage(receiverId: string, content: string) {
     payload: {
       op: 'send_private_message',
       reqId: crypto.randomUUID(),
-      payload: { receiverId, content }
+      payload: { receiverId, content, clientMessageId: crypto.randomUUID() }
     }
   });
 }
