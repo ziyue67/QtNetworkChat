@@ -16,6 +16,182 @@ QWidget {
 }
 
 /* --------------------------------------------------------------------------
+   1.1 QQ-style startup / login windows
+   -------------------------------------------------------------------------- */
+QDialog#modeDialog,
+QDialog#qqLoginDialog {
+    background-color: #edf7ff;
+    border: none;
+}
+
+QFrame#modeCard,
+QFrame#qqFormCard {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #e7f6ff,
+                                      stop:0.48 #fbfdff,
+                                      stop:1 #f1f5ff);
+    border: none;
+}
+
+QFrame#qqHeader {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                      stop:0 #dff4ff,
+                                      stop:0.55 #eef9ff,
+                                      stop:1 #f3efff);
+    border: none;
+}
+
+QLabel#logoLabel,
+QLabel#brandLabel {
+    color: #1296db;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+
+QLabel#qqTitle,
+QLabel#accountNameLabel {
+    color: #1f2329;
+    font-size: 15px;
+    font-weight: 700;
+    padding-top: 8px;
+}
+
+QLabel#avatarLabel,
+QLabel#qqAvatar {
+    background-color: #ffffff;
+    color: #1296db;
+    border: 4px solid #ffffff;
+    border-radius: 46px;
+    font-size: 28px;
+    font-weight: 900;
+}
+
+QLabel#serviceBadgeLabel {
+    color: #1296db;
+    background-color: rgba(18, 150, 219, 22);
+    border: 1px solid rgba(18, 150, 219, 55);
+    border-radius: 11px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    margin-top: 6px;
+}
+
+QLabel#modeStatusLabel,
+QLabel#formFeedbackLabel {
+    color: #5f6672;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 17px;
+    padding: 8px 4px;
+}
+
+QPushButton#topIconBtn,
+QPushButton#windowCloseBtn {
+    background-color: rgba(255, 255, 255, 170);
+    border: 1px solid rgba(18, 150, 219, 38);
+    border-radius: 7px;
+    color: #1f2329;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+QPushButton#topIconBtn:hover,
+QPushButton#windowCloseBtn:hover {
+    background-color: #ffffff;
+    border-color: #1296db;
+    color: #1296db;
+}
+
+QPushButton#topIconBtn:pressed,
+QPushButton#windowCloseBtn:pressed {
+    background-color: #dff4ff;
+}
+
+QLineEdit#qqInput {
+    min-height: 42px;
+    background-color: #ffffff;
+    color: #1f2329;
+    border: 1px solid rgba(18, 150, 219, 38);
+    border-radius: 18px;
+    padding: 0 16px;
+    selection-background-color: #1296db;
+}
+
+QLineEdit#qqInput:focus {
+    border: 2px solid #1296db;
+    background-color: #ffffff;
+}
+
+QLineEdit#qqInput::placeholder {
+    color: #a7b0bd;
+}
+
+QCheckBox#agreementCheck,
+QCheckBox {
+    color: #5f6672;
+    spacing: 7px;
+    font-size: 12px;
+}
+
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 8px;
+    border: 1px solid #c9d3df;
+    background-color: #ffffff;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #1296db;
+    border-color: #1296db;
+}
+
+QPushButton#primaryBtn {
+    min-height: 42px;
+    background-color: #1296db;
+    color: #ffffff;
+    border: none;
+    border-radius: 17px;
+    font-size: 15px;
+    font-weight: 800;
+    padding: 0 18px;
+}
+
+QPushButton#primaryBtn:hover {
+    background-color: #1089c8;
+}
+
+QPushButton#primaryBtn:pressed {
+    background-color: #0d76ad;
+}
+
+QPushButton#primaryBtn:disabled {
+    background-color: #aee0ff;
+    color: rgba(255, 255, 255, 210);
+}
+
+QPushButton#linkBtn {
+    background-color: transparent;
+    border: none;
+    color: #1296db;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 5px;
+}
+
+QPushButton#linkBtn:hover {
+    color: #1089c8;
+    text-decoration: underline;
+}
+
+QLabel#splitLabel {
+    color: #c4ccd6;
+    padding: 0 2px;
+}
+
+/* --------------------------------------------------------------------------
    2. Main window
    -------------------------------------------------------------------------- */
 QMainWindow,

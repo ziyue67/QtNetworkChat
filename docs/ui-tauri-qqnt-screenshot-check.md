@@ -78,3 +78,12 @@ Qt 仓库：`D:\C++VS pro\QtNetworkChat`
 1. Qt 独立“收藏消息”页面。
 2. Qt 独立“精华消息”抽屉/弹窗。
 3. 真机运行态图片消息截图，而不是 harness 渲染。
+
+## 真实 exe 启动页修复验证
+
+用户反馈真实运行 `D:\C++VS pro\QtNetworkChat\bin\QtNetworkChat.exe` 时仍是原生灰色 Qt 控件。已修复：
+
+- `src/main.cpp` 启动时给 `QApplication` 全局加载 `ui/style.qss`。
+- `ui/style.qss` 补齐 `modeDialog`、`qqLoginDialog`、`modeCard`、`primaryBtn`、`linkBtn` 等启动/登录窗口样式。
+- `QtNetworkChat.pro` / `CMakeLists.txt` 构建后自动复制最新 `ui/style.qss` 到运行目录 `bin\ui\style.qss`，避免旧 QSS 残留。
+- 已用真实 exe 截图验证：`D:\C++VS pro\QtNetworkChat\docs\screenshots\qt-real-startup.png`。

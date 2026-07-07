@@ -26,6 +26,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTcpSocket>
+#include <QCoreApplication>
 
 namespace {
 bool envEnabled(const char* name) {
@@ -115,6 +116,43 @@ void maybeWriteDatabaseHealthSnapshot(const Server* server) {
     file.write(QJsonDocument(snapshot).toJson(QJsonDocument::Indented));
     file.close();
     qInfo() << "Database health snapshot written:" << outputPath << snapshot.value("status").toString();
+}
+
+QString applicationStyleSheetPath() {
+    const QString overridePath = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_STYLE_PATH")).trimmed();
+    if (!overridePath.isEmpty() && QFileInfo::exists(overridePath)) {
+        return overridePath;
+    }
+
+    const QString appDirPath = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        QDir(appDirPath).filePath(QStringLiteral("ui/style.qss")),
+        QDir(QDir::currentPath()).filePath(QStringLiteral("ui/style.qss")),
+        QDir(appDirPath).filePath(QStringLiteral("../ui/style.qss")),
+        QDir(appDirPath).filePath(QStringLiteral("../../ui/style.qss"))
+    };
+    for (const QString& candidate : candidates) {
+        const QString clean = QDir::cleanPath(candidate);
+        if (QFileInfo::exists(clean)) {
+            return clean;
+        }
+    }
+    return QString();
+}
+
+void applyApplicationStyleSheet(QApplication& app) {
+    const QString path = applicationStyleSheetPath();
+    if (path.isEmpty()) {
+        qWarning() << "QtNetworkChat style.qss not found; using fallback widget style";
+        return;
+    }
+
+    QFile styleFile(path);
+    if (!styleFile.open(QFile::ReadOnly | QFile::Text)) {
+        qWarning() << "Failed to open QtNetworkChat style.qss:" << path << styleFile.errorString();
+        return;
+    }
+    app.setStyleSheet(QString::fromUtf8(styleFile.readAll()));
 }
 }
 
@@ -470,6 +508,7 @@ int main(int argc, char *argv[])
     a.setApplicationName("QtNetworkChat");
     a.setApplicationVersion("1.0.0");
     a.setStyle(QStyleFactory::create("Fusion"));
+    applyApplicationStyleSheet(a);
 
     QString userName, host;
     quint16 port = 8888;
