@@ -13,7 +13,6 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QSet>
 #include "client.h"
 #include "chatuser.h"
 #include "clientstorage.h"
@@ -35,8 +34,6 @@ class QLabel;
 class QListWidget;
 class QLineEdit;
 class QIcon;
-class QPushButton;
-class QButtonGroup;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -89,7 +86,6 @@ private slots:
     void onResumeSavedOutgoingTransfer();
     void onClearSavedOutgoingTransfer();
     void onFileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
-    void on_actionTheme_triggered();
 
 signals:
     void logoutRequested();
@@ -113,8 +109,6 @@ private:
 
     void setupUi();
     void setupTray();
-    void setupNavPanel();
-    void updateNavActiveState(QPushButton* activeNav);
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
     void setTransferWorkspaceState(const TransferWorkspaceCardState& state);
@@ -288,24 +282,8 @@ private:
     bool handleChatContextCommand(const QString& commandId,
                                   const QString& chatText,
                                   const LocalSavedFileState& savedFileState);
-    QString currentServerGroupId() const;
-    QString currentFavoriteSessionId() const;
-    QString chatMessageIdForIndex(const QModelIndex& index) const;
-    QJsonObject chatMessagePayloadForFavorite(const QModelIndex& index,
-                                              const QString& messageId) const;
-    void applyRecalledChatMessage(const QString& messageId,
-                                  const QString& groupId,
-                                  const QString& operatorId);
-    void handleServerGroupEssenceUpdated(const QJsonObject& payload);
-    void handleMessageFavoriteUpdated(const QJsonObject& payload);
-    void handleFavoriteMessagesSnapshotReceived(const QJsonArray& favorites);
-    void handleServerGroupMessageRecalled(const QJsonObject& payload);
-    void handleServerGroupMemberMuted(const QJsonObject& payload);
-    void handleServerGroupMemberUnmuted(const QJsonObject& payload);
-    void handleServerGroupMemberProfileReceived(const QJsonObject& payload);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
-    void updateFriendNoticeBadge();
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
@@ -324,8 +302,6 @@ private:
     void saveLocalGroups() const;
     void updateUnreadState();
     void clearUnreadState();
-    void saveTheme() const;
-    void loadTheme();
     bool eventFilter(QObject* watched, QEvent* event) override;
     void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
@@ -356,12 +332,8 @@ private:
     QMap<QString, QStringList> m_serverGroupMembers;
     QMap<QString, QString> m_serverGroupMemberNames;
     QMap<QString, QString> m_serverGroupMemberRoles;
-    QMap<QString, qint64> m_serverGroupMemberMutedUntil;
     QMap<QString, QJsonArray> m_serverGroupAuditEvents;
     QMap<QString, QJsonObject> m_removedServerGroups;
-    QSet<QString> m_favoriteMessageKeys;
-    QSet<QString> m_serverGroupEssenceMessageKeys;
-    QSet<QString> m_serverGroupRecalledMessageKeys;
     bool m_hasServerGroupSnapshot;
     bool m_wasInPublicServerGroup;
     QMap<QString, ChatUser> m_knownUsers;
@@ -375,7 +347,6 @@ private:
     QString m_lastTransferStatusDiagnostic;
     int m_unreadCount;
     bool m_isQuitting;
-    QButtonGroup* m_navGroup;
 
     static constexpr int MAX_HISTORY_LINES = 500;
     static constexpr quint16 DEFAULT_PORT = 8888;

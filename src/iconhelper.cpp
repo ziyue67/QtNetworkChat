@@ -25,17 +25,6 @@ QString IconHelper::iconFor(const QString &name)
     if (key == "newgroup")    return QStringLiteral("✚");    // ✚  heavy greek cross
     if (key == "groupinfo")   return QStringLiteral("ℹ");    // ℹ  information
     if (key == "mention")     return QStringLiteral("@");
-    if (key == "messages")    return QStringLiteral("💬");
-    if (key == "contacts")    return QStringLiteral("👥");
-    if (key == "space")       return QStringLiteral("🌐");
-    if (key == "channel")     return QStringLiteral("📢");
-    if (key == "mail")        return QStringLiteral("✉");
-    if (key == "docs")        return QStringLiteral("📄");
-    if (key == "calendar")    return QStringLiteral("📅");
-    if (key == "meeting")     return QStringLiteral("📹");
-    if (key == "favorites")   return QStringLiteral("⭐");
-    if (key == "wallet")      return QStringLiteral("💰");
-    if (key == "settings")    return QStringLiteral("⚙");
 
     // fallback — return the key wrapped in brackets so it is still visible
     return QStringLiteral("[%1]").arg(name);

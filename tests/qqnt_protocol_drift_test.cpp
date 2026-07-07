@@ -423,6 +423,8 @@ int main(int argc, char* argv[]) {
     const QMap<QString, QString> documentedEventDescriptions =
         extractMarkdownColumnByKey(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("event"), QStringLiteral("说明"));
     const QStringList expectedCommands = jsonStringArray(contractFixture, QStringLiteral("commands"));
+    const QStringList expectedTauriInvokeCommands = jsonStringArray(contractFixture, QStringLiteral("tauriInvokeCommands"));
+    const QStringList expectedLocalBackendCommands = jsonStringArray(contractFixture, QStringLiteral("localBackendCommands"));
     const QStringList expectedEvents = jsonStringArray(contractFixture, QStringLiteral("events"));
     const QMap<QString, QString> expectedCommandPayloads = jsonStringObject(contractFixture, QStringLiteral("commandPayloads"));
     const QMap<QString, QString> expectedAckPayloads = jsonStringObject(contractFixture, QStringLiteral("ackPayloads"));
@@ -435,6 +437,20 @@ int main(int argc, char* argv[]) {
     ok = expect(contractFixture.value(QStringLiteral("protocolVersion")).toInt() == 1,
                 QStringLiteral("protocol contract fixture should pin protocol version 1")) && ok;
     ok = expectUnique(expectedCommands, QStringLiteral("protocol contract commands")) && ok;
+    ok = expect(expectedTauriInvokeCommands.size() == 69,
+                QStringLiteral("protocol contract should cover all 69 tauri invoke backend commands")) && ok;
+    ok = expectUnique(expectedTauriInvokeCommands, QStringLiteral("protocol contract tauri invoke commands")) && ok;
+    ok = expect(expectedLocalBackendCommands.size() == 32,
+                QStringLiteral("protocol contract should cover all Qt local backend commands")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("## 9. Tauri invoke 后端命令完整对照"),
+                        QStringLiteral("protocol doc tauri invoke parity section")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("`clear_session_history`"),
+                        QStringLiteral("protocol doc local action coverage")) && ok;
+    ok = expectContains(markdown,
+                        QStringLiteral("`capture_screenshot`"),
+                        QStringLiteral("protocol doc screenshot backend coverage")) && ok;
     ok = expectUnique(expectedEvents, QStringLiteral("protocol contract events")) && ok;
     ok = expectSameSet(expectedCommandPayloads.keys(), expectedCommands, QStringLiteral("protocol contract command payloads")) && ok;
     ok = expectSameSet(expectedAckPayloads.keys(), expectedCommands, QStringLiteral("protocol contract ack payloads")) && ok;

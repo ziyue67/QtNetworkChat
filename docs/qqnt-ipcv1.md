@@ -396,3 +396,78 @@
 - Engine/Server 进程终止或 Redis 未就绪等宿主级错误，由 Qt 客户端或测试进程按 `{code, message, source, details?}` 结构记录和展示。
 - 后端新增字段必须保持向后兼容；删除或改名必须升级 `protocolVersion`。
 
+## 9. Tauri invoke 后端命令完整对照
+
+QtNetworkChat 的 Qt 后端除了第 5 节 36 个 `QQNTCommandOp` engine/network 命令，还必须覆盖 tauri-qqnt `src-tauri/src/lib.rs` 中 `tauri::generate_handler!` 暴露的完整 invoke 后端面。Qt 不迁入 Tauri/React 前端，但后端能力名称和行为按下表保持 parity。
+
+| 类别 | 命令 | Qt 后端实现 |
+|---|---|---|
+| `generic` | `qqnt_command` | QQNTEngine JSON command passthrough |
+| `local backend` | `read_image_base64` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `get_screenshot_monitor_info` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `get_screenshot_virtual_screen_info` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `capture_screenshot` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `capture_screenshot_shared_buffer` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `crop_screenshot` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `release_screenshot_capture` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `set_screenshot_window_exclude_from_capture` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `prepare_screenshot_window` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `hide_main_window` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `restore_main_window` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `save_file_to_directory` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `save_base64_file_to_directory` | QQNTBackendService local action / file / screenshot backend |
+| `engine wrapper` | `engine_ready` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `connect_server` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `login` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `register_account` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `deactivate_account` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `cancel_account_deactivation` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `disconnect_server` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `logout` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `set_user_info` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `get_user_list` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `get_friend_list` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `get_group_list` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `search_friend` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `send_friend_request` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `respond_friend_request` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `send_private_message` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `send_group_message` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `create_group` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `update_group_announcement` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `update_group_member` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `set_group_essence_message` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `set_message_favorite` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `recall_group_message` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `mute_group_member` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `unmute_group_member` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `get_group_member_profile` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `send_file` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `send_image` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `cancel_transfer` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `query_resume` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `e2e_status` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `e2e_announce_identity` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `e2e_pin_identity` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `e2e_request_rotation` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `profile_update` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `engine wrapper` | `settings_sync` | QQNTEngineCommandRouter canonical op / Client / Server |
+| `local backend` | `clear_session_history` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `delete_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `favorite_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `toggle_local_message_favorite` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `add_local_emoji` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `update_local_emoji` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `multi_select_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `toggle_multi_select_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `quote_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `set_essence_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `recall_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `forward_local_message` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `view_local_profile` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `add_local_friend` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `report_local_user` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `block_local_user` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `edit_local_group_nickname` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `get_local_chat_actions` | QQNTBackendService local action / file / screenshot backend |
+| `local backend` | `get_local_favorite_messages` | QQNTBackendService local action / file / screenshot backend |

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1100</width>
-    <height>740</height>
+    <height>750</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -30,680 +30,244 @@
     <property name="bottomMargin">
      <number>0</number>
     </property>
+    
+    <!-- LEFT SIDEBAR -->
     <item>
-     <widget class="QFrame" name="appNavPanel">
+     <widget class="QFrame" name="sidePanel">
       <property name="minimumSize">
        <size>
-        <width>64</width>
+        <width>280</width>
         <height>0</height>
        </size>
       </property>
       <property name="maximumSize">
        <size>
-        <width>64</width>
+        <width>320</width>
         <height>16777215</height>
        </size>
       </property>
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
-      <layout class="QVBoxLayout" name="navLayout">
-       <property name="spacing">
-        <number>8</number>
-       </property>
-       <property name="leftMargin">
-        <number>8</number>
-       </property>
-       <property name="topMargin">
-        <number>14</number>
-       </property>
-       <property name="rightMargin">
-        <number>8</number>
-       </property>
-       <property name="bottomMargin">
-        <number>14</number>
-       </property>
+      <layout class="QVBoxLayout" name="sideLayout">
+       <property name="spacing"><number>16</number></property>
+       <property name="leftMargin"><number>20</number></property>
+       <property name="topMargin"><number>24</number></property>
+       <property name="rightMargin"><number>20</number></property>
+       <property name="bottomMargin"><number>24</number></property>
+       
+       <!-- PROFILE AREA -->
        <item>
-        <widget class="QPushButton" name="navMessages">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>消息</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navContacts">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>联系人</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navSpace">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>空间</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navChannel">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>频道</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navMail">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>邮箱</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navDocs">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>文档</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navCalendar">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>日历</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navMeeting">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>会议</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navFavorites">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>收藏</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navWallet">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>钱包</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <spacer name="navSpacer">
-         <property name="orientation">
-          <enum>Qt::Vertical</enum>
-         </property>
-         <property name="sizeHint" stdset="0">
-          <size>
-           <width>20</width>
-           <height>40</height>
-          </size>
-         </property>
-        </spacer>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navSettings">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>设置</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="navProfile">
-         <property name="checkable">
-          <bool>true</bool>
-         </property>
-         <property name="toolTip">
-          <string>我的资料</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
-    <item>
-     <widget class="QFrame" name="sessionListPanel">
-      <property name="minimumSize">
-       <size>
-        <width>260</width>
-        <height>0</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>260</width>
-        <height>16777215</height>
-       </size>
-      </property>
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
-      <layout class="QVBoxLayout" name="sessionListLayout">
-       <property name="spacing">
-        <number>0</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <item>
-        <widget class="QFrame" name="sessionHeader">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>48</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>48</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
-         <layout class="QHBoxLayout" name="sessionHeaderLayout">
-          <property name="leftMargin">
-           <number>16</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>16</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QLabel" name="sessionHeaderLabel">
-            <property name="text">
-             <string>消息</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="sessionHeaderSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QFrame" name="sessionSearchPanel">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>44</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>44</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
-         <layout class="QHBoxLayout" name="sessionSearchLayout">
-          <property name="spacing">
-           <number>8</number>
-          </property>
-          <property name="leftMargin">
-           <number>12</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>12</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QLineEdit" name="contactSearchEdit">
-            <property name="placeholderText">
-             <string>搜索</string>
-            </property>
-            <property name="clearButtonEnabled">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="globalSearchBtn">
-            <property name="toolTip">
-             <string>全局搜索</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="createMenuBtn">
-            <property name="toolTip">
-             <string>新建</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QListView" name="userListView">
-         <property name="toolTip">
-          <string>双击用户发起私聊</string>
-         </property>
-         <property name="editTriggers">
-          <set>QAbstractItemView::NoEditTriggers</set>
-         </property>
-         <property name="selectionMode">
-          <enum>QAbstractItemView::SingleSelection</enum>
-         </property>
-         <property name="spacing">
-          <number>0</number>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QFrame" name="sessionProfilePanel">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>64</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>64</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
-         <layout class="QHBoxLayout" name="sessionProfileLayout">
-          <property name="spacing">
-           <number>10</number>
-          </property>
-          <property name="leftMargin">
-           <number>12</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>12</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
+        <widget class="QFrame" name="profileCard">
+         <layout class="QHBoxLayout" name="profileLayout">
+          <property name="spacing"><number>12</number></property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
+          
           <item>
            <widget class="QLabel" name="avatarLabel">
-            <property name="minimumSize">
-             <size>
-              <width>44</width>
-              <height>44</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>44</width>
-              <height>44</height>
-             </size>
-            </property>
-            <property name="text">
-             <string>我</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignCenter</set>
-            </property>
+            <property name="minimumSize"><size><width>48</width><height>48</height></size></property>
+            <property name="maximumSize"><size><width>48</width><height>48</height></size></property>
+            <property name="text"><string>Me</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
            </widget>
           </item>
+          
           <item>
            <layout class="QVBoxLayout" name="profileTextLayout">
-            <property name="spacing">
-             <number>2</number>
-            </property>
             <item>
              <widget class="QLabel" name="profileNameLabel">
-              <property name="text">
-               <string>当前用户</string>
-              </property>
+              <property name="text"><string>User Name</string></property>
              </widget>
             </item>
             <item>
              <widget class="QLabel" name="profileIdLabel">
-              <property name="text">
-               <string>ID: -</string>
-              </property>
+              <property name="text"><string>ID: 10000</string></property>
              </widget>
             </item>
            </layout>
           </item>
-          <item>
-           <spacer name="profileSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>0</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QPushButton" name="uploadAvatarBtn">
-            <property name="toolTip">
-             <string>更换头像</string>
-            </property>
-           </widget>
-          </item>
          </layout>
         </widget>
        </item>
+
+       <!-- ACTIONS -->
+       <item>
+        <layout class="QHBoxLayout" name="profileActionLayout">
+         <item><widget class="QPushButton" name="addFriendBtn"><property name="text"><string>Add Friend</string></property></widget></item>
+         <item><widget class="QPushButton" name="groupChatBtn"><property name="text"><string>New Group</string></property></widget></item>
+        </layout>
+       </item>
+
+       <item>
+        <layout class="QHBoxLayout" name="secondaryActionLayout">
+         <item><widget class="QPushButton" name="friendManagerBtn"><property name="text"><string>Friends</string></property></widget></item>
+         <item><widget class="QPushButton" name="uploadAvatarBtn"><property name="text"><string>Avatar</string></property></widget></item>
+         <item><widget class="QPushButton" name="copyAccountBtn"><property name="text"><string>Copy ID</string></property></widget></item>
+        </layout>
+       </item>
+
+       <!-- SEARCH -->
+       <item>
+        <widget class="QLineEdit" name="contactSearchEdit">
+         <property name="placeholderText"><string>Search chats...</string></property>
+        </widget>
+       </item>
+
+       <!-- CHAT LIST -->
+       <item>
+        <widget class="QLabel" name="emptyContactLabel">
+         <property name="text"><string>No contacts yet
+Add friends to get started!</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListView" name="userListView">
+            <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+        </widget>
+       </item>
+
+       <!-- STATUS LABELS -->
+       <item><widget class="QLabel" name="sideSummaryTitleLabel"><property name="text"><string>Status</string></property></widget></item>
+       <item><widget class="QLabel" name="sideSummaryStatsLabel"><property name="text"><string>Online</string></property></widget></item>
+       <item><widget class="QLabel" name="sideSummaryStateLabel"><property name="text"><string>Connected</string></property></widget></item>
+       <item><widget class="QLabel" name="appTitleLabel"><property name="text"><string>QtNetworkChat</string></property></widget></item>
+       <item><widget class="QLabel" name="onlineTitleLabel"><property name="text"><string>Online Users</string></property></widget></item>
+       <item><widget class="QPushButton" name="globalSearchBtn"><property name="text"><string>Search All</string></property></widget></item>
+       <item><widget class="QPushButton" name="createMenuBtn"><property name="text"><string>Menu</string></property></widget></item>
+       <item><widget class="QPushButton" name="friendNoticeBtn"><property name="text"><string>Notices</string></property></widget></item>
+       <item><widget class="QPushButton" name="groupNoticeBtn"><property name="text"><string>Group Notices</string></property></widget></item>
       </layout>
      </widget>
     </item>
+    
+    <!-- MAIN CHAT AREA -->
     <item>
      <widget class="QFrame" name="chatPanel">
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
       <layout class="QVBoxLayout" name="chatLayout">
-       <property name="spacing">
-        <number>0</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
+       <property name="spacing"><number>0</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       
+       <!-- CHAT HEADER -->
        <item>
         <widget class="QFrame" name="chatHeader">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>48</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>48</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
+         <property name="minimumSize"><size><width>0</width><height>70</height></size></property>
          <layout class="QHBoxLayout" name="chatHeaderLayout">
-          <property name="leftMargin">
-           <number>18</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>18</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
+          <property name="leftMargin"><number>24</number></property>
+          <property name="rightMargin"><number>24</number></property>
           <item>
-           <widget class="QLabel" name="chatTitleLabel">
-            <property name="text">
-             <string>公共聊天室</string>
-            </property>
-           </widget>
+           <layout class="QVBoxLayout" name="chatTitleLayout">
+            <item><widget class="QLabel" name="chatTitleLabel"><property name="text"><string>Public Chat</string></property></widget></item>
+            <item><layout class="QHBoxLayout" name="chatSubtitleLayout">
+             <item><widget class="QLabel" name="chatSubtitleLabel"><property name="text"><string>Subtitles</string></property></widget></item>
+             <item><widget class="QLabel" name="chatStatusBadgeLabel"><property name="text"><string>Status</string></property></widget></item>
+            </layout></item>
+            <item><widget class="QLabel" name="chatHintLabel"><property name="text"><string>System connected</string></property></widget></item>
+           </layout>
           </item>
           <item>
-           <widget class="QLabel" name="chatStatusLabel">
-            <property name="text">
-             <string>Redis 在线工作台 · 多实例状态同步中</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="chatHeaderSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QLabel" name="chatHintLabel">
-            <property name="text">
-             <string>双击左侧成员可私聊</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignRight|Qt::AlignVCenter</set>
-            </property>
+           <widget class="QPushButton" name="groupPanelToggleBtn">
+            <property name="text"><string>Group Info</string></property>
+            <property name="checkable"><bool>true</bool></property>
            </widget>
           </item>
          </layout>
         </widget>
        </item>
+
+       <!-- CHAT LIST -->
        <item>
-        <widget class="QStackedWidget" name="chatStackedWidget">
-         <widget class="QWidget" name="emptyChatPage">
-          <layout class="QVBoxLayout" name="emptyChatPageLayout">
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="emptyChatLabel">
-             <property name="text">
-              <string>未选择会话</string>
-             </property>
-             <property name="alignment">
-              <set>Qt::AlignCenter</set>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-         <widget class="QWidget" name="chatListPage">
-          <layout class="QVBoxLayout" name="chatListPageLayout">
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QListView" name="chatListView">
-             <property name="editTriggers">
-              <set>QAbstractItemView::NoEditTriggers</set>
-             </property>
-             <property name="selectionMode">
-              <enum>QAbstractItemView::NoSelection</enum>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
+        <widget class="QLabel" name="loadingLabel">
+         <property name="text"><string>Loading messages...</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+         <property name="wordWrap"><bool>true</bool></property>
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="chatInputPanel">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>156</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>180</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
+        <widget class="QLabel" name="emptyChatLabel">
+         <property name="text"><string>No messages yet
+Start a conversation!</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListView" name="chatListView">
+         <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+        </widget>
+       </item>
+
+       <!-- CHAT TEXT DISPLAY -->
+       <item>
+        <widget class="QTextEdit" name="chatDisplay">
+         <property name="readOnly"><bool>true</bool></property>
+        </widget>
+       </item>
+
+       <!-- CHAT INPUT AREA -->
+       <item>
+        <widget class="QFrame" name="inputPanel">
+         <property name="minimumSize"><size><width>0</width><height>140</height></size></property>
+         <property name="maximumSize"><size><width>16777215</width><height>200</height></size></property>
          <layout class="QVBoxLayout" name="chatInputLayout">
-          <property name="spacing">
-           <number>6</number>
-          </property>
-          <property name="leftMargin">
-           <number>14</number>
-          </property>
-          <property name="topMargin">
-           <number>10</number>
-          </property>
-          <property name="rightMargin">
-           <number>14</number>
-          </property>
-          <property name="bottomMargin">
-           <number>10</number>
-          </property>
+          <property name="spacing"><number>8</number></property>
+          <property name="leftMargin"><number>20</number></property>
+          <property name="topMargin"><number>12</number></property>
+          <property name="rightMargin"><number>20</number></property>
+          <property name="bottomMargin"><number>16</number></property>
+          
           <item>
-           <widget class="QLabel" name="composerStateLabel">
-            <property name="text">
-             <string>Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿</string>
-            </property>
-           </widget>
+           <layout class="QHBoxLayout" name="chatToolbarLayout">
+            <item><widget class="QPushButton" name="emojiBtn"><property name="text"><string>Emoji</string></property></widget></item>
+            <item><widget class="QPushButton" name="imageBtn"><property name="text"><string>Image</string></property></widget></item>
+            <item><widget class="QPushButton" name="fileBtn"><property name="text"><string>File</string></property></widget></item>
+            <item>
+             <spacer name="toolbarSpacer">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             </spacer>
+            </item>
+            <item><widget class="QPushButton" name="clearBtn"><property name="text"><string>Clear</string></property></widget></item>
+           </layout>
           </item>
+
           <item>
            <widget class="QTextEdit" name="messageEdit">
-            <property name="placeholderText">
-             <string>输入消息...</string>
-            </property>
+            <property name="placeholderText"><string>Type a message...</string></property>
            </widget>
           </item>
+
           <item>
-           <layout class="QHBoxLayout" name="buttonLayout">
+           <widget class="QLabel" name="composerStateLabel">
+            <property name="text"><string>Composer state</string></property>
+           </widget>
+          </item>
+
+          <item>
+           <layout class="QHBoxLayout" name="mentionLayout">
+            <item><widget class="QPushButton" name="mentionBtn"><property name="text"><string>@Mention</string></property></widget></item>
             <item>
-             <widget class="QPushButton" name="emojiBtn"/>
+             <spacer name="mentionSpacer">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             </spacer>
             </item>
+           </layout>
+          </item>
+
+          <item>
+           <layout class="QHBoxLayout" name="sendLayout">
             <item>
-             <widget class="QPushButton" name="mentionBtn"/>
-            </item>
-            <item>
-             <widget class="QPushButton" name="imageBtn"/>
-            </item>
-            <item>
-             <widget class="QPushButton" name="fileBtn"/>
-            </item>
-            <item>
-             <widget class="QPushButton" name="clearBtn"/>
-            </item>
-            <item>
-             <spacer name="buttonSpacer">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>40</width>
-                <height>20</height>
-               </size>
-              </property>
+             <spacer name="sendSpacer">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
              </spacer>
             </item>
             <item>
              <widget class="QPushButton" name="sendBtn">
-              <property name="minimumSize">
-               <size>
-                <width>96</width>
-                <height>36</height>
-               </size>
-              </property>
-              <property name="text">
-               <string>发送</string>
-              </property>
-              <property name="default">
-               <bool>true</bool>
-              </property>
+              <property name="minimumSize"><size><width>100</width><height>36</height></size></property>
+              <property name="text"><string>Send</string></property>
              </widget>
             </item>
            </layout>
@@ -714,265 +278,82 @@
       </layout>
      </widget>
     </item>
+
+    <!-- RIGHT GROUP INFO PANEL -->
     <item>
-     <widget class="QFrame" name="groupMemberPanel">
-      <property name="minimumSize">
-       <size>
-        <width>256</width>
-        <height>0</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>256</width>
-        <height>16777215</height>
-       </size>
-      </property>
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
-      <layout class="QVBoxLayout" name="groupMemberLayout">
-       <property name="spacing">
-        <number>0</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <item>
-        <widget class="QFrame" name="groupMemberHeader">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>48</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>48</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
-         <layout class="QHBoxLayout" name="groupMemberHeaderLayout">
-          <property name="leftMargin">
-           <number>16</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>16</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QLabel" name="groupMemberHeaderLabel">
-            <property name="text">
-             <string>群成员</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
-       </item>
+     <widget class="QFrame" name="groupInfoPanel">
+      <property name="minimumSize"><size><width>280</width><height>0</height></size></property>
+      <property name="maximumSize"><size><width>320</width><height>16777215</height></size></property>
+      <layout class="QVBoxLayout" name="groupInfoLayout">
+       <property name="spacing"><number>16</number></property>
+       <property name="leftMargin"><number>20</number></property>
+       <property name="topMargin"><number>24</number></property>
+       <property name="rightMargin"><number>20</number></property>
+       <property name="bottomMargin"><number>24</number></property>
+       
        <item>
         <widget class="QFrame" name="announcementCard">
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
          <layout class="QVBoxLayout" name="announcementLayout">
-          <property name="spacing">
-           <number>6</number>
-          </property>
-          <property name="leftMargin">
-           <number>14</number>
-          </property>
-          <property name="topMargin">
-           <number>12</number>
-          </property>
-          <property name="rightMargin">
-           <number>14</number>
-          </property>
-          <property name="bottomMargin">
-           <number>12</number>
-          </property>
-          <item>
-           <widget class="QLabel" name="announcementTitleLabel">
-            <property name="text">
-             <string>群公告</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="announcementBodyLabel">
-            <property name="text">
-             <string>欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。</string>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
+          <item><widget class="QLabel" name="announcementTitleLabel"><property name="text"><string>Announcement</string></property></widget></item>
+          <item><widget class="QLabel" name="announcementBodyLabel"><property name="text"><string>Welcome to the chat.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          </layout>
         </widget>
        </item>
+
        <item>
-        <widget class="QFrame" name="groupMemberSearchPanel">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>36</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>36</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
-         <layout class="QHBoxLayout" name="groupMemberSearchLayout">
-          <property name="leftMargin">
-           <number>16</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>16</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QLabel" name="memberTitleLabel">
-            <property name="text">
-             <string>群聊成员 0</string>
-            </property>
-           </widget>
-          </item>
+        <widget class="QFrame" name="groupOverviewCard">
+         <layout class="QVBoxLayout" name="groupOverviewLayout">
+          <item><widget class="QLabel" name="groupOverviewTitleLabel"><property name="text"><string>Group Details</string></property></widget></item>
+          <item><widget class="QLabel" name="groupOverviewStateLabel"><property name="text"><string>State</string></property></widget></item>
+          <item><widget class="QLabel" name="groupOverviewMetaLabel"><property name="text"><string>Meta</string></property></widget></item>
          </layout>
         </widget>
        </item>
+
        <item>
-        <widget class="QFrame" name="memberSearchEditPanel">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>44</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>44</height>
-          </size>
-         </property>
-         <property name="frameShape">
-          <enum>QFrame::NoFrame</enum>
-         </property>
-         <layout class="QHBoxLayout" name="memberSearchEditLayout">
-          <property name="leftMargin">
-           <number>14</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>14</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QLineEdit" name="memberSearchEdit">
-            <property name="placeholderText">
-             <string>搜索成员</string>
-            </property>
-            <property name="clearButtonEnabled">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
+        <widget class="QFrame" name="transferOverviewCard">
+         <layout class="QVBoxLayout" name="transferOverviewLayout">
+          <item><widget class="QLabel" name="transferOverviewTitleLabel"><property name="text"><string>Files</string></property></widget></item>
+          <item><widget class="QLabel" name="transferOverviewStageLabel"><property name="text"><string>Stage</string></property></widget></item>
+          <item><widget class="QLabel" name="transferOverviewSummaryLabel"><property name="text"><string>Summary</string></property></widget></item>
+          <item><widget class="QLabel" name="transferOverviewDetailLabel"><property name="text"><string>Details</string></property></widget></item>
+          <item><widget class="QLabel" name="transferOverviewActionLabel"><property name="text"><string>Action</string></property></widget></item>
          </layout>
         </widget>
        </item>
+
+       <item>
+        <widget class="QLabel" name="memberTitleLabel">
+         <property name="text"><string>Members</string></property>
+        </widget>
+       </item>
+       
+       <item>
+        <widget class="QLineEdit" name="memberSearchEdit">
+         <property name="placeholderText"><string>Search members...</string></property>
+        </widget>
+       </item>
+       
        <item>
         <widget class="QListView" name="groupMemberListView">
-         <property name="editTriggers">
-          <set>QAbstractItemView::NoEditTriggers</set>
-         </property>
-         <property name="selectionMode">
-          <enum>QAbstractItemView::SingleSelection</enum>
-         </property>
         </widget>
        </item>
       </layout>
      </widget>
     </item>
+    
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
-   <property name="geometry">
-    <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>1100</width>
-     <height>21</height>
-    </rect>
-   </property>
-   <widget class="QMenu" name="menuFile">
-    <property name="title">
-     <string>文件</string>
-    </property>
-    <addaction name="actionExit"/>
-   </widget>
-   <widget class="QMenu" name="menuView">
-    <property name="title">
-     <string>视图</string>
-    </property>
-    <addaction name="actionTheme"/>
-   </widget>
-   <widget class="QMenu" name="menuHelp">
-    <property name="title">
-     <string>帮助</string>
-    </property>
-    <addaction name="actionAbout"/>
-   </widget>
+   <property name="geometry"><rect><x>0</x><y>0</y><width>1100</width><height>22</height></rect></property>
+   <widget class="QMenu" name="menuFile"><property name="title"><string>File</string></property><addaction name="actionExit"/></widget>
+   <widget class="QMenu" name="menuHelp"><property name="title"><string>Help</string></property><addaction name="actionAbout"/></widget>
    <addaction name="menuFile"/>
-   <addaction name="menuView"/>
    <addaction name="menuHelp"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
-  <action name="actionExit">
-   <property name="text">
-    <string>退出</string>
-   </property>
-  </action>
-  <action name="actionAbout">
-   <property name="text">
-    <string>关于</string>
-   </property>
-  </action>
-  <action name="actionTheme">
-   <property name="text">
-    <string>切换主题</string>
-   </property>
-  </action>
+  <action name="actionExit"><property name="text"><string>Exit</string></property></action>
+  <action name="actionAbout"><property name="text"><string>About</string></property></action>
  </widget>
  <resources/>
  <connections/>
