@@ -2950,6 +2950,23 @@ bool Client::sendFriendResponse(const QString& receiverId, bool accepted) {
     return sent;
 }
 
+bool Client::requestAccountDeactivation(const QString& reason) {
+    if (!isConnected()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "account_deactivation_request";
+    obj["reason"] = reason.trimmed();
+    return sendJson(obj);
+}
+
+bool Client::cancelAccountDeactivation() {
+    if (!isConnected()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "account_deactivation_cancel";
+    return sendJson(obj);
+}
+
 bool Client::sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement) {
     if (!isConnected() || groupId.trimmed().isEmpty()) return false;
 
@@ -2982,6 +2999,85 @@ bool Client::sendServerGroupMemberUpdate(const QString& groupId, const QString& 
     obj["action"] = normalizedAction == QLatin1String("set_admin")
         ? QStringLiteral("promote_admin")
         : (normalizedAction == QLatin1String("unset_admin") ? QStringLiteral("demote_admin") : normalizedAction);
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
+bool Client::sendServerGroupEssenceUpdate(const QString& groupId, const QString& messageId, bool enabled) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || messageId.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_essence_update";
+    obj["groupId"] = groupId.trimmed();
+    obj["messageId"] = messageId.trimmed();
+    obj["enabled"] = enabled;
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
+bool Client::sendMessageFavoriteUpdate(const QString& sessionId, const QString& messageId, bool favorite, const QJsonObject& message) {
+    if (!isConnected() || sessionId.trimmed().isEmpty() || messageId.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "message_favorite_update";
+    obj["sessionId"] = sessionId.trimmed();
+    obj["messageId"] = messageId.trimmed();
+    obj["favorite"] = favorite;
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    if (!message.isEmpty()) {
+        obj["message"] = message;
+    }
+    return sendJson(obj);
+}
+
+bool Client::sendServerGroupMessageRecall(const QString& groupId, const QString& messageId) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || messageId.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_message_recall";
+    obj["groupId"] = groupId.trimmed();
+    obj["messageId"] = messageId.trimmed();
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
+bool Client::sendServerGroupMemberMute(const QString& groupId, const QString& memberId, qint64 mutedUntil, const QString& reason) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || memberId.trimmed().isEmpty() || mutedUntil <= 0) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_member_mute";
+    obj["groupId"] = groupId.trimmed();
+    obj["memberId"] = memberId.trimmed();
+    obj["mutedUntil"] = QString::number(mutedUntil);
+    obj["reason"] = reason.trimmed();
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
+bool Client::sendServerGroupMemberUnmute(const QString& groupId, const QString& memberId) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || memberId.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_member_unmute";
+    obj["groupId"] = groupId.trimmed();
+    obj["memberId"] = memberId.trimmed();
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
+bool Client::requestServerGroupMemberProfile(const QString& groupId, const QString& memberId) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || memberId.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_member_profile_request";
+    obj["groupId"] = groupId.trimmed();
+    obj["memberId"] = memberId.trimmed();
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
     return sendJson(obj);
@@ -4621,6 +4717,9 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.receiverId = obj["groupId"].toString(obj["receiverId"].toString());
         msg.content = obj["content"].toString();
         msg.clientMessageId = obj["clientMessageId"].toString();
+        if (msg.clientMessageId.isEmpty()) {
+            msg.clientMessageId = obj["messageId"].toString(obj["id"].toString());
+        }
         msg.timestamp = QDateTime::currentDateTime();
         emit newMessage(msg);
         return;
@@ -4674,6 +4773,51 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         emit serverGroupMemberUpdated(obj["groupId"].toString(),
                                       obj["memberId"].toString(),
                                       obj["action"].toString());
+        return;
+    }
+
+    if (type == "group_essence_updated") {
+        emit serverGroupEssenceUpdated(obj);
+        return;
+    }
+
+    if (type == "message_favorite_updated") {
+        emit messageFavoriteUpdated(obj);
+        return;
+    }
+
+    if (type == "favorite_messages_snapshot") {
+        emit favoriteMessagesSnapshotReceived(obj.value("favorites").toArray());
+        return;
+    }
+
+    if (type == "group_message_recalled") {
+        emit serverGroupMessageRecalled(obj);
+        return;
+    }
+
+    if (type == "group_member_muted") {
+        emit serverGroupMemberMuted(obj);
+        return;
+    }
+
+    if (type == "group_member_unmuted") {
+        emit serverGroupMemberUnmuted(obj);
+        return;
+    }
+
+    if (type == "server_group_member_profile") {
+        emit serverGroupMemberProfileReceived(obj);
+        return;
+    }
+
+    if (type == "error") {
+        const QString code = obj.value("code").toString();
+        const QString message = obj.value("message").toString(code.isEmpty() ? QStringLiteral("服务器错误") : code);
+        if (code == QLatin1String("group_member_muted")) {
+            emit serverGroupMemberMuted(obj);
+        }
+        emit connectionError(message);
         return;
     }
 

@@ -58,6 +58,7 @@ int main(int argc, char** argv) {
     qunsetenv("QTNETWORKCHAT_DB_POOL_MAX");
     qunsetenv("QTNETWORKCHAT_DB_POOL_IDLE_MS");
     qunsetenv("QTNETWORKCHAT_DB_SLOW_QUERY_MS");
+    qputenv("QTNETWORKCHAT_DB_DRIVER", "QSQLITE");
     const QString appDataDir = ::appDataDir();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

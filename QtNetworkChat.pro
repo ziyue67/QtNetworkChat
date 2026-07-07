@@ -13,6 +13,9 @@ SOURCES += \
     src/main.cpp \
     src/mainwindow.cpp \
     src/chatbubbledelegate.cpp \
+    src/sessionitemdelegate.cpp \
+    src/groupmemberitemdelegate.cpp \
+    src/iconhelper.cpp \
     src/logincredentialstore.cpp \
     src/historyservice.cpp \
     src/historymetadata.cpp \
@@ -35,12 +38,16 @@ SOURCES += \
     src/server.cpp \
     src/client.cpp \
     src/redisclient.cpp \
+    src/qqnt_redis_service.cpp \
     src/objectstore.cpp \
     src/message.cpp
 
 HEADERS += \
     include/mainwindow.h \
     include/chatbubbledelegate.h \
+    include/sessionitemdelegate.h \
+    include/groupmemberitemdelegate.h \
+    include/iconhelper.h \
     include/logincredentialstore.h \
     include/historyservice.h \
     include/historymetadata.h \
@@ -63,6 +70,7 @@ HEADERS += \
     include/server.h \
     include/client.h \
     include/redisclient.h \
+    include/qqnt_redis_service.h \
     include/objectstore.h \
     include/chatuser.h \
     include/message.h \

@@ -16,8 +16,7 @@
 
 class QTimer;
 class ObjectStore;
-class RedisClient;
-class RedisSubscriber;
+class QQNTRedisService;
 class HeartbeatMonitor;
 struct LargeFileDeliveredReceiptDecision;
 
@@ -57,6 +56,7 @@ private:
     void sendUserList(QTcpSocket* socket);
     void sendFriendListSnapshot(const QString& userId, QTcpSocket* socket) const;
     void sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) const;
+    void sendFavoriteMessagesSnapshot(const QString& userId, QTcpSocket* socket) const;
     void sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& groupId, const QString& memberId, const QString& action) const;
     void sendToUser(const Message& msg);
     bool sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket);
@@ -67,6 +67,8 @@ private:
                                     QString* rejectReason = nullptr,
                                     qint64* receivedBytes = nullptr);
     void handleLogin(const QJsonObject& obj, QTcpSocket* socket);
+    void handleAccountDeactivationRequest(const QJsonObject& obj, QTcpSocket* socket);
+    void handleAccountDeactivationCancel(const QJsonObject& obj, QTcpSocket* socket);
     void handleMessage(const QJsonObject& obj, QTcpSocket* socket = nullptr);
     void handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* socket);
@@ -76,6 +78,12 @@ private:
     void handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupEssenceUpdate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleMessageFavoriteUpdate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupMessageRecall(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupMemberMute(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupMemberUnmute(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupMemberProfileRequest(const QJsonObject& obj, QTcpSocket* socket);
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* socket);
@@ -120,10 +128,15 @@ private:
                                const QString& userName,
                                const QString& avatarBase64 = QString()) const;
     bool updateAccountPasswordHashInSqlite(const QString& account, const QString& passwordHash) const;
+    bool finalizeExpiredAccountDeactivations() const;
+    bool markAccountDeactivationPending(const QString& account, const QString& reason, QString* rejectReason = nullptr) const;
+    bool cancelAccountDeactivation(const QString& account, QString* rejectReason = nullptr) const;
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;
+    bool ensurePublicGroupMembership(const QString& userId, QTcpSocket* socket = nullptr) const;
     bool isServerGroupMember(const QString& groupId, const QString& userId) const;
     bool isServerGroupRemovedMember(const QString& groupId, const QString& userId) const;
+    bool isServerGroupMemberMuted(const QString& groupId, const QString& userId, qint64* mutedUntil = nullptr) const;
     QStringList serverGroupMemberIds(const QString& groupId) const;
     bool recordServerGroupAuditEvent(const QString& groupId,
                                      const QString& action,
@@ -197,11 +210,7 @@ private:
     };
 
     QTcpServer* m_tcpServer;
-    RedisClient* m_redisClient;
-    RedisSubscriber* m_redisSubscriber;
-    bool m_redisCommandAvailable = false;
-    bool m_redisSubscriberAvailable = false;
-    QString m_redisLastError;
+    QQNTRedisService* m_redisService;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
     HeartbeatMonitor* m_heartbeatMonitor;

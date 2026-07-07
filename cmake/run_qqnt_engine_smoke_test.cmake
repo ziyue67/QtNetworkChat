@@ -1,6 +1,12 @@
 if(NOT DEFINED TEST_EXE OR NOT EXISTS "${TEST_EXE}")
     message(FATAL_ERROR "TEST_EXE does not exist: ${TEST_EXE}")
 endif()
+if(NOT DEFINED ENGINE_EXE OR NOT EXISTS "${ENGINE_EXE}")
+    message(FATAL_ERROR "ENGINE_EXE does not exist: ${ENGINE_EXE}")
+endif()
+if(NOT DEFINED FIXTURE_DIR OR NOT EXISTS "${FIXTURE_DIR}")
+    message(FATAL_ERROR "FIXTURE_DIR does not exist: ${FIXTURE_DIR}")
+endif()
 
 if(WIN32 AND DEFINED QT_BIN_DIR AND EXISTS "${QT_BIN_DIR}")
     set(ENV{PATH} "${QT_BIN_DIR};$ENV{PATH}")
@@ -31,7 +37,7 @@ if(NOT DEFINED ENV{QTNETWORKCHAT_DB_DRIVER})
 endif()
 
 execute_process(
-    COMMAND "${TEST_EXE}" ${TEST_ARGS}
+    COMMAND "${TEST_EXE}" "${ENGINE_EXE}" "${FIXTURE_DIR}/protocol_contract.json"
     RESULT_VARIABLE test_result
     OUTPUT_VARIABLE test_output
     ERROR_VARIABLE test_error
@@ -44,5 +50,5 @@ if(NOT test_error STREQUAL "")
     message(STATUS "${test_error}")
 endif()
 if(NOT test_result EQUAL 0)
-    message(FATAL_ERROR "Qt test failed with exit code ${test_result}")
+    message(FATAL_ERROR "QQNT engine smoke test failed with exit code ${test_result}")
 endif()

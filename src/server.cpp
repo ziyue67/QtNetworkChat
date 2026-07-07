@@ -1,5 +1,6 @@
 #include "server.h"
 #include "objectstore.h"
+#include "qqnt_redis_service.h"
 #include "redisclient.h"
 #include "heartbeatmonitor.h"
 #include <QJsonDocument>
@@ -85,6 +86,14 @@ QString serverGroupFilePolicy(const QString& groupType) {
         : QStringLiteral("public-members-only");
 }
 
+QString normalizeServerGroupId(QString groupId) {
+    groupId = groupId.trimmed();
+    if (groupId.startsWith(QStringLiteral("group:"))) {
+        groupId = groupId.mid(QStringLiteral("group:").size()).trimmed();
+    }
+    return groupId.isEmpty() ? QStringLiteral("public") : groupId;
+}
+
 QStringList initialServerGroupMemberIds(const QJsonObject& obj, const QString& requesterId) {
     QStringList memberIds;
     const QJsonArray members = obj.value(QStringLiteral("members")).toArray();
@@ -105,6 +114,35 @@ QStringList initialServerGroupMemberIds(const QJsonObject& obj, const QString& r
 }
 
 bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header);
+
+struct ServerGroupActorPermission {
+    bool member = false;
+    bool manager = false;
+    bool owner = false;
+    QString ownerId;
+    QString role;
+};
+
+ServerGroupActorPermission loadServerGroupActorPermission(QSqlDatabase& db,
+                                                          const QString& groupId,
+                                                          const QString& userId) {
+    ServerGroupActorPermission permission;
+    QSqlQuery query(db);
+    query.prepare("SELECT COALESCE(g.owner_id, ''), COALESCE(m.role, '') "
+                  "FROM server_groups g "
+                  "JOIN server_group_members m ON m.group_id = g.group_id "
+                  "WHERE g.group_id = ? AND m.user_id = ?");
+    query.addBindValue(groupId);
+    query.addBindValue(userId);
+    if (query.exec() && query.next()) {
+        permission.member = true;
+        permission.ownerId = query.value(0).toString();
+        permission.role = query.value(1).toString().toLower();
+        permission.owner = permission.ownerId == userId || permission.role == QLatin1String("owner");
+        permission.manager = permission.owner || permission.role == QLatin1String("admin");
+    }
+    return permission;
+}
 
 void appendE2EFields(QJsonObject* obj, const Message& msg) {
     if (!obj) return;
@@ -263,6 +301,9 @@ QString appDataDir() {
 
 QString accountDatabaseDriver() {
     const QString configured = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_DRIVER")).trimmed().toUpper();
+    if (configured.isEmpty()) {
+        return QStringLiteral("QPSQL");
+    }
     if (configured == QLatin1String("QPSQL") || configured == QLatin1String("POSTGRES") || configured == QLatin1String("POSTGRESQL")) {
         return QStringLiteral("QPSQL");
     }
@@ -271,7 +312,7 @@ QString accountDatabaseDriver() {
 
 QString accountDatabaseDriverAlias() {
     const QString configured = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_DRIVER")).trimmed();
-    return configured.isEmpty() ? QStringLiteral("QSQLITE") : configured;
+    return configured.isEmpty() ? QStringLiteral("QPSQL") : configured;
 }
 
 bool accountDatabaseIsPostgres() {
@@ -709,6 +750,65 @@ QString autoIdColumnSql() {
     return accountDatabaseIsPostgres()
         ? QStringLiteral("id BIGSERIAL PRIMARY KEY, ")
         : QStringLiteral("id INTEGER PRIMARY KEY AUTOINCREMENT, ");
+}
+
+QString currentTimestampPlusDaysSql(int days) {
+    if (accountDatabaseIsPostgres()) {
+        return QStringLiteral("CURRENT_TIMESTAMP + INTERVAL '%1 days'").arg(days);
+    }
+    return QStringLiteral("datetime('now', '+%1 days')").arg(days);
+}
+
+QString accountUidDefaultSql() {
+    return accountDatabaseIsPostgres()
+        ? QStringLiteral("CAST(gen_random_uuid() AS TEXT)")
+        : QStringLiteral("lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(6)))");
+}
+
+QString accountArchivedId(const QString& loginAccount, int generation) {
+    return QStringLiteral("%1#g%2").arg(loginAccount, QString::number(qMax(1, generation)));
+}
+
+bool archiveAccountReferences(QSqlDatabase& db, const QString& activeAccount, const QString& archivedAccount) {
+    if (activeAccount.isEmpty() || archivedAccount.isEmpty() || activeAccount == archivedAccount) {
+        return false;
+    }
+
+    const QList<QPair<QString, QString>> updates = {
+        {QStringLiteral("UPDATE user_sessions SET user_id = ? WHERE user_id = ?"), QStringLiteral("user_sessions.user_id")},
+        {QStringLiteral("UPDATE messages SET sender_id = ? WHERE sender_id = ?"), QStringLiteral("messages.sender_id")},
+        {QStringLiteral("UPDATE messages SET receiver_id = ? WHERE receiver_id = ?"), QStringLiteral("messages.receiver_id")},
+        {QStringLiteral("UPDATE offline_messages SET receiver_id = ? WHERE receiver_id = ?"), QStringLiteral("offline_messages.receiver_id")},
+        {QStringLiteral("UPDATE friend_events SET sender_id = ? WHERE sender_id = ?"), QStringLiteral("friend_events.sender_id")},
+        {QStringLiteral("UPDATE friend_events SET receiver_id = ? WHERE receiver_id = ?"), QStringLiteral("friend_events.receiver_id")},
+        {QStringLiteral("UPDATE friend_events SET query_account = ? WHERE query_account = ?"), QStringLiteral("friend_events.query_account")},
+        {QStringLiteral("UPDATE server_friends SET user_id = ? WHERE user_id = ?"), QStringLiteral("server_friends.user_id")},
+        {QStringLiteral("UPDATE server_friends SET friend_id = ? WHERE friend_id = ?"), QStringLiteral("server_friends.friend_id")},
+        {QStringLiteral("UPDATE server_groups SET owner_id = ? WHERE owner_id = ?"), QStringLiteral("server_groups.owner_id")},
+        {QStringLiteral("UPDATE server_group_members SET user_id = ? WHERE user_id = ?"), QStringLiteral("server_group_members.user_id")},
+        {QStringLiteral("UPDATE server_group_removed_members SET user_id = ? WHERE user_id = ?"), QStringLiteral("server_group_removed_members.user_id")},
+        {QStringLiteral("UPDATE server_group_removed_members SET removed_by = ? WHERE removed_by = ?"), QStringLiteral("server_group_removed_members.removed_by")},
+        {QStringLiteral("UPDATE server_group_announcements SET author_id = ? WHERE author_id = ?"), QStringLiteral("server_group_announcements.author_id")},
+        {QStringLiteral("UPDATE server_group_audit_events SET actor_id = ? WHERE actor_id = ?"), QStringLiteral("server_group_audit_events.actor_id")},
+        {QStringLiteral("UPDATE server_group_audit_events SET target_user_id = ? WHERE target_user_id = ?"), QStringLiteral("server_group_audit_events.target_user_id")}
+    };
+
+    bool ok = true;
+    for (const auto& update : updates) {
+        QSqlQuery query(db);
+        query.prepare(update.first);
+        query.addBindValue(archivedAccount);
+        query.addBindValue(activeAccount);
+        if (!query.exec()) {
+            ok = false;
+            qWarning() << "Failed to archive account reference"
+                       << update.second
+                       << activeAccount
+                       << archivedAccount
+                       << query.lastError().text();
+        }
+    }
+    return ok;
 }
 
 QString safePathPart(const QString& value) {
@@ -1167,8 +1267,7 @@ QString pendingFileTransferKey(const QString& senderId, const QString& transferI
 Server::Server(QObject* parent)
     : QObject(parent)
     , m_tcpServer(createServerSocket(this))
-    , m_redisClient(new RedisClient(this))
-    , m_redisSubscriber(new RedisSubscriber(this))
+    , m_redisService(new QQNTRedisService(this))
     , m_transferCleanupTimer(new QTimer(this))
     , m_offlineAttachmentCleanupTimer(new QTimer(this))
     , m_heartbeatMonitor(new HeartbeatMonitor(this))
@@ -1176,13 +1275,13 @@ Server::Server(QObject* parent)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
     , m_instanceId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
-    m_redisClient->configureFromEnvironment();
-    m_redisSubscriber->configureFromEnvironment();
-    connect(m_redisSubscriber, &RedisSubscriber::messageReceived, this, [this](const RedisClient::PubSubMessage& message) {
+    m_redisService->configureFromEnvironment();
+    connect(m_redisService, &QQNTRedisService::messageReceived, this, [this](const RedisClient::PubSubMessage& message) {
         handleRedisMessageEvent(message.payload);
     });
-    connect(m_redisSubscriber, &RedisSubscriber::subscriptionStateChanged, this, [this](bool subscribed) {
-        updateRedisSubscriberAvailability(subscribed, subscribed ? QString() : m_redisSubscriber->lastError());
+    connect(m_redisService, &QQNTRedisService::readinessChanged, this, [this](bool ready, const QString& reason) {
+        m_serviceReady = ready;
+        m_serviceReadinessReason = reason;
     });
 
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
@@ -1394,10 +1493,7 @@ void Server::stop() {
     for (const ChatUser& user : m_clients.values()) {
         clearRedisPresence(user.id);
     }
-    m_redisCommandAvailable = false;
-    m_redisSubscriberAvailable = false;
-    m_redisLastError = QStringLiteral("server-stopped");
-    m_redisSubscriber->disconnectFromServer();
+    m_redisService->shutdown();
     const QList<QTcpSocket*> sockets = m_clients.keys();
     for (QTcpSocket* socket : sockets) {
         if (!socket) {
@@ -1460,6 +1556,10 @@ void Server::onClientReadyRead() {
 
         if (type == "login") {
             handleLogin(obj, socket);
+        } else if (type == "account_deactivation_request") {
+            handleAccountDeactivationRequest(obj, socket);
+        } else if (type == "account_deactivation_cancel") {
+            handleAccountDeactivationCancel(obj, socket);
         } else if (type == "message") {
             handleMessage(obj, socket);
         } else if (type == "file") {
@@ -1494,6 +1594,18 @@ void Server::onClientReadyRead() {
             handleServerGroupAnnouncementUpdate(obj, socket);
         } else if (type == "server_group_member_update") {
             handleServerGroupMemberUpdate(obj, socket);
+        } else if (type == "server_group_essence_update") {
+            handleServerGroupEssenceUpdate(obj, socket);
+        } else if (type == "message_favorite_update") {
+            handleMessageFavoriteUpdate(obj, socket);
+        } else if (type == "server_group_message_recall") {
+            handleServerGroupMessageRecall(obj, socket);
+        } else if (type == "server_group_member_mute") {
+            handleServerGroupMemberMute(obj, socket);
+        } else if (type == "server_group_member_unmute") {
+            handleServerGroupMemberUnmute(obj, socket);
+        } else if (type == "server_group_member_profile_request") {
+            handleServerGroupMemberProfileRequest(obj, socket);
         } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
             handleFriendEvent(obj, socket);
         } else if (type == "heartbeat") {
@@ -1546,42 +1658,17 @@ void Server::onClientDisconnected() {
 }
 
 bool Server::ensureRedisReadyForStartup() {
-    m_redisClient->configureFromEnvironment();
-    m_redisSubscriber->configureFromEnvironment();
-    m_redisCommandAvailable = false;
-    m_redisSubscriberAvailable = false;
-    m_redisLastError.clear();
-
-    if (!m_redisClient->isEnabled()) {
+    QString error;
+    if (!m_redisService->initialize(&error)) {
         m_serviceReady = false;
-        m_serviceReadinessReason = QStringLiteral("redis-required");
-        m_redisLastError = m_serviceReadinessReason;
-        qWarning() << "Redis is required for server startup; set QTNETWORKCHAT_REDIS=1";
+        m_serviceReadinessReason = m_redisService->readinessReason();
+        if (m_serviceReadinessReason == QStringLiteral("redis-required")) {
+            qWarning() << "Redis is required for server startup; set QTNETWORKCHAT_REDIS=1";
+        } else {
+            qWarning() << "Redis startup check failed:" << error;
+        }
         return false;
     }
-
-    if (!m_redisClient->connectToServer()) {
-        m_serviceReady = false;
-        m_redisLastError = m_redisClient->lastError().trimmed().isEmpty()
-            ? QStringLiteral("redis-connect-failed")
-            : m_redisClient->lastError().trimmed();
-        m_serviceReadinessReason = QStringLiteral("redis-connect-failed");
-        qWarning() << "Redis command channel is required for server startup:" << m_redisLastError;
-        return false;
-    }
-    m_redisCommandAvailable = true;
-
-    if (!m_redisSubscriber->subscribe(QStringLiteral("messages"))) {
-        m_serviceReady = false;
-        m_redisLastError = m_redisSubscriber->lastError().trimmed().isEmpty()
-            ? QStringLiteral("redis-subscribe-failed")
-            : m_redisSubscriber->lastError().trimmed();
-        m_serviceReadinessReason = QStringLiteral("redis-subscribe-failed");
-        qWarning() << "Redis subscriber channel is required for server startup:" << m_redisLastError;
-        return false;
-    }
-    m_redisSubscriberAvailable = true;
-    m_redisLastError.clear();
 
     qDebug() << "Redis presence service enabled";
     qDebug() << "Redis Pub/Sub subscriber enabled";
@@ -1591,77 +1678,35 @@ bool Server::ensureRedisReadyForStartup() {
 
 void Server::updateRedisCommandAvailability(bool available, const QString& reason) {
     const bool wasReady = m_serviceReady;
-    m_redisCommandAvailable = available;
-    if (!available) {
-        m_redisLastError = reason.trimmed().isEmpty()
-            ? QStringLiteral("redis-command-unavailable")
-            : reason.trimmed();
-    } else if (m_redisSubscriberAvailable) {
-        m_redisLastError.clear();
+    m_redisService->setCommandAvailability(available, reason);
+    if (!available && wasReady) {
+        qWarning() << "Redis command channel became unavailable:" << m_redisService->readinessReason();
     }
     refreshServiceReadiness();
-    if (!available && wasReady) {
-        qWarning() << "Redis command channel became unavailable:" << m_serviceReadinessReason;
-    }
 }
 
 void Server::updateRedisSubscriberAvailability(bool available, const QString& reason) {
     const bool wasReady = m_serviceReady;
-    m_redisSubscriberAvailable = available;
-    if (!available) {
-        m_redisLastError = reason.trimmed().isEmpty()
-            ? QStringLiteral("redis-subscriber-unavailable")
-            : reason.trimmed();
-    } else if (m_redisCommandAvailable) {
-        m_redisLastError.clear();
+    m_redisService->setSubscriberAvailability(available, reason);
+    if (!available && wasReady) {
+        qWarning() << "Redis subscriber channel became unavailable:" << m_redisService->readinessReason();
     }
     refreshServiceReadiness();
-    if (!available && wasReady) {
-        qWarning() << "Redis subscriber channel became unavailable:" << m_serviceReadinessReason;
-    }
 }
 
 void Server::refreshServiceReadiness() {
-    m_serviceReady = m_redisCommandAvailable && m_redisSubscriberAvailable;
-    if (m_serviceReady) {
-        m_serviceReadinessReason.clear();
-    } else if (!m_redisCommandAvailable) {
-        m_serviceReadinessReason = m_redisLastError.trimmed().isEmpty()
-            ? QStringLiteral("redis-command-unavailable")
-            : m_redisLastError.trimmed();
-    } else if (!m_redisSubscriberAvailable) {
-        m_serviceReadinessReason = m_redisLastError.trimmed().isEmpty()
-            ? QStringLiteral("redis-subscriber-unavailable")
-            : m_redisLastError.trimmed();
-    }
+    m_serviceReady = m_redisService->isReady();
+    m_serviceReadinessReason = m_redisService->readinessReason();
 }
 
 void Server::tryRecoverRedisCommandAvailability() {
-    if (m_redisCommandAvailable || !m_redisClient->isEnabled()) {
-        refreshServiceReadiness();
-        return;
-    }
-
-    if (m_redisClient->ping() || m_redisClient->connectToServer()) {
-        updateRedisCommandAvailability(true);
-        return;
-    }
-
-    updateRedisCommandAvailability(false, m_redisClient->lastError());
+    m_redisService->recoverCommandAvailability();
+    refreshServiceReadiness();
 }
 
 void Server::tryRecoverRedisSubscriberAvailability() {
-    if (m_redisSubscriberAvailable || !m_redisSubscriber->isEnabled()) {
-        refreshServiceReadiness();
-        return;
-    }
-
-    if (m_redisSubscriber->subscribe(QStringLiteral("messages"))) {
-        updateRedisSubscriberAvailability(true);
-        return;
-    }
-
-    updateRedisSubscriberAvailability(false, m_redisSubscriber->lastError());
+    m_redisService->recoverSubscriberAvailability();
+    refreshServiceReadiness();
 }
 
 bool Server::ensureServiceReady(QTcpSocket* socket, const QString& action) {
@@ -1689,6 +1734,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     if (mode != "register" && account.isEmpty()) account = userName;
     if (userName.isEmpty()) userName = account.isEmpty() ? "User" : account;
 
+    finalizeExpiredAccountDeactivations();
     QJsonObject accounts = loadAccountsFromSqlite();
     if (mode == "register") {
         if (password.isEmpty()) {
@@ -1705,26 +1751,72 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
         }
         QString passwordHash = makePasswordKdfHash(account, password);
         if (accounts.contains(account)) {
+            QJsonObject existingAccount = accounts[account].toObject();
+            const QString status = existingAccount.value("accountStatus").toString("active");
+            const QString storedHash = existingAccount.value("passwordHash").toString();
+            bool unusedUpgrade = false;
+            if (status == QLatin1String("deactivation_pending")
+                && verifyStoredPasswordHash(account, password, storedHash, &unusedUpgrade)) {
+                QString rejectReason;
+                if (!cancelAccountDeactivation(account, &rejectReason)) {
+                    QJsonObject response;
+                    response["type"] = "login_failed";
+                    response["reason"] = rejectReason.isEmpty() ? QStringLiteral("账号恢复失败") : rejectReason;
+                    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+                    socket->write("\n");
+                    socket->flush();
+                    return;
+                }
+                existingAccount["accountStatus"] = "active";
+                accounts[account] = existingAccount;
+                userName = existingAccount.value("userName").toString(userName);
+                passwordHash = storedHash;
+            } else {
+                QJsonObject response;
+                response["type"] = "login_failed";
+                response["reason"] = status == QLatin1String("deactivation_pending")
+                    ? QStringLiteral("账号正在注销冷静期内，需使用原密码重新注册才能恢复")
+                    : QStringLiteral("账号已存在");
+                socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+                socket->write("\n");
+                socket->flush();
+                return;
+            }
+        } else {
+            QJsonObject accountObj;
+            accountObj["passwordHash"] = passwordHash;
+            accountObj["userName"] = userName;
+            accountObj["userId"] = account;
+            accountObj["avatar"] = obj["avatar"].toString();
+            accountObj["accountStatus"] = "active";
+            if (!insertAccountToSqlite(account,
+                                       passwordHash,
+                                       userName,
+                                       accountObj["avatar"].toString())) {
+                QJsonObject response;
+                response["type"] = "login_failed";
+                response["reason"] = "注册失败：账号资料保存失败";
+                socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+                socket->write("\n");
+                socket->flush();
+                return;
+            }
+            accounts[account] = accountObj;
+        }
+    } else if (accounts.contains(account)) {
+        QJsonObject accountObj = accounts[account].toObject();
+        const QString status = accountObj.value("accountStatus").toString("active");
+        if (status == QLatin1String("deactivation_pending") || status == QLatin1String("deactivated")) {
             QJsonObject response;
             response["type"] = "login_failed";
-            response["reason"] = "账号已存在";
+            response["reason"] = status == QLatin1String("deactivation_pending")
+                ? QStringLiteral("账号正在注销冷静期内，请用同账号同密码重新注册来恢复")
+                : QStringLiteral("账号已注销，请重新注册新版本账号");
             socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
             socket->write("\n");
             socket->flush();
             return;
         }
-        QJsonObject accountObj;
-        accountObj["passwordHash"] = passwordHash;
-        accountObj["userName"] = userName;
-        accountObj["userId"] = account;
-        accountObj["avatar"] = obj["avatar"].toString();
-        accounts[account] = accountObj;
-        insertAccountToSqlite(account,
-                              passwordHash,
-                              userName,
-                              accountObj["avatar"].toString());
-    } else if (accounts.contains(account)) {
-        QJsonObject accountObj = accounts[account].toObject();
         QString storedHash = accountObj["passwordHash"].toString();
         if (storedHash.isEmpty()) {
             storedHash = legacyPasswordHash(account, accountObj["password"].toString());
@@ -1780,7 +1872,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     m_userSockets[user.id] = socket;
     m_usedNames.insert(userName);
     recordUserSessionToSqlite(user, "login");
-    recordDefaultGroupMembership(user);
+    ensurePublicGroupMembership(user.id, socket);
     refreshRedisPresence(user);
     m_heartbeatMonitor->registerClient(user.id);
 
@@ -1793,6 +1885,8 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();
+
+    sendFavoriteMessagesSnapshot(user.id, socket);
 
     refreshConnectedClientViews();
     emit userJoined(user.id, user.name);
@@ -1814,6 +1908,56 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     });
 
     qDebug() << "User logged in:" << user.name << "id:" << user.id;
+}
+
+void Server::handleAccountDeactivationRequest(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* user = findUserBySocket(socket);
+    QJsonObject response;
+    response["type"] = "account_deactivation_result";
+
+    if (!user) {
+        response["accepted"] = false;
+        response["reason"] = "请先登录后再申请注销";
+    } else {
+        QString rejectReason;
+        const bool ok = markAccountDeactivationPending(user->id, obj.value("reason").toString(), &rejectReason);
+        response["accepted"] = ok;
+        response["account"] = user->id;
+        response["status"] = ok ? QStringLiteral("deactivation_pending") : QStringLiteral("active");
+        response["coolingOffDays"] = 7;
+        if (!ok) {
+            response["reason"] = rejectReason.isEmpty() ? QStringLiteral("账号注销申请失败") : rejectReason;
+        }
+    }
+
+    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
+
+void Server::handleAccountDeactivationCancel(const QJsonObject& obj, QTcpSocket* socket) {
+    Q_UNUSED(obj)
+    ChatUser* user = findUserBySocket(socket);
+    QJsonObject response;
+    response["type"] = "account_deactivation_cancelled";
+
+    if (!user) {
+        response["accepted"] = false;
+        response["reason"] = "请先登录后再取消注销";
+    } else {
+        QString rejectReason;
+        const bool ok = cancelAccountDeactivation(user->id, &rejectReason);
+        response["accepted"] = ok;
+        response["account"] = user->id;
+        response["status"] = ok ? QStringLiteral("active") : QStringLiteral("unknown");
+        if (!ok) {
+            response["reason"] = rejectReason.isEmpty() ? QStringLiteral("取消注销失败") : rejectReason;
+        }
+    }
+
+    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
 }
 
 void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
@@ -1864,12 +2008,7 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
             }
         }
     } else {
-        if (!isServerGroupMember("public", msg.senderId)) {
-            ChatUser* sender = findUserBySocket(socket);
-            if (sender) {
-                recordDefaultGroupMembership(*sender);
-            }
-        }
+        ensurePublicGroupMembership(msg.senderId, socket);
         if (!isServerGroupMember("public", msg.senderId)) {
             sendSystemNotice(socket, "公共群消息发送失败：你已不在该群组，请联系群主或管理员重新邀请。");
             return;
@@ -2188,16 +2327,32 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
         sendSystemNotice(socket, "群消息发送失败：请先登录");
         return;
     }
-    const QString groupId = obj.value("groupId").toString().trimmed();
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString());
     const QString content = obj.value("content").toString();
     if (groupId.isEmpty() || content.trimmed().isEmpty()) {
         sendSystemNotice(socket, "群消息发送失败：请求参数无效");
         return;
     }
+    if (groupId == QLatin1String("public")) {
+        ensurePublicGroupMembership(sender->id, socket);
+    }
     if (!isServerGroupMember(groupId, sender->id)) {
         sendSystemNotice(socket, groupId == QLatin1String("public")
             ? QStringLiteral("公共群消息发送失败：你已不在该群组，请联系群主或管理员重新邀请。")
             : QStringLiteral("私有群消息发送失败：你不在该群组或已被移出。"));
+        return;
+    }
+    qint64 mutedUntil = 0;
+    if (isServerGroupMemberMuted(groupId, sender->id, &mutedUntil)) {
+        QJsonObject notice;
+        notice["type"] = "error";
+        notice["code"] = "group_member_muted";
+        notice["message"] = "群消息发送失败：你已被禁言";
+        notice["groupId"] = groupId;
+        notice["mutedUntil"] = QString::number(mutedUntil);
+        socket->write(QJsonDocument(notice).toJson(QJsonDocument::Compact));
+        socket->write("\n");
+        socket->flush();
         return;
     }
 
@@ -2244,7 +2399,7 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
     }
     saveMessageToSqlite(msg, QStringLiteral("server-group"));
     const bool redisPublished = publishRedisMessageEvent(msg, QStringLiteral("server-group"));
-    if (m_redisClient->isEnabled() && !redisPublished) {
+    if (m_redisService->isEnabled() && !redisPublished) {
         sendSystemNotice(socket, QStringLiteral("群消息跨实例路由失败：其他实例成员可能未收到。"));
     }
     emit newMessage(msg);
@@ -2526,10 +2681,12 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                         removedQuery.addBindValue(memberId);
                         removedQuery.addBindValue(requester->id);
                         removedQuery.addBindValue(requester->name);
-                        if (!removedQuery.exec()) {
+                        const bool removedMarkerOk = removedQuery.exec();
+                        if (!removedMarkerOk) {
+                            errorText = QStringLiteral("群成员变更失败：记录移出成员失败");
                             qWarning() << "Failed to record removed group member marker:" << removedQuery.lastError().text();
                         }
-                        changed = true;
+                        changed = removedMarkerOk;
                     }
                 }
             } else if (errorText.isEmpty() && roleAction) {
@@ -2639,6 +2796,450 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
         sendServerGroupSnapshot(userId, memberSocket);
     }
     publishRedisServerGroupSnapshotRefresh(affectedUserIds, groupId, notice, memberId, action);
+}
+
+void Server::handleServerGroupEssenceUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "设置精华失败：请先登录");
+        return;
+    }
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString(QStringLiteral("public")));
+    QString messageId = obj.value("messageId").toString().trimmed();
+    if (messageId.isEmpty()) {
+        messageId = obj.value("clientMessageId").toString(
+            obj.value("id").toString(
+                obj.value("transferId").toString())).trimmed();
+    }
+    const bool enabled = obj.value("enabled").toBool(true);
+    if (groupId.isEmpty() || messageId.isEmpty() || !ensureAccountDatabase()) {
+        sendSystemNotice(socket, "设置精华失败：请求参数无效");
+        return;
+    }
+
+    QString errorText;
+    bool changed = false;
+    const QString connectionName = "server_group_essence_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            errorText = "设置精华失败：无法打开群组数据库";
+        } else {
+            const ServerGroupActorPermission permission = loadServerGroupActorPermission(db, groupId, requester->id);
+            if (!permission.member) {
+                errorText = "设置精华失败：你不在该群组";
+            } else if (!permission.manager && groupId != QLatin1String("public")) {
+                errorText = "设置精华失败：只有群主或管理员可以设置精华";
+            } else if (enabled) {
+                QSqlQuery query(db);
+                query.prepare(insertReplaceSql(
+                    QStringLiteral("server_group_essence_messages"),
+                    {QStringLiteral("group_id"), QStringLiteral("message_id"), QStringLiteral("set_by"), QStringLiteral("set_by_name"), QStringLiteral("created_at")},
+                    {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("group_id"), QStringLiteral("message_id")},
+                    {QStringLiteral("set_by = EXCLUDED.set_by"),
+                     QStringLiteral("set_by_name = EXCLUDED.set_by_name"),
+                     QStringLiteral("created_at = EXCLUDED.created_at")}));
+                query.addBindValue(groupId);
+                query.addBindValue(messageId);
+                query.addBindValue(requester->id);
+                query.addBindValue(requester->name);
+                changed = query.exec();
+            } else {
+                QSqlQuery query(db);
+                query.prepare("DELETE FROM server_group_essence_messages WHERE group_id = ? AND message_id = ?");
+                query.addBindValue(groupId);
+                query.addBindValue(messageId);
+                changed = query.exec();
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+
+    if (!changed) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "设置精华失败" : errorText);
+        return;
+    }
+    recordServerGroupAuditEvent(groupId,
+                                enabled ? QStringLiteral("essence_set") : QStringLiteral("essence_unset"),
+                                requester->id,
+                                requester->name,
+                                QString(),
+                                QString(),
+                                QJsonObject{{QStringLiteral("messageId"), messageId}});
+    const QStringList memberIds = serverGroupMemberIds(groupId);
+    for (const QString& memberId : memberIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(memberId);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        QJsonObject event;
+        event["type"] = "group_essence_updated";
+        event["groupId"] = groupId;
+        event["messageId"] = messageId;
+        event["enabled"] = enabled;
+        event["operatorId"] = requester->id;
+        memberSocket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        memberSocket->write("\n");
+        sendServerGroupSnapshot(memberId, memberSocket);
+    }
+}
+
+void Server::handleMessageFavoriteUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "收藏操作失败：请先登录");
+        return;
+    }
+    const QString sessionId = obj.value("sessionId").toString().trimmed();
+    const QString messageId = obj.value("messageId").toString().trimmed();
+    const bool favorite = obj.value("favorite").toBool(false);
+    if (sessionId.isEmpty() || messageId.isEmpty() || !ensureAccountDatabase()) {
+        sendSystemNotice(socket, "收藏操作失败：请求参数无效");
+        return;
+    }
+
+    QJsonObject message = obj.value("message").toObject();
+    message["sessionId"] = sessionId;
+    message["messageId"] = messageId;
+    if (!message.contains("id") || message.value("id").toString().trimmed().isEmpty()) {
+        message["id"] = messageId;
+    }
+    if (!message.contains("senderId")) message["senderId"] = QString();
+    if (!message.contains("senderName")) message["senderName"] = QString();
+    if (!message.contains("content")) message["content"] = QString();
+    if (!message.contains("type")) message["type"] = QStringLiteral("text");
+    if (!message.contains("timestamp")) message["timestamp"] = QString::number(QDateTime::currentMSecsSinceEpoch());
+
+    QString errorText;
+    bool changed = false;
+    const QString connectionName = "server_message_favorite_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            errorText = "收藏操作失败：无法打开收藏数据库";
+        } else if (favorite) {
+            QSqlQuery query(db);
+            query.prepare(insertReplaceSql(
+                QStringLiteral("server_message_favorites"),
+                {QStringLiteral("user_id"), QStringLiteral("session_id"), QStringLiteral("message_id"), QStringLiteral("message_json"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
+                {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                {QStringLiteral("user_id"), QStringLiteral("session_id"), QStringLiteral("message_id")},
+                {QStringLiteral("message_json = EXCLUDED.message_json"), QStringLiteral("updated_at = EXCLUDED.updated_at")}));
+            query.addBindValue(requester->id);
+            query.addBindValue(sessionId);
+            query.addBindValue(messageId);
+            query.addBindValue(QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact)));
+            changed = query.exec();
+            if (!changed) errorText = query.lastError().text();
+        } else {
+            QSqlQuery query(db);
+            query.prepare("DELETE FROM server_message_favorites WHERE user_id = ? AND session_id = ? AND message_id = ?");
+            query.addBindValue(requester->id);
+            query.addBindValue(sessionId);
+            query.addBindValue(messageId);
+            changed = query.exec();
+            if (!changed) errorText = query.lastError().text();
+        }
+        db.close();
+    }
+    releaseAccountDatabase(connectionName);
+
+    if (!changed) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "收藏操作失败" : QStringLiteral("收藏操作失败：%1").arg(errorText));
+        return;
+    }
+
+    QJsonObject event;
+    event["type"] = "message_favorite_updated";
+    event["sessionId"] = sessionId;
+    event["messageId"] = messageId;
+    event["favorite"] = favorite;
+    event["operatorId"] = requester->id;
+    if (favorite) {
+        event["message"] = message;
+    }
+    socket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
+
+void Server::handleServerGroupMessageRecall(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "撤回消息失败：请先登录");
+        return;
+    }
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString(QStringLiteral("public")));
+    QString messageId = obj.value("messageId").toString().trimmed();
+    if (messageId.isEmpty()) {
+        messageId = obj.value("clientMessageId").toString(
+            obj.value("id").toString(
+                obj.value("transferId").toString())).trimmed();
+    }
+    if (groupId.isEmpty() || messageId.isEmpty() || !ensureAccountDatabase()) {
+        sendSystemNotice(socket, "撤回消息失败：请求参数无效");
+        return;
+    }
+
+    QString errorText;
+    bool changed = false;
+    const QString connectionName = "server_group_recall_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            errorText = "撤回消息失败：无法打开群组数据库";
+        } else {
+            const ServerGroupActorPermission permission = loadServerGroupActorPermission(db, groupId, requester->id);
+            if (!permission.member) {
+                errorText = "撤回消息失败：你不在该群组";
+            } else if (!permission.manager) {
+                errorText = "撤回消息失败：只有群主或管理员可以撤回群消息";
+            } else {
+                QSqlQuery query(db);
+                query.prepare(insertReplaceSql(
+                    QStringLiteral("server_group_recalled_messages"),
+                    {QStringLiteral("group_id"), QStringLiteral("message_id"), QStringLiteral("recalled_by"), QStringLiteral("recalled_by_name"), QStringLiteral("created_at")},
+                    {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("group_id"), QStringLiteral("message_id")},
+                    {QStringLiteral("recalled_by = EXCLUDED.recalled_by"),
+                     QStringLiteral("recalled_by_name = EXCLUDED.recalled_by_name"),
+                     QStringLiteral("created_at = EXCLUDED.created_at")}));
+                query.addBindValue(groupId);
+                query.addBindValue(messageId);
+                query.addBindValue(requester->id);
+                query.addBindValue(requester->name);
+                changed = query.exec();
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+
+    if (!changed) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "撤回消息失败" : errorText);
+        return;
+    }
+    recordServerGroupAuditEvent(groupId,
+                                QStringLiteral("message_recall"),
+                                requester->id,
+                                requester->name,
+                                QString(),
+                                QString(),
+                                QJsonObject{{QStringLiteral("messageId"), messageId}});
+    const qint64 recalledAt = QDateTime::currentMSecsSinceEpoch();
+    const QStringList memberIds = serverGroupMemberIds(groupId);
+    for (const QString& memberId : memberIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(memberId);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        QJsonObject event;
+        event["type"] = "group_message_recalled";
+        event["groupId"] = groupId;
+        event["messageId"] = messageId;
+        event["operatorId"] = requester->id;
+        event["recalledAt"] = QString::number(recalledAt);
+        memberSocket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        memberSocket->write("\n");
+        sendServerGroupSnapshot(memberId, memberSocket);
+    }
+}
+
+void Server::handleServerGroupMemberMute(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "禁言失败：请先登录");
+        return;
+    }
+    const QString groupId = obj.value("groupId").toString("public").trimmed();
+    const QString memberId = obj.value("memberId").toString().trimmed();
+    const qint64 mutedUntil = obj.value("mutedUntil").isString()
+        ? obj.value("mutedUntil").toString().toLongLong()
+        : static_cast<qint64>(obj.value("mutedUntil").toDouble(-1));
+    const QString reason = obj.value("reason").toString().trimmed();
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (groupId.isEmpty() || memberId.isEmpty() || mutedUntil <= now || mutedUntil > now + 30LL * 24 * 60 * 60 * 1000 || !ensureAccountDatabase()) {
+        sendSystemNotice(socket, "禁言失败：请求参数无效或超过 30 天");
+        return;
+    }
+
+    QString errorText;
+    bool changed = false;
+    QString memberName = memberId;
+    const QString connectionName = "server_group_mute_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            errorText = "禁言失败：无法打开群组数据库";
+        } else {
+            const ServerGroupActorPermission permission = loadServerGroupActorPermission(db, groupId, requester->id);
+            if (!permission.member) {
+                errorText = "禁言失败：你不在该群组";
+            } else if (!permission.manager) {
+                errorText = "禁言失败：只有群主或管理员可以禁言";
+            } else {
+                QSqlQuery targetQuery(db);
+                targetQuery.prepare("SELECT COALESCE(user_name, ''), COALESCE(role, '') FROM server_group_members WHERE group_id = ? AND user_id = ?");
+                targetQuery.addBindValue(groupId);
+                targetQuery.addBindValue(memberId);
+                if (!targetQuery.exec() || !targetQuery.next()) {
+                    errorText = "禁言失败：目标用户不在该群组";
+                } else {
+                    memberName = targetQuery.value(0).toString().isEmpty() ? memberId : targetQuery.value(0).toString();
+                    const QString targetRole = targetQuery.value(1).toString().toLower();
+                    if (memberId == requester->id) {
+                        errorText = "禁言失败：不能禁言自己";
+                    } else if (!permission.owner && (targetRole == QLatin1String("owner") || targetRole == QLatin1String("admin"))) {
+                        errorText = "禁言失败：管理员不能禁言群主或其他管理员";
+                    } else {
+                        QSqlQuery query(db);
+                        query.prepare(insertReplaceSql(
+                            QStringLiteral("server_group_member_mutes"),
+                            {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("muted_until"), QStringLiteral("muted_by"), QStringLiteral("muted_by_name"), QStringLiteral("reason"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
+                            {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                            {QStringLiteral("group_id"), QStringLiteral("user_id")},
+                            {QStringLiteral("muted_until = EXCLUDED.muted_until"),
+                             QStringLiteral("muted_by = EXCLUDED.muted_by"),
+                             QStringLiteral("muted_by_name = EXCLUDED.muted_by_name"),
+                             QStringLiteral("reason = EXCLUDED.reason"),
+                             QStringLiteral("updated_at = EXCLUDED.updated_at")}));
+                        query.addBindValue(groupId);
+                        query.addBindValue(memberId);
+                        query.addBindValue(mutedUntil);
+                        query.addBindValue(requester->id);
+                        query.addBindValue(requester->name);
+                        query.addBindValue(reason);
+                        changed = query.exec();
+                    }
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    if (!changed) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "禁言失败" : errorText);
+        return;
+    }
+    recordServerGroupAuditEvent(groupId, QStringLiteral("member_mute"), requester->id, requester->name, memberId, memberName, QJsonObject{{QStringLiteral("mutedUntil"), QString::number(mutedUntil)}, {QStringLiteral("reason"), reason}});
+    const QStringList memberIds = serverGroupMemberIds(groupId);
+    for (const QString& id : memberIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(id);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        QJsonObject event;
+        event["type"] = "group_member_muted";
+        event["groupId"] = groupId;
+        event["memberId"] = memberId;
+        event["mutedUntil"] = QString::number(mutedUntil);
+        event["reason"] = reason;
+        event["operatorId"] = requester->id;
+        memberSocket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        memberSocket->write("\n");
+        sendServerGroupSnapshot(id, memberSocket);
+    }
+}
+
+void Server::handleServerGroupMemberUnmute(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "解除禁言失败：请先登录");
+        return;
+    }
+    const QString groupId = obj.value("groupId").toString("public").trimmed();
+    const QString memberId = obj.value("memberId").toString().trimmed();
+    if (groupId.isEmpty() || memberId.isEmpty() || !ensureAccountDatabase()) {
+        sendSystemNotice(socket, "解除禁言失败：请求参数无效");
+        return;
+    }
+    QString errorText;
+    bool changed = false;
+    const QString connectionName = "server_group_unmute_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            errorText = "解除禁言失败：无法打开群组数据库";
+        } else {
+            const ServerGroupActorPermission permission = loadServerGroupActorPermission(db, groupId, requester->id);
+            if (!permission.manager) {
+                errorText = "解除禁言失败：只有群主或管理员可以解除禁言";
+            } else {
+                QSqlQuery query(db);
+                query.prepare("DELETE FROM server_group_member_mutes WHERE group_id = ? AND user_id = ?");
+                query.addBindValue(groupId);
+                query.addBindValue(memberId);
+                changed = query.exec();
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    if (!changed) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "解除禁言失败" : errorText);
+        return;
+    }
+    recordServerGroupAuditEvent(groupId, QStringLiteral("member_unmute"), requester->id, requester->name, memberId, memberId);
+    const QStringList memberIds = serverGroupMemberIds(groupId);
+    for (const QString& id : memberIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(id);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        QJsonObject event;
+        event["type"] = "group_member_unmuted";
+        event["groupId"] = groupId;
+        event["memberId"] = memberId;
+        event["operatorId"] = requester->id;
+        memberSocket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        memberSocket->write("\n");
+        sendServerGroupSnapshot(id, memberSocket);
+    }
+}
+
+void Server::handleServerGroupMemberProfileRequest(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) return;
+    const QString groupId = obj.value("groupId").toString("public").trimmed();
+    const QString memberId = obj.value("memberId").toString().trimmed();
+    if (groupId.isEmpty() || memberId.isEmpty() || !ensureAccountDatabase()) {
+        sendSystemNotice(socket, "查看资料失败：请求参数无效");
+        return;
+    }
+    QJsonObject profile;
+    profile["type"] = "server_group_member_profile";
+    profile["groupId"] = groupId;
+    profile["userId"] = memberId;
+    profile["userName"] = memberId;
+    profile["online"] = m_userSockets.contains(memberId);
+    profile["role"] = "member";
+    profile["groupNickname"] = "";
+    profile["remark"] = "";
+    profile["signature"] = "";
+    profile["location"] = "";
+    profile["qqSpaceUrl"] = QString("https://user.qzone.qq.com/%1").arg(memberId);
+    const QString connectionName = "server_group_profile_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("SELECT COALESCE(m.user_name, ''), COALESCE(m.role, 'member'), COALESCE(a.avatar, '') "
+                          "FROM server_group_members m "
+                          "LEFT JOIN accounts a ON a.account = m.user_id "
+                          "WHERE m.group_id = ? AND m.user_id = ?");
+            query.addBindValue(groupId);
+            query.addBindValue(memberId);
+            if (query.exec() && query.next()) {
+                profile["userName"] = query.value(0).toString().isEmpty() ? memberId : query.value(0).toString();
+                profile["role"] = query.value(1).toString().isEmpty() ? QStringLiteral("member") : query.value(1).toString();
+                profile["avatar"] = query.value(2).toString();
+                profile["groupNickname"] = profile["userName"];
+            }
+            qint64 mutedUntil = 0;
+            if (isServerGroupMemberMuted(groupId, memberId, &mutedUntil)) {
+                profile["mutedUntil"] = QString::number(mutedUntil);
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    socket->write(QJsonDocument(profile).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
 }
 
 void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
@@ -2835,8 +3436,11 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         msg.senderAvatar = sender->avatar;
     }
     const QString routedGroupId = !serverGroupId.isEmpty()
-        ? serverGroupId
+        ? normalizeServerGroupId(serverGroupId)
         : (msg.receiverId.isEmpty() ? QStringLiteral("public") : QString());
+    if (routedGroupId == QLatin1String("public")) {
+        ensurePublicGroupMembership(msg.senderId, socket);
+    }
     if (!routedGroupId.isEmpty() && !isServerGroupMember(routedGroupId, msg.senderId)) {
         QJsonObject details;
         details["fileName"] = msg.fileName;
@@ -3009,7 +3613,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         sendSystemNotice(socket, QStringLiteral("文件发送失败：Redis 路由不可用，请等待服务恢复。"));
         return;
     }
-    if (deliveryState == "server-group-file" && m_redisClient->isEnabled()) {
+    if (deliveryState == "server-group-file" && m_redisService->isEnabled()) {
         const bool isLargeServerGroupPayload =
             (msg.type == MessageType::File || msg.type == MessageType::Image)
             && msg.fileData.size() > kRedisPubSubFileMaxBytes;
@@ -3080,8 +3684,11 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         return;
     }
     const QString routedGroupId = !serverGroupId.isEmpty()
-        ? serverGroupId
+        ? normalizeServerGroupId(serverGroupId)
         : (obj["receiverId"].toString().trimmed().isEmpty() ? QStringLiteral("public") : QString());
+    if (routedGroupId == QLatin1String("public")) {
+        ensurePublicGroupMembership(senderId, socket);
+    }
     if (!routedGroupId.isEmpty() && !isServerGroupMember(routedGroupId, senderId)) {
         rejectTransfer("已不在该群组");
         return;
@@ -3164,6 +3771,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     QJsonObject fullFile = pending.envelope;
     m_pendingFileTransfers.remove(key);
     fullFile["transferId"] = transferId;
+    if (routedGroupId == QLatin1String("public")) {
+        fullFile["receiverId"] = QString();
+        fullFile["groupId"] = QStringLiteral("public");
+    }
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleFile(fullFile, socket);
 }
@@ -3244,25 +3855,19 @@ void Server::handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket
 }
 
 void Server::refreshRedisPresence(const ChatUser& user) {
-    if (!m_redisClient->isEnabled()) return;
-    if (!m_redisClient->setPresence(user.id, user.name)) {
-        updateRedisCommandAvailability(false, m_redisClient->lastError());
-        return;
-    }
+    if (!m_redisService->isEnabled()) return;
+    if (!m_redisService->setPresence(user.id, user.name)) return;
     publishRedisPresenceEvent(user.id, QStringLiteral("online"));
 }
 
 void Server::clearRedisPresence(const QString& userId) {
-    if (!m_redisClient->isEnabled()) return;
-    if (!m_redisClient->clearPresence(userId)) {
-        updateRedisCommandAvailability(false, m_redisClient->lastError());
-        return;
-    }
+    if (!m_redisService->isEnabled()) return;
+    if (!m_redisService->clearPresence(userId)) return;
     publishRedisPresenceEvent(userId, QStringLiteral("offline"));
 }
 
 bool Server::publishRedisPresenceEvent(const QString& userId, const QString& action) const {
-    if (!m_redisClient->isEnabled() || userId.trimmed().isEmpty()) {
+    if (!m_redisService->isEnabled() || userId.trimmed().isEmpty()) {
         return false;
     }
 
@@ -3272,7 +3877,7 @@ bool Server::publishRedisPresenceEvent(const QString& userId, const QString& act
     event["userId"] = userId.trimmed();
     event["action"] = action.trimmed().isEmpty() ? QStringLiteral("online") : action.trimmed();
     event["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    return m_redisClient->publish(QStringLiteral("messages"),
+    return m_redisService->publish(QStringLiteral("messages"),
                                    QJsonDocument(event).toJson(QJsonDocument::Compact));
 }
 
@@ -3281,7 +3886,7 @@ bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds,
                                                     const QString& notice,
                                                     const QString& memberId,
                                                     const QString& memberAction) const {
-    if (!m_redisClient->isEnabled() || groupId.trimmed().isEmpty()) return false;
+    if (!m_redisService->isEnabled() || groupId.trimmed().isEmpty()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonArray userIdArray;
@@ -3317,7 +3922,7 @@ bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds,
                    << "limit:" << kRedisPubSubEventMaxBytes;
         return false;
     }
-    return m_redisClient->publish(QStringLiteral("messages"), eventPayload);
+    return m_redisService->publish(QStringLiteral("messages"), eventPayload);
 }
 
 void Server::refreshConnectedClientViews() {
@@ -3354,14 +3959,12 @@ void Server::refreshConnectedClientViews() {
 
 bool Server::isRedisUserOnline(const QString& userId, bool* online) const {
     if (online) *online = false;
-    if (!m_redisClient->isEnabled() || userId.isEmpty()) return false;
-    const bool ok = m_redisClient->queryPresence(userId, online);
-    if (!ok) const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    return ok;
+    if (!m_redisService->isEnabled() || userId.isEmpty()) return false;
+    return m_redisService->queryPresence(userId, online);
 }
 
 bool Server::canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
 
     const bool isRedisFilePayload =
         (msg.type == MessageType::File || msg.type == MessageType::Image)
@@ -3386,7 +3989,7 @@ bool Server::canPublishRedisMessageEvent(const Message& msg, const QString& deli
 }
 
 bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliveryState) {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     tryRecoverRedisCommandAvailability();
     if (!canPublishRedisMessageEvent(msg, deliveryState)) return false;
 
@@ -3408,11 +4011,11 @@ bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
                    << "limit:" << kRedisPubSubEventMaxBytes;
         return false;
     }
-    return m_redisClient->publish("messages", eventPayload);
+    return m_redisService->publish("messages", eventPayload);
 }
 
 bool Server::publishRedisE2EControlEvent(const QJsonObject& forwarded) const {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
     const QString receiverId = forwarded.value("receiverId").toString().trimmed();
     if (receiverId.isEmpty()) return false;
@@ -3432,11 +4035,11 @@ bool Server::publishRedisE2EControlEvent(const QJsonObject& forwarded) const {
                    << "limit:" << kRedisPubSubEventMaxBytes;
         return false;
     }
-    return m_redisClient->publish("messages", eventPayload);
+    return m_redisService->publish("messages", eventPayload);
 }
 
 bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     const QString objectKey = offlinePayload["objectStoreKey"].toString().trimmed();
@@ -3489,17 +4092,17 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
                                     fileSize);
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("offer"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? QString() : m_redisClient->lastError(),
+                                published ? QString() : m_redisService->lastError(),
                                 fileSize);
     return published;
 }
 
 bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonObject event;
@@ -3520,16 +4123,16 @@ bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
                                     QStringLiteral("payload-too-large"));
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("claim"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? QString() : m_redisClient->lastError());
+                                published ? QString() : m_redisService->lastError());
     return published;
 }
 
 bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonObject event;
@@ -3554,17 +4157,17 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
                                     confirmedBytes);
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? QString() : m_redisClient->lastError(),
+                                published ? QString() : m_redisService->lastError(),
                                 confirmedBytes);
     return published;
 }
 
 bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const {
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonObject event;
@@ -3588,11 +4191,11 @@ bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString
                                     QStringLiteral("payload-too-large"));
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("failed"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? reason : m_redisClient->lastError());
+                                published ? reason : m_redisService->lastError());
     return published;
 }
 
@@ -4075,17 +4678,17 @@ ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
 }
 
 QString Server::generateAccountId(const QJsonObject& accounts) const {
-    for (int i = 0; i < 200; ++i) {
-        int length = QRandomGenerator::global()->bounded(1, 10);
-        int minValue = 1;
-        for (int j = 1; j < length; ++j) {
-            minValue *= 10;
+    // Allocate numeric account IDs sequentially starting from 1
+    // so users get short, memorable QQ-style numbers.
+    qint64 maxId = 0;
+    for (auto it = accounts.begin(); it != accounts.end(); ++it) {
+        bool ok = false;
+        const qint64 id = it.key().toLongLong(&ok);
+        if (ok && id > 0 && id > maxId) {
+            maxId = id;
         }
-        int maxValue = minValue * 10;
-        QString account = QString::number(QRandomGenerator::global()->bounded(minValue, maxValue));
-        if (!accounts.contains(account)) return account;
     }
-    return QString::number(QDateTime::currentMSecsSinceEpoch() % 1000000000).rightJustified(1, '1');
+    return QString::number(maxId + 1);
 }
 
 QJsonObject Server::loadAccountsFromSqlite() const {
@@ -4097,13 +4700,20 @@ QJsonObject Server::loadAccountsFromSqlite() const {
         QSqlDatabase db = openAccountDatabase(connectionName);
         if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
-            if (query.exec("SELECT account, password_hash, user_name, COALESCE(avatar, '') FROM accounts")) {
+            if (query.exec("SELECT account, password_hash, user_name, COALESCE(avatar, ''), "
+                           "COALESCE(account_status, 'active'), COALESCE(login_account, account), "
+                           "COALESCE(account_generation, 1) "
+                           "FROM accounts "
+                           "WHERE COALESCE(account_status, 'active') IN ('active', 'deactivation_pending')")) {
                 while (query.next()) {
                     QJsonObject accountObj;
                     accountObj["passwordHash"] = query.value(1).toString();
                     accountObj["userName"] = query.value(2).toString();
                     accountObj["avatar"] = query.value(3).toString();
                     accountObj["userId"] = query.value(0).toString();
+                    accountObj["accountStatus"] = query.value(4).toString();
+                    accountObj["loginAccount"] = query.value(5).toString();
+                    accountObj["accountGeneration"] = query.value(6).toInt();
                     accounts[query.value(0).toString()] = accountObj;
                 }
             }
@@ -4150,33 +4760,182 @@ bool Server::insertAccountToSqlite(const QString& account,
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
         if (openAccountDatabaseConnection(db, connectionName)) {
+            const bool inTransaction = db.transaction();
+            int nextGeneration = 1;
+            QSqlQuery generationQuery(db);
+            generationQuery.prepare("SELECT COALESCE(MAX(account_generation), 0) + 1 FROM accounts WHERE login_account = ? OR account = ?");
+            generationQuery.addBindValue(account);
+            generationQuery.addBindValue(account);
+            if (generationQuery.exec() && generationQuery.next()) {
+                nextGeneration = qMax(1, generationQuery.value(0).toInt());
+            }
+
+            QSqlQuery archiveQuery(db);
+            archiveQuery.prepare("UPDATE accounts SET account = ?, updated_at = CURRENT_TIMESTAMP "
+                                 "WHERE account = ? AND COALESCE(account_status, 'active') = 'deactivated'");
+            const QString archivedAccount = accountArchivedId(account, qMax(1, nextGeneration - 1));
+            archiveQuery.addBindValue(archivedAccount);
+            archiveQuery.addBindValue(account);
+            bool archiveOk = archiveQuery.exec();
+            if (archiveOk && archiveQuery.numRowsAffected() > 0) {
+                archiveOk = archiveAccountReferences(db, account, archivedAccount);
+            }
+
+            if (archiveOk) {
+                QSqlQuery query(db);
+                query.prepare(insertReplaceSql(
+                    QStringLiteral("accounts"),
+                    {QStringLiteral("account"),
+                     QStringLiteral("account_uid"),
+                     QStringLiteral("login_account"),
+                     QStringLiteral("account_generation"),
+                     QStringLiteral("account_status"),
+                     QStringLiteral("password_hash"),
+                     QStringLiteral("user_name"),
+                     QStringLiteral("avatar"),
+                     QStringLiteral("updated_at")},
+                    {QStringLiteral("?"),
+                     accountUidDefaultSql(),
+                     QStringLiteral("?"),
+                     QStringLiteral("?"),
+                     QStringLiteral("'active'"),
+                     QStringLiteral("?"),
+                     QStringLiteral("?"),
+                     QStringLiteral("?"),
+                     QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("account")},
+                    {QStringLiteral("account_uid = accounts.account_uid"),
+                     QStringLiteral("login_account = EXCLUDED.login_account"),
+                     QStringLiteral("account_generation = EXCLUDED.account_generation"),
+                     QStringLiteral("account_status = 'active'"),
+                     QStringLiteral("deactivation_requested_at = NULL"),
+                     QStringLiteral("deactivation_effective_at = NULL"),
+                     QStringLiteral("deactivated_at = NULL"),
+                     QStringLiteral("deactivation_reason = NULL"),
+                     QStringLiteral("password_hash = EXCLUDED.password_hash"),
+                     QStringLiteral("user_name = EXCLUDED.user_name"),
+                     QStringLiteral("avatar = EXCLUDED.avatar"),
+                     QStringLiteral("updated_at = EXCLUDED.updated_at")}));
+                query.addBindValue(account);
+                query.addBindValue(account);
+                query.addBindValue(nextGeneration);
+                query.addBindValue(passwordHash);
+                query.addBindValue(userName);
+                query.addBindValue(avatarBase64);
+                ok = query.exec();
+                if (!ok) {
+                    qWarning() << "Failed to write account:" << query.lastError().text() << account;
+                }
+            } else {
+                qWarning() << "Failed to archive deactivated account before write:" << archiveQuery.lastError().text() << account;
+            }
+            if (inTransaction) {
+                if (ok) {
+                    db.commit();
+                } else {
+                    db.rollback();
+                }
+            } else if (!ok) {
+                qWarning() << "Account write transaction unavailable:" << db.lastError().text() << account;
+            }
+            db.close();
+        } else {
+            qWarning() << "Failed to open account write database:" << db.lastError().text() << account;
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    return ok;
+}
+
+bool Server::finalizeExpiredAccountDeactivations() const {
+    if (!ensureAccountDatabase()) return false;
+
+    QString connectionName = "accounts_deactivation_finalize_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
-            query.prepare(insertReplaceSql(
-                QStringLiteral("accounts"),
-                {QStringLiteral("account"),
-                 QStringLiteral("password_hash"),
-                 QStringLiteral("user_name"),
-                 QStringLiteral("avatar"),
-                 QStringLiteral("updated_at")},
-                {QStringLiteral("?"),
-                 QStringLiteral("?"),
-                 QStringLiteral("?"),
-                 QStringLiteral("?"),
-                 QStringLiteral("CURRENT_TIMESTAMP")},
-                {QStringLiteral("account")},
-                {QStringLiteral("password_hash = EXCLUDED.password_hash"),
-                 QStringLiteral("user_name = EXCLUDED.user_name"),
-                 QStringLiteral("avatar = EXCLUDED.avatar"),
-                 QStringLiteral("updated_at = EXCLUDED.updated_at")}));
-            query.addBindValue(account);
-            query.addBindValue(passwordHash);
-            query.addBindValue(userName);
-            query.addBindValue(avatarBase64);
+            query.prepare("UPDATE accounts SET account_status = 'deactivated', "
+                          "deactivated_at = COALESCE(deactivated_at, CURRENT_TIMESTAMP), "
+                          "updated_at = CURRENT_TIMESTAMP "
+                          "WHERE account_status = 'deactivation_pending' "
+                          "AND deactivation_effective_at <= CURRENT_TIMESTAMP");
             ok = query.exec();
             db.close();
         }
     }
     releaseAccountDatabase(connectionName);
+    return ok;
+}
+
+bool Server::markAccountDeactivationPending(const QString& account, const QString& reason, QString* rejectReason) const {
+    const QString normalizedAccount = account.trimmed();
+    if (normalizedAccount.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("账号不能为空");
+        return false;
+    }
+    if (!ensureAccountDatabase()) {
+        if (rejectReason) *rejectReason = QStringLiteral("账号数据库不可用");
+        return false;
+    }
+
+    QString connectionName = "accounts_deactivation_request_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare(QStringLiteral("UPDATE accounts SET account_status = 'deactivation_pending', "
+                                         "deactivation_requested_at = CURRENT_TIMESTAMP, "
+                                         "deactivation_effective_at = %1, "
+                                         "deactivated_at = NULL, "
+                                         "deactivation_reason = ?, "
+                                         "updated_at = CURRENT_TIMESTAMP "
+                                         "WHERE account = ? AND COALESCE(account_status, 'active') = 'active'")
+                              .arg(currentTimestampPlusDaysSql(7)));
+            query.addBindValue(reason.trimmed());
+            query.addBindValue(normalizedAccount);
+            ok = query.exec() && query.numRowsAffected() > 0;
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    if (!ok && rejectReason) *rejectReason = QStringLiteral("账号不存在或已经处于注销流程");
+    return ok;
+}
+
+bool Server::cancelAccountDeactivation(const QString& account, QString* rejectReason) const {
+    const QString normalizedAccount = account.trimmed();
+    if (normalizedAccount.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("账号不能为空");
+        return false;
+    }
+    if (!ensureAccountDatabase()) {
+        if (rejectReason) *rejectReason = QStringLiteral("账号数据库不可用");
+        return false;
+    }
+
+    QString connectionName = "accounts_deactivation_cancel_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("UPDATE accounts SET account_status = 'active', "
+                          "deactivation_requested_at = NULL, "
+                          "deactivation_effective_at = NULL, "
+                          "deactivated_at = NULL, "
+                          "deactivation_reason = NULL, "
+                          "updated_at = CURRENT_TIMESTAMP "
+                          "WHERE account = ? AND account_status = 'deactivation_pending'");
+            query.addBindValue(normalizedAccount);
+            ok = query.exec() && query.numRowsAffected() > 0;
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    if (!ok && rejectReason) *rejectReason = QStringLiteral("账号不在注销冷静期内");
     return ok;
 }
 
@@ -4239,89 +4998,188 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
 }
 
 bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
-    if (user.id.isEmpty() || !ensureAccountDatabase()) return false;
+    if (user.id.trimmed().isEmpty() || !ensureAccountDatabase()) return false;
 
+    const QString normalizedUserId = user.id.trimmed();
+    const QString normalizedUserName = user.name.trimmed().isEmpty() ? normalizedUserId : user.name.trimmed();
     QString connectionName = "default_group_member_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
         if (openAccountDatabaseConnection(db, connectionName)) {
-            QSqlQuery groupQuery(db);
-            ok = groupQuery.exec(insertIgnoreSql(
-                QStringLiteral("server_groups"),
-                {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
-                {QStringLiteral("'public'"), QStringLiteral("'公共聊天室'"), QStringLiteral("'欢迎来到公共聊天室。'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
-                {QStringLiteral("group_id")}));
-            if (ok) {
-                QSqlQuery removedQuery(db);
-                removedQuery.prepare("SELECT COUNT(*) FROM server_group_removed_members WHERE group_id = 'public' AND user_id = ?");
-                removedQuery.addBindValue(user.id);
-                ok = removedQuery.exec();
-                bool wasRemoved = false;
-                if (ok && removedQuery.next()) {
-                    wasRemoved = removedQuery.value(0).toInt() > 0;
+            if (db.transaction()) {
+                QSqlQuery groupQuery(db);
+                ok = groupQuery.exec(insertIgnoreSql(
+                    QStringLiteral("server_groups"),
+                    {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("group_type"), QStringLiteral("history_policy"), QStringLiteral("file_policy"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
+                    {QStringLiteral("'public'"), QStringLiteral("'公共聊天室'"), QStringLiteral("'欢迎来到公共聊天室。'"), QStringLiteral("'public'"), QStringLiteral("'public-removed-readonly'"), QStringLiteral("'public-members-only'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("group_id")}));
+
+                if (ok) {
+                    QSqlQuery repairGroupQuery(db);
+                    repairGroupQuery.prepare("UPDATE server_groups "
+                                             "SET group_name = COALESCE(NULLIF(group_name, ''), '公共聊天室'), "
+                                             "announcement = COALESCE(NULLIF(announcement, ''), '欢迎来到公共聊天室。'), "
+                                             "group_type = 'public', "
+                                             "history_policy = COALESCE(NULLIF(history_policy, ''), 'public-removed-readonly'), "
+                                             "file_policy = COALESCE(NULLIF(file_policy, ''), 'public-members-only'), "
+                                             "updated_at = CURRENT_TIMESTAMP "
+                                             "WHERE group_id = 'public'");
+                    ok = repairGroupQuery.exec();
                 }
-                if (ok && !wasRemoved) {
+
+                const bool wasRemovedFromPublic = [&]() {
+                    QSqlQuery removedQuery(db);
+                    removedQuery.prepare("SELECT COUNT(*) FROM server_group_removed_members WHERE group_id = 'public' AND user_id = ?");
+                    removedQuery.addBindValue(normalizedUserId);
+                    return removedQuery.exec() && removedQuery.next() && removedQuery.value(0).toInt() > 0;
+                }();
+
+                if (ok && wasRemovedFromPublic) {
+                    ok = db.commit();
+                    db.close();
+                    releaseAccountDatabase(connectionName);
+                    return ok;
+                }
+
+                if (ok) {
                     QSqlQuery insertMemberQuery(db);
-                    insertMemberQuery.prepare(insertIgnoreSql(
+                    insertMemberQuery.prepare(insertReplaceSql(
                         QStringLiteral("server_group_members"),
                         {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("user_name"), QStringLiteral("role"), QStringLiteral("joined_at"), QStringLiteral("updated_at")},
-                        {QStringLiteral("'public'"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("'member'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
-                        {QStringLiteral("group_id"), QStringLiteral("user_id")}));
-                    insertMemberQuery.addBindValue(user.id);
-                    insertMemberQuery.addBindValue(user.name);
+                        {QStringLiteral("'public'"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("COALESCE((SELECT role FROM server_group_members WHERE group_id = 'public' AND user_id = ?), 'member')"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                        {QStringLiteral("group_id"), QStringLiteral("user_id")},
+                        {QStringLiteral("user_name = EXCLUDED.user_name"),
+                         QStringLiteral("role = CASE WHEN server_group_members.role = 'owner' THEN 'owner' ELSE EXCLUDED.role END"),
+                         QStringLiteral("updated_at = EXCLUDED.updated_at")}));
+                    insertMemberQuery.addBindValue(normalizedUserId);
+                    insertMemberQuery.addBindValue(normalizedUserName);
+                    insertMemberQuery.addBindValue(normalizedUserId);
                     ok = insertMemberQuery.exec();
+                    if (!ok) {
+                        qWarning() << "Failed to upsert public group member:" << insertMemberQuery.lastError().text();
+                    }
                 }
-            }
-            if (ok) {
-                QSqlQuery updateMemberQuery(db);
-                updateMemberQuery.prepare("UPDATE server_group_members SET user_name = ?, updated_at = CURRENT_TIMESTAMP "
-                                          "WHERE group_id = 'public' AND user_id = ?");
-                updateMemberQuery.addBindValue(user.name);
-                updateMemberQuery.addBindValue(user.id);
-                ok = updateMemberQuery.exec();
-            }
-            QString ownerId;
-            if (ok) {
-                QSqlQuery ownerQuery(db);
-                ownerQuery.prepare("SELECT COALESCE(owner_id, '') FROM server_groups WHERE group_id = 'public'");
-                ok = ownerQuery.exec();
-                if (ok && ownerQuery.next()) {
-                    ownerId = ownerQuery.value(0).toString().trimmed();
+
+                QString ownerId;
+                if (ok) {
+                    QSqlQuery ownerQuery(db);
+                    ownerQuery.prepare("SELECT COALESCE(owner_id, '') FROM server_groups WHERE group_id = 'public'");
+                    ok = ownerQuery.exec();
+                    if (ok && ownerQuery.next()) {
+                        ownerId = ownerQuery.value(0).toString().trimmed();
+                    }
                 }
-            }
-            if (ok && !ownerId.isEmpty()) {
-                QSqlQuery ownerMemberQuery(db);
-                ownerMemberQuery.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = 'public' AND user_id = ?");
-                ownerMemberQuery.addBindValue(ownerId);
-                ok = ownerMemberQuery.exec();
-                if (ok && ownerMemberQuery.next() && ownerMemberQuery.value(0).toInt() == 0) {
-                    ownerId.clear();
+                if (ok && !ownerId.isEmpty()) {
+                    QSqlQuery ownerMemberQuery(db);
+                    ownerMemberQuery.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = 'public' AND user_id = ?");
+                    ownerMemberQuery.addBindValue(ownerId);
+                    ok = ownerMemberQuery.exec();
+                    if (ok && ownerMemberQuery.next() && ownerMemberQuery.value(0).toInt() == 0) {
+                        ownerId.clear();
+                    }
                 }
-            }
-            if (ok && ownerId.isEmpty()) {
-                ownerId = user.id;
-                QSqlQuery updateOwnerQuery(db);
-                updateOwnerQuery.prepare("UPDATE server_groups SET owner_id = ?, updated_at = CURRENT_TIMESTAMP "
-                                         "WHERE group_id = 'public'");
-                updateOwnerQuery.addBindValue(ownerId);
-                ok = updateOwnerQuery.exec();
-            }
-            if (ok) {
-                QSqlQuery updateRoleQuery(db);
-                updateRoleQuery.prepare("UPDATE server_group_members "
-                                        "SET role = CASE WHEN user_id = ? THEN 'owner' "
-                                        "WHEN role = 'owner' THEN 'member' ELSE role END, "
-                                        "updated_at = CURRENT_TIMESTAMP "
-                                        "WHERE group_id = 'public'");
-                updateRoleQuery.addBindValue(ownerId);
-                ok = updateRoleQuery.exec();
+                if (ok && ownerId.isEmpty()) {
+                    ownerId = normalizedUserId;
+                    QSqlQuery updateOwnerQuery(db);
+                    updateOwnerQuery.prepare("UPDATE server_groups SET owner_id = ?, updated_at = CURRENT_TIMESTAMP "
+                                             "WHERE group_id = 'public'");
+                    updateOwnerQuery.addBindValue(ownerId);
+                    ok = updateOwnerQuery.exec();
+                }
+                if (ok) {
+                    QSqlQuery backfillMembersQuery(db);
+                    const QString currentOwnerSql = QStringLiteral("COALESCE((SELECT owner_id FROM server_groups WHERE group_id = 'public'), '')");
+                    if (accountDatabaseIsPostgres()) {
+                        ok = backfillMembersQuery.exec(
+                            "INSERT INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                            "SELECT 'public', a.account, COALESCE(NULLIF(a.user_name, ''), a.account), "
+                            "CASE WHEN a.account = " + currentOwnerSql + " THEN 'owner' ELSE COALESCE(NULLIF(m.role, ''), 'member') END, "
+                            "COALESCE(m.joined_at, CURRENT_TIMESTAMP::text), CURRENT_TIMESTAMP::text "
+                            "FROM accounts a "
+                            "LEFT JOIN server_group_members m ON m.group_id = 'public' AND m.user_id = a.account "
+                            "WHERE COALESCE(a.account_status, 'active') = 'active' "
+                            "AND NOT EXISTS (SELECT 1 FROM server_group_removed_members r WHERE r.group_id = 'public' AND r.user_id = a.account) "
+                            "ON CONFLICT(group_id, user_id) DO UPDATE SET "
+                            "user_name = EXCLUDED.user_name, "
+                            "role = CASE WHEN server_group_members.user_id = " + currentOwnerSql + " THEN 'owner' "
+                            "WHEN server_group_members.role = 'owner' THEN 'member' ELSE server_group_members.role END, "
+                            "updated_at = CURRENT_TIMESTAMP::text");
+                    } else {
+                        ok = backfillMembersQuery.exec(
+                            "INSERT OR REPLACE INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                            "SELECT 'public', a.account, COALESCE(NULLIF(a.user_name, ''), a.account), "
+                            "CASE WHEN a.account = " + currentOwnerSql + " THEN 'owner' ELSE COALESCE(NULLIF(m.role, ''), 'member') END, "
+                            "COALESCE(m.joined_at, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP "
+                            "FROM accounts a "
+                            "LEFT JOIN server_group_members m ON m.group_id = 'public' AND m.user_id = a.account "
+                            "WHERE COALESCE(a.account_status, 'active') = 'active' "
+                            "AND NOT EXISTS (SELECT 1 FROM server_group_removed_members r WHERE r.group_id = 'public' AND r.user_id = a.account)");
+                    }
+                    if (!ok) {
+                        qWarning() << "Failed to backfill public group members:" << backfillMembersQuery.lastError().text();
+                    }
+                }
+                if (ok) {
+                    QSqlQuery updateRoleQuery(db);
+                    updateRoleQuery.prepare("UPDATE server_group_members "
+                                            "SET role = CASE WHEN user_id = ? THEN 'owner' "
+                                            "WHEN role = 'owner' THEN 'member' ELSE role END, "
+                                            "updated_at = CURRENT_TIMESTAMP "
+                                            "WHERE group_id = 'public'");
+                    updateRoleQuery.addBindValue(ownerId);
+                    ok = updateRoleQuery.exec();
+                }
+
+                if (ok) {
+                    ok = db.commit();
+                } else {
+                    db.rollback();
+                }
+            } else {
+                qWarning() << "Failed to start public group membership transaction:" << db.lastError().text();
             }
             db.close();
         }
     }
     releaseAccountDatabase(connectionName);
     return ok;
+}
+
+bool Server::ensurePublicGroupMembership(const QString& userId, QTcpSocket* socket) const {
+    const QString normalizedUserId = userId.trimmed();
+    if (normalizedUserId.isEmpty()) return false;
+
+    ChatUser user;
+    if (socket && m_clients.contains(socket)) {
+        const ChatUser socketUser = m_clients.value(socket);
+        if (socketUser.id == normalizedUserId) {
+            user = socketUser;
+        }
+    }
+    if (user.id.isEmpty()) {
+        for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
+            if (it.value().id == normalizedUserId) {
+                user = it.value();
+                break;
+            }
+        }
+    }
+    if (user.id.isEmpty()) {
+        user.id = normalizedUserId;
+        user.name = normalizedUserId;
+    }
+
+    if (isServerGroupRemovedMember(QStringLiteral("public"), normalizedUserId)) {
+        return false;
+    }
+
+    const bool recorded = recordDefaultGroupMembership(user);
+    const bool member = isServerGroupMember(QStringLiteral("public"), normalizedUserId);
+    if (!member) {
+        qWarning() << "Public group membership repair failed" << normalizedUserId << "recorded" << recorded;
+    }
+    return member;
 }
 
 bool Server::isServerGroupMember(const QString& groupId, const QString& userId) const {
@@ -4346,6 +5204,40 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
     }
     releaseAccountDatabase(connectionName);
     return exists;
+}
+
+bool Server::isServerGroupMemberMuted(const QString& groupId, const QString& userId, qint64* mutedUntil) const {
+    if (mutedUntil) *mutedUntil = 0;
+    if (groupId.isEmpty() || userId.isEmpty() || !ensureAccountDatabase()) return false;
+
+    const QString connectionName = "server_group_mute_check_"
+        + QString::number(reinterpret_cast<quintptr>(this)) + "_"
+        + QString::number(qHash(groupId + "|" + userId));
+    bool muted = false;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery cleanup(db);
+            cleanup.prepare("DELETE FROM server_group_member_mutes WHERE muted_until <= ?");
+            cleanup.addBindValue(now);
+            cleanup.exec();
+
+            QSqlQuery query(db);
+            query.prepare("SELECT muted_until FROM server_group_member_mutes WHERE group_id = ? AND user_id = ? AND muted_until > ?");
+            query.addBindValue(groupId);
+            query.addBindValue(userId);
+            query.addBindValue(now);
+            if (query.exec() && query.next()) {
+                const qint64 until = query.value(0).toLongLong();
+                muted = true;
+                if (mutedUntil) *mutedUntil = until;
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    return muted;
 }
 
 bool Server::isServerGroupRemovedMember(const QString& groupId, const QString& userId) const {
@@ -4616,6 +5508,9 @@ bool Server::ensureAccountDatabase() const {
         if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             const QString idColumn = autoIdColumnSql();
+            if (accountDatabaseIsPostgres()) {
+                query.exec("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+            }
             ok = query.exec("CREATE TABLE IF NOT EXISTS accounts ("
                             "account TEXT PRIMARY KEY, "
                             "password_hash TEXT NOT NULL, "
@@ -4628,6 +5523,18 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("ALTER TABLE accounts ADD COLUMN last_login_at TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN last_login_address TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN login_count INTEGER DEFAULT 0");
+                query.exec("ALTER TABLE accounts ADD COLUMN account_uid TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN login_account TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN account_generation INTEGER DEFAULT 1");
+                query.exec("ALTER TABLE accounts ADD COLUMN account_status TEXT DEFAULT 'active'");
+                query.exec("ALTER TABLE accounts ADD COLUMN deactivation_requested_at TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN deactivation_effective_at TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN deactivated_at TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN deactivation_reason TEXT");
+                query.exec("UPDATE accounts SET account_uid = " + accountUidDefaultSql() + " WHERE account_uid IS NULL OR account_uid = ''");
+                query.exec("UPDATE accounts SET login_account = account WHERE login_account IS NULL OR login_account = ''");
+                query.exec("UPDATE accounts SET account_generation = 1 WHERE account_generation IS NULL OR account_generation < 1");
+                query.exec("UPDATE accounts SET account_status = 'active' WHERE account_status IS NULL OR account_status = ''");
             }
             if (ok) {
                 ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS user_sessions (")
@@ -4744,6 +5651,46 @@ bool Server::ensureAccountDatabase() const {
                                                  "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_essence_messages ("
+                                "group_id TEXT NOT NULL, "
+                                "message_id TEXT NOT NULL, "
+                                "set_by TEXT, "
+                                "set_by_name TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(group_id, message_id))");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_message_favorites ("
+                                "user_id TEXT NOT NULL, "
+                                "session_id TEXT NOT NULL, "
+                                "message_id TEXT NOT NULL, "
+                                "message_json TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(user_id, session_id, message_id))");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_recalled_messages ("
+                                "group_id TEXT NOT NULL, "
+                                "message_id TEXT NOT NULL, "
+                                "recalled_by TEXT, "
+                                "recalled_by_name TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(group_id, message_id))");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_member_mutes ("
+                                "group_id TEXT NOT NULL, "
+                                "user_id TEXT NOT NULL, "
+                                "muted_until INTEGER NOT NULL, "
+                                "muted_by TEXT, "
+                                "muted_by_name TEXT, "
+                                "reason TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(group_id, user_id))");
+            }
+            if (ok) {
                 query.exec(insertIgnoreSql(
                     QStringLiteral("server_groups"),
                     {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("group_type"), QStringLiteral("history_policy"), QStringLiteral("file_policy"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
@@ -4764,6 +5711,22 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_removed_members_user ON server_group_removed_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_announcements_group ON server_group_announcements(group_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_audit_group ON server_group_audit_events(group_id, id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_essence_group ON server_group_essence_messages(group_id, message_id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_message_favorites_user ON server_message_favorites(user_id, updated_at)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_recalled_group ON server_group_recalled_messages(group_id, message_id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_mutes_group ON server_group_member_mutes(group_id, user_id, muted_until)");
+                query.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_uid ON accounts(account_uid)");
+                query.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_login_generation ON accounts(login_account, account_generation)");
+                if (accountDatabaseIsPostgres()) {
+                    query.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_login_active_pending "
+                               "ON accounts(login_account) "
+                               "WHERE account_status IN ('active', 'deactivation_pending')");
+                } else {
+                    query.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_login_active_pending "
+                               "ON accounts(login_account) "
+                               "WHERE account_status IN ('active', 'deactivation_pending')");
+                }
+                query.exec("CREATE INDEX IF NOT EXISTS idx_accounts_deactivation_due ON accounts(account_status, deactivation_effective_at)");
             }
             db.close();
         }
@@ -4845,7 +5808,7 @@ bool Server::hasOfflineAttachmentCapacity(qint64 incomingBytes) const {
 
 bool Server::shouldPublishLargeFileOffer(const Message& msg) const {
     if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return false;
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     if (!isRedisUserOnline(msg.receiverId)) return false;
     if (msg.receiverId.isEmpty() || msg.fileData.isEmpty()) return false;
     if (msg.type != MessageType::File && msg.type != MessageType::Image) return false;
@@ -4860,7 +5823,7 @@ bool Server::shouldPublishLargeFileOffer(const Message& msg) const {
 
 bool Server::shouldPublishServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const {
     if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return false;
-    if (!m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     if (msg.receiverId.isEmpty() || msg.receiverId == QLatin1String("public")) return false;
     if (msg.fileData.isEmpty() || msg.fileData.size() <= kRedisPubSubFileMaxBytes) return false;
     if (msg.type != MessageType::File && msg.type != MessageType::Image) return false;
@@ -6022,9 +6985,9 @@ void Server::sendUserList(QTcpSocket* socket) {
     QSet<QString> onlineIds;
     QMap<QString, QString> onlineNames;
     QJsonArray users;
-    if (m_redisClient->isEnabled()) {
+    if (m_redisService->isEnabled()) {
         QList<RedisClient::Presence> redisUsers;
-        if (m_redisClient->fetchOnlinePresence(&redisUsers)) {
+        if (m_redisService->fetchOnlinePresence(&redisUsers)) {
             for (const RedisClient::Presence& user : redisUsers) {
                 const QString userId = user.userId.trimmed();
                 if (userId.isEmpty()) {
@@ -6144,10 +7107,57 @@ void Server::sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& gro
     socket->flush();
 }
 
+void Server::sendFavoriteMessagesSnapshot(const QString& userId, QTcpSocket* socket) const {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState || userId.trimmed().isEmpty() || !ensureAccountDatabase()) return;
+
+    QJsonArray favorites;
+    const QString connectionName = "server_message_favorites_snapshot_"
+        + QString::number(reinterpret_cast<quintptr>(this)) + "_"
+        + QString::number(qHash(userId));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("SELECT session_id, message_id, COALESCE(message_json, ''), updated_at "
+                          "FROM server_message_favorites "
+                          "WHERE user_id = ? "
+                          "ORDER BY updated_at DESC LIMIT 500");
+            query.addBindValue(userId.trimmed());
+            if (query.exec()) {
+                while (query.next()) {
+                    const QString sessionId = query.value(0).toString();
+                    const QString messageId = query.value(1).toString();
+                    const QJsonDocument doc = QJsonDocument::fromJson(query.value(2).toString().toUtf8());
+                    QJsonObject item = doc.isObject() ? doc.object() : QJsonObject();
+                    item["sessionId"] = sessionId;
+                    item["messageId"] = messageId;
+                    if (!item.contains("id") || item.value("id").toString().trimmed().isEmpty()) item["id"] = messageId;
+                    if (!item.contains("senderId")) item["senderId"] = QString();
+                    if (!item.contains("senderName")) item["senderName"] = QString();
+                    if (!item.contains("content")) item["content"] = QString();
+                    if (!item.contains("type")) item["type"] = QStringLiteral("text");
+                    if (!item.contains("timestamp")) item["timestamp"] = QString::number(QDateTime::currentMSecsSinceEpoch());
+                    favorites.append(item);
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+
+    QJsonObject event;
+    event["type"] = "favorite_messages_snapshot";
+    event["favorites"] = favorites;
+    socket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
+
 void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) const {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState || userId.isEmpty() || !ensureAccountDatabase()) {
         return;
     }
+    ensurePublicGroupMembership(userId, socket);
 
     QJsonArray groups;
     QJsonArray removedGroups;
@@ -6195,21 +7205,65 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
 
                     QJsonArray members;
                     QSqlQuery memberQuery(db);
-                    memberQuery.prepare("SELECT user_id, COALESCE(user_name, ''), role "
-                                        "FROM server_group_members "
-                                        "WHERE group_id = ? "
-                                        "ORDER BY role = 'owner' DESC, role = 'admin' DESC, joined_at ASC, user_id ASC");
+                    memberQuery.prepare("SELECT m.user_id, COALESCE(NULLIF(m.user_name, ''), NULLIF(a.user_name, ''), m.user_id), "
+                                        "COALESCE(NULLIF(m.role, ''), 'member'), COALESCE(a.avatar, '') "
+                                        "FROM server_group_members m "
+                                        "LEFT JOIN accounts a ON a.account = m.user_id "
+                                        "WHERE m.group_id = ? "
+                                        "ORDER BY CASE WHEN m.role = 'owner' THEN 0 WHEN m.role = 'admin' THEN 1 ELSE 2 END, "
+                                        "m.joined_at ASC, m.user_id ASC");
                     memberQuery.addBindValue(groupId);
                     if (memberQuery.exec()) {
                         while (memberQuery.next()) {
                             QJsonObject memberObj;
-                            memberObj["userId"] = memberQuery.value(0).toString();
-                            memberObj["userName"] = memberQuery.value(1).toString();
+                            const QString memberUserId = memberQuery.value(0).toString();
+                            const QString memberUserName = memberQuery.value(1).toString();
+                            memberObj["userId"] = memberUserId;
+                            memberObj["userName"] = memberUserName;
                             memberObj["role"] = memberQuery.value(2).toString();
+                            memberObj["avatar"] = memberQuery.value(3).toString();
+                            memberObj["online"] = m_userSockets.contains(memberUserId);
+                            memberObj["groupNickname"] = memberUserName;
+                            qint64 mutedUntil = 0;
+                            QSqlQuery muteQuery(db);
+                            muteQuery.prepare("SELECT muted_until FROM server_group_member_mutes WHERE group_id = ? AND user_id = ? AND muted_until > ?");
+                            muteQuery.addBindValue(groupId);
+                            muteQuery.addBindValue(memberUserId);
+                            muteQuery.addBindValue(QDateTime::currentMSecsSinceEpoch());
+                            if (muteQuery.exec() && muteQuery.next()) {
+                                mutedUntil = muteQuery.value(0).toLongLong();
+                            }
+                            if (mutedUntil > 0) {
+                                memberObj["mutedUntil"] = QString::number(mutedUntil);
+                            }
                             members.append(memberObj);
                         }
+                    } else {
+                        qWarning() << "Failed to load server group members for snapshot:" << memberQuery.lastError().text() << groupId;
                     }
                     groupObj["members"] = members;
+                    groupObj["memberCount"] = members.size();
+
+                    QJsonArray essenceMessages;
+                    QSqlQuery essenceQuery(db);
+                    essenceQuery.prepare("SELECT message_id, COALESCE(set_by, ''), COALESCE(set_by_name, ''), created_at "
+                                         "FROM server_group_essence_messages "
+                                         "WHERE group_id = ? "
+                                         "ORDER BY created_at DESC LIMIT 50");
+                    essenceQuery.addBindValue(groupId);
+                    if (essenceQuery.exec()) {
+                        while (essenceQuery.next()) {
+                            QJsonObject essenceObj;
+                            essenceObj["messageId"] = essenceQuery.value(0).toString();
+                            essenceObj["sessionId"] = groupId;
+                            essenceObj["setBy"] = essenceQuery.value(1).toString();
+                            essenceObj["senderName"] = essenceQuery.value(2).toString();
+                            essenceObj["setAt"] = essenceQuery.value(3).toString();
+                            essenceObj["enabled"] = true;
+                            essenceMessages.append(essenceObj);
+                        }
+                    }
+                    groupObj["essenceMessages"] = essenceMessages;
 
                     QJsonArray auditEvents;
                     QSqlQuery auditQuery(db);
@@ -6298,4 +7352,3 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
     socket->write("\n");
     socket->flush();
 }
-
