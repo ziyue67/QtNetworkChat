@@ -7,9 +7,6 @@
 #include <QLinearGradient>
 #include <QApplication>
 
-// ============================================================================
-// Forward declarations for helper functions in anonymous namespace
-// ============================================================================
 namespace {
 
 QPixmap roundAvatarPixmap(const QPixmap& source, int side) {
@@ -59,53 +56,72 @@ QIcon generatedAvatarIcon(const QString& displayName, const QString& seedId, int
     return QIcon(pixmap);
 }
 
-// Color scheme for dark theme bubbles
-struct BubbleColors {
-    QColor bg;
-    QColor text;
-    QColor timestamp;
-    QColor readStatus;
-    QColor link;
-
-    static BubbleColors sent() {
-        // Gradient-like accent purple bubbles (matches: --accent-primary: #5E5CE6)
-        return { QColor(94, 92, 230),       // bg - accent purple
-                 QColor(255, 255, 255),      // text - white
-                 QColor(200, 200, 255, 180),  // timestamp - light purple
-                 QColor(180, 230, 255),      // readStatus - cyan tint
-                 QColor(220, 220, 255) };    // link
+bool isDarkTheme(const QStyleOptionViewItem& option) {
+    if (const QWidget* widget = option.widget) {
+        if (widget->property("theme").toString() == QLatin1String("dark")) {
+            return true;
+        }
     }
-
-    static BubbleColors received() {
-        return { QColor(30, 30, 38),         // bg - dark surface (--bg-tertiary: #1C1C22)
-                 QColor(245, 245, 247),       // text - primary
-                 QColor(140, 140, 150, 180),  // timestamp - muted
-                 QColor(140, 140, 150),       // readStatus - muted (unused for received)
-                 QColor(94, 92, 230) };       // link - accent
-    }
-
-    static QColor systemBg() {
-        return QColor(30, 30, 38);
-    }
-    static QColor systemText() {
-        return QColor(110, 110, 115);
-    }
-    static QColor quoteBar() {
-        return QColor(94, 92, 230, 120);
-    }
-    static QColor quoteText() {
-        return QColor(160, 160, 170);
-    }
-    static QColor forwardLabel() {
-        return QColor(94, 92, 230, 200);
-    }
-};
+    return option.palette.window().color().lightness() < 128;
+}
 
 } // anonymous namespace
 
-// ============================================================================
-// ChatBubbleDelegate implementation
-// ============================================================================
+BubbleColors BubbleColors::sent(bool dark) {
+    BubbleColors c;
+    if (dark) {
+        c.bg = QColor("#3da7ff");
+        c.text = QColor("#ffffff");
+        c.timestamp = QColor(255, 255, 255, 178);
+        c.readStatus = QColor("#ffffff");
+        c.link = QColor("#e6f4ff");
+        c.quoteBar = QColor(255, 255, 255, 102);
+        c.quoteText = QColor(255, 255, 255, 230);
+        c.forwardLabel = QColor(255, 255, 255, 204);
+    } else {
+        c.bg = QColor("#0099ff");
+        c.text = QColor("#ffffff");
+        c.timestamp = QColor(255, 255, 255, 178);
+        c.readStatus = QColor("#ffffff");
+        c.link = QColor("#e6f4ff");
+        c.quoteBar = QColor(255, 255, 255, 102);
+        c.quoteText = QColor(255, 255, 255, 230);
+        c.forwardLabel = QColor(255, 255, 255, 204);
+    }
+    return c;
+}
+
+BubbleColors BubbleColors::received(bool dark) {
+    BubbleColors c;
+    if (dark) {
+        c.bg = QColor("#2d2d2d");
+        c.text = QColor("#e8e8e8");
+        c.timestamp = QColor("#787878");
+        c.readStatus = QColor("#787878");
+        c.link = QColor("#3da7ff");
+        c.quoteBar = QColor("#3da7ff");
+        c.quoteText = QColor("#a8a8a8");
+        c.forwardLabel = QColor("#787878");
+    } else {
+        c.bg = QColor("#ebedf0");
+        c.text = QColor("#1f2329");
+        c.timestamp = QColor("#8f959e");
+        c.readStatus = QColor("#8f959e");
+        c.link = QColor("#0099ff");
+        c.quoteBar = QColor("#0099ff");
+        c.quoteText = QColor("#5f6672");
+        c.forwardLabel = QColor("#8f959e");
+    }
+    return c;
+}
+
+QColor BubbleColors::systemBg(bool dark) {
+    return dark ? QColor("#3a3a3a") : QColor("#ebedf0");
+}
+
+QColor BubbleColors::systemText(bool dark) {
+    return dark ? QColor("#787878") : QColor("#8f959e");
+}
 
 ChatBubbleDelegate::ChatBubbleDelegate(QObject* parent)
     : QStyledItemDelegate(parent) {
@@ -128,10 +144,12 @@ QSize ChatBubbleDelegate::sizeHint(const QStyleOptionViewItem& option,
         && !mediaPreviewData.value<QPixmap>().isNull();
 
     const QString text = index.data(Qt::DisplayRole).toString();
-    const QRect textBounds = fm.boundingRect(QRect(0, 0, maxTextWidth, 1000),
-                                             Qt::TextWordWrap, text);
+    const QString plainText = system ? text : text.section(']', 2).trimmed();
+    const QString bubbleText = plainText.isEmpty() ? text : plainText;
 
-    // Extra height for label overlays
+    const QRect textBounds = fm.boundingRect(QRect(0, 0, maxTextWidth, 1000),
+                                             Qt::TextWordWrap, bubbleText);
+
     int extraHeight = 0;
     if (index.data(ChatBubbleForwardedRole).toBool()) {
         extraHeight += kForwardLabelHeight + 2;
@@ -144,8 +162,8 @@ QSize ChatBubbleDelegate::sizeHint(const QStyleOptionViewItem& option,
         QString elided = smallFm.elidedText(
             index.data(ChatBubbleQuotedTextRole).toString(),
             Qt::ElideRight, quoteWidth);
-        Q_UNUSED(elided);
-        extraHeight += qMax(20, smallFm.height() * 2) + 4; // quoted area + top spacing
+        Q_UNUSED(elided)
+        extraHeight += qMax(20, smallFm.height() * 2) + 4;
     }
 
     const int timestampHeight = index.data(ChatBubbleTimestampRole).toString().isEmpty()
@@ -158,7 +176,6 @@ QSize ChatBubbleDelegate::sizeHint(const QStyleOptionViewItem& option,
                                         + extraHeight + timestampHeight));
     }
 
-    // For grouped messages, use tighter spacing
     const int groupedAdjust = isMessageGrouped(index) ? -10 : 0;
     return QSize(width, qMax(system ? 42 : 58,
                              textBounds.height() + (system ? 22 : 30)
@@ -174,38 +191,42 @@ void ChatBubbleDelegate::paint(QPainter* painter,
     const QString text = index.data(Qt::DisplayRole).toString();
     const bool outgoing = index.data(ChatBubbleOutgoingRole).toBool();
     const bool system = index.data(ChatBubbleSystemRole).toBool();
+    const bool dark = isDarkTheme(option);
+
+    const QString plainText = system ? text : text.section(']', 2).trimmed();
+    const QString bubbleText = plainText.isEmpty() ? text : plainText;
 
     const QRect rect = option.rect.adjusted(10, kTopInset, -10, -kBottomInset);
 
     if (system) {
         QFontMetrics fm = painter->fontMetrics();
-        paintSystemMessage(painter, rect, text, fm);
+        paintSystemMessage(painter, rect, text, fm, dark);
         painter->restore();
         return;
     }
 
-    paintUserMessage(painter, rect, index, outgoing, false);
+    paintUserMessage(painter, rect, index, outgoing, false, bubbleText, dark);
     painter->restore();
 }
 
 void ChatBubbleDelegate::paintSystemMessage(QPainter* painter,
                                             const QRect& rect,
                                             const QString& text,
-                                            QFontMetrics& fm) const {
+                                            QFontMetrics& fm,
+                                            bool dark) const {
     const int maxWidth = qMin(rect.width() - 40, 620);
     const QRect textRect = fm.boundingRect(QRect(0, 0, maxWidth, 1000),
                                            Qt::TextWordWrap, text);
     const QRect bubble(QPoint(rect.center().x() - textRect.width() / 2 - 14, rect.top() + 5),
                        QSize(textRect.width() + 28, textRect.height() + 14));
 
-    // System bubble: semi-transparent dark bg, centered
     painter->setPen(Qt::NoPen);
-    painter->setBrush(QColor(30, 30, 38));
+    painter->setBrush(BubbleColors::systemBg(dark));
     QPainterPath bubblePath;
     bubblePath.addRoundedRect(QRectF(bubble), kSmallBubbleRadius, kSmallBubbleRadius);
     painter->drawPath(bubblePath);
 
-    painter->setPen(QColor(110, 110, 115));
+    painter->setPen(BubbleColors::systemText(dark));
     QFont f = painter->font();
     f.setPointSize(qMax(8, f.pointSize() - 1));
     painter->setFont(f);
@@ -217,7 +238,10 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
                                           const QRect& rect,
                                           const QModelIndex& index,
                                           bool outgoing,
-                                          bool hasImagePreview) const {
+                                          bool hasImagePreview,
+                                          const QString& text,
+                                          bool dark) const {
+    Q_UNUSED(hasImagePreview)
     const QString mediaKind = index.data(ChatBubbleMediaKindRole).toString();
     hasImagePreview = mediaKind == QLatin1String("image")
         && index.data(ChatBubbleMediaPreviewRole).canConvert<QPixmap>()
@@ -225,7 +249,6 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
 
     const bool grouped = isMessageGrouped(index);
 
-    // Avatar positioning
     const int avatarSize = grouped ? 0 : kAvatarSize;
     const int sideInset = kSideInset;
     const int avatarX = outgoing
@@ -238,7 +261,6 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
         paintAvatar(painter, avatarRect, index);
     }
 
-    // Bubble positioning
     const int maxBubbleWidth = qMin(kMaxBubbleWidthGlobal,
                                     qMax(kMinBubbleWidth,
                                          rect.width() - (grouped ? 48 : avatarSize + 88)));
@@ -248,20 +270,16 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
     QSize mediaSize;
 
     QFontMetrics fm(painter->font());
-    const QString text = index.data(Qt::DisplayRole).toString();
 
-    // Calculate extra overlay heights
     int overlayHeight = 0;
     int quoteHeight = 0;
     int forwardHeight = 0;
 
-    // Forwarded label
     if (index.data(ChatBubbleForwardedRole).toBool()) {
         forwardHeight = kForwardLabelHeight + 4;
         overlayHeight += forwardHeight;
     }
 
-    // Quoted text
     const QString quotedText = index.data(ChatBubbleQuotedTextRole).toString();
     if (!quotedText.isEmpty()) {
         QFont smallFont = painter->font();
@@ -270,11 +288,10 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
         int quoteWidth = maxBubbleWidth - 24 - kQuoteBarWidth - 4;
         QString elided = smallFm.elidedText(quotedText, Qt::ElideRight, quoteWidth);
         int lines = qMin(2, qMax(1, smallFm.horizontalAdvance(elided) > quoteWidth ? 2 : 1));
-        quoteHeight = smallFm.height() * lines + 8 + 4; // border + padding + spacing
+        quoteHeight = smallFm.height() * lines + 8 + 4;
         overlayHeight += quoteHeight;
     }
 
-    // Timestamp
     const QString timestamp = index.data(ChatBubbleTimestampRole).toString();
     const int timestampHeight = timestamp.isEmpty() ? 0 : kTimestampHeight;
     overlayHeight += timestampHeight;
@@ -304,8 +321,7 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
 
     const QRect bubbleRect(QPoint(bubbleX, rect.top() + 6), bubbleSize);
 
-    // Draw the bubble
-    BubbleColors colors = outgoing ? BubbleColors::sent() : BubbleColors::received();
+    BubbleColors colors = outgoing ? BubbleColors::sent(dark) : BubbleColors::received(dark);
 
     QPainterPath bubblePath;
     bubblePath.addRoundedRect(QRectF(bubbleRect), kBubbleRadius, kBubbleRadius);
@@ -313,84 +329,65 @@ void ChatBubbleDelegate::paintUserMessage(QPainter* painter,
     painter->setBrush(colors.bg);
     painter->drawPath(bubblePath);
 
-    // Draw the tail (small triangle) for non-grouped messages
-    if (!grouped) {
-        QPainterPath tailPath;
-        int tailY = rect.top() + 20;
-        if (outgoing) {
-            tailPath.moveTo(bubbleRect.right(), tailY + 4);
-            tailPath.lineTo(bubbleRect.right() + 8, tailY + 2);
-            tailPath.lineTo(bubbleRect.right(), tailY + 12);
-        } else {
-            tailPath.moveTo(bubbleRect.left(), tailY + 4);
-            tailPath.lineTo(bubbleRect.left() - 8, tailY + 2);
-            tailPath.lineTo(bubbleRect.left(), tailY + 12);
-        }
-        tailPath.closeSubpath();
-        painter->setBrush(colors.bg);
-        painter->drawPath(tailPath);
-    }
-
-    // Content rendering starts here
     int contentY = bubbleRect.top() + 8;
 
-    // Forwarded label
     if (index.data(ChatBubbleForwardedRole).toBool()) {
         QRect forwardRect(bubbleRect.left() + 14, contentY,
                           bubbleRect.width() - 28, kForwardLabelHeight);
-        paintForwardedLabel(painter, forwardRect, &contentY);
+        paintForwardedLabel(painter, forwardRect, colors.forwardLabel, &contentY);
     }
 
-    // Quoted text
     if (!quotedText.isEmpty()) {
         QRect quoteRect(bubbleRect.left() + 14, contentY,
                         bubbleRect.width() - 28, quoteHeight - 4);
-        paintQuotedText(painter, quoteRect, quotedText, outgoing, &contentY);
+        paintQuotedText(painter, quoteRect, quotedText, colors, &contentY);
     }
 
-    // Message text / image
     painter->setPen(colors.text);
     if (hasImagePreview) {
-        paintImagePreview(painter, bubbleRect, index, text,
-                          mediaPreview, mediaSize, outgoing);
+        paintImagePreview(painter, bubbleRect, contentY, index, text,
+                          mediaPreview, mediaSize, outgoing, dark);
     } else {
-        paintTextOnly(painter, bubbleRect, text, QPixmap(), outgoing, index);
+        paintTextOnly(painter, bubbleRect, text, QPixmap(), outgoing, index, dark);
     }
 
-    // Timestamp and read status (bottom row of bubble)
     if (!timestamp.isEmpty()) {
         int tsY = bubbleRect.bottom() - kTimestampHeight - 6;
         QRect tsArea(bubbleRect.left() + 14, tsY,
                      bubbleRect.width() - 28 - (outgoing ? 22 : 0),
                      kTimestampHeight);
-        paintTimestamp(painter, tsArea, timestamp, outgoing);
+        paintTimestamp(painter, tsArea, timestamp, colors);
 
         if (outgoing) {
             QString readStatus = index.data(ChatBubbleReadStatusRole).toString();
             if (readStatus.isEmpty()) {
-                readStatus = QStringLiteral("✓"); // single check as default
+                readStatus = QStringLiteral("✓");
             }
             QRect rsArea(bubbleRect.right() - 24, tsY, 22, kTimestampHeight);
-            paintReadStatus(painter, rsArea, readStatus);
+            paintReadStatus(painter, rsArea, readStatus, colors);
         }
     }
 }
 
 void ChatBubbleDelegate::paintImagePreview(QPainter* painter,
                                            const QRect& bubbleRect,
+                                           int contentY,
                                            const QModelIndex& index,
                                            const QString& text,
                                            const QPixmap& preview,
                                            const QSize& mediaSize,
-                                           bool outgoing) const {
-    BubbleColors colors = outgoing ? BubbleColors::sent() : BubbleColors::received();
+                                           bool outgoing,
+                                           bool dark) const {
+    Q_UNUSED(outgoing)
+    Q_UNUSED(dark)
+    Q_UNUSED(index)
+    BubbleColors colors = outgoing ? BubbleColors::sent(dark) : BubbleColors::received(dark);
 
     const QRect imageRect(bubbleRect.left() + 12,
-                          bubbleRect.top() + 12,
+                          contentY,
                           mediaSize.width(),
                           mediaSize.height());
 
-    // Clip to rounded rect for the image
     QPainterPath clipPath;
     clipPath.addRoundedRect(QRectF(imageRect), 8, 8);
     painter->save();
@@ -398,14 +395,16 @@ void ChatBubbleDelegate::paintImagePreview(QPainter* painter,
     painter->drawPixmap(imageRect, preview);
     painter->restore();
 
-    const int textY = imageRect.bottom() + 8;
-    QFontMetrics fm(painter->font());
-    QRect textRect(bubbleRect.left() + 12, textY,
-                   bubbleRect.width() - 24,
-                   fm.boundingRect(QRect(0, 0, bubbleRect.width() - 24, 1000),
-                                   Qt::TextWordWrap, text).height() + 4);
     painter->setPen(colors.text);
-    painter->drawText(textRect, Qt::TextWordWrap, text);
+    if (!text.isEmpty()) {
+        const int textY = imageRect.bottom() + 8;
+        QFontMetrics fm(painter->font());
+        QRect textRect(bubbleRect.left() + 12, textY,
+                       bubbleRect.width() - 24,
+                       fm.boundingRect(QRect(0, 0, bubbleRect.width() - 24, 1000),
+                                       Qt::TextWordWrap, text).height() + 4);
+        painter->drawText(textRect, Qt::TextWordWrap, text);
+    }
 }
 
 void ChatBubbleDelegate::paintTextOnly(QPainter* painter,
@@ -413,10 +412,11 @@ void ChatBubbleDelegate::paintTextOnly(QPainter* painter,
                                        const QString& text,
                                        const QPixmap& preview,
                                        bool outgoing,
-                                       const QModelIndex& index) const {
-    BubbleColors colors = outgoing ? BubbleColors::sent() : BubbleColors::received();
+                                       const QModelIndex& index,
+                                       bool dark) const {
+    Q_UNUSED(preview)
+    BubbleColors colors = outgoing ? BubbleColors::sent(dark) : BubbleColors::received(dark);
 
-    // Account for overlays
     int overlayOffset = 0;
     if (index.data(ChatBubbleForwardedRole).toBool()) {
         overlayOffset += kForwardLabelHeight + 4;
@@ -462,8 +462,7 @@ void ChatBubbleDelegate::paintAvatar(QPainter* painter,
 void ChatBubbleDelegate::paintTimestamp(QPainter* painter,
                                         const QRect& area,
                                         const QString& timestamp,
-                                        bool outgoing) const {
-    BubbleColors colors = outgoing ? BubbleColors::sent() : BubbleColors::received();
+                                        const BubbleColors& colors) const {
     painter->save();
     QFont f = painter->font();
     f.setPointSize(qMax(9, f.pointSize() - 2));
@@ -476,21 +475,21 @@ void ChatBubbleDelegate::paintTimestamp(QPainter* painter,
 
 void ChatBubbleDelegate::paintReadStatus(QPainter* painter,
                                          const QRect& area,
-                                         const QString& readStatus) const {
+                                         const QString& readStatus,
+                                         const BubbleColors& colors) const {
     painter->save();
     QFont f = painter->font();
     f.setPointSize(qMax(9, f.pointSize() - 2));
     f.setBold(false);
     painter->setFont(f);
 
-    // Blue check mark for read status
     QColor statusColor;
     if (readStatus == QStringLiteral("✓✓")) {
-        statusColor = QColor(100, 200, 255);  // cyan - read (double check)
+        statusColor = colors.readStatus;
     } else if (readStatus == QStringLiteral("✓")) {
-        statusColor = QColor(160, 160, 170);   // gray - delivered (single check)
+        statusColor = colors.timestamp;
     } else {
-        statusColor = QColor(160, 160, 170);
+        statusColor = colors.timestamp;
     }
     painter->setPen(statusColor);
     painter->drawText(area, Qt::AlignRight | Qt::AlignVCenter, readStatus);
@@ -500,27 +499,24 @@ void ChatBubbleDelegate::paintReadStatus(QPainter* painter,
 void ChatBubbleDelegate::paintQuotedText(QPainter* painter,
                                          const QRect& area,
                                          const QString& quotedText,
-                                         bool outgoing,
+                                         const BubbleColors& colors,
                                          int* consumedHeight) const {
-    Q_UNUSED(outgoing);
     painter->save();
 
     QFont f = painter->font();
-    f.setPointSize(qMax(9, f.pointSize() - 1));
+    f.setPointSize(qMax(9, painter->font().pointSize() - 1));
     painter->setFont(f);
     QFontMetrics fm(f);
 
-    // Quote bar (left border)
     QRect barRect(area.left(), area.top() + 2,
                   kQuoteBarWidth, area.height() - 4);
     painter->setPen(Qt::NoPen);
-    painter->setBrush(BubbleColors::quoteBar());
+    painter->setBrush(colors.quoteBar);
     QPainterPath barPath;
     barPath.addRoundedRect(QRectF(barRect), 1.5, 1.5);
     painter->drawPath(barPath);
 
-    // Quote text
-    painter->setPen(BubbleColors::quoteText());
+    painter->setPen(colors.quoteText);
     int textX = barRect.right() + 4;
     int textWidth = area.right() - textX;
     if (textWidth > 0) {
@@ -537,16 +533,17 @@ void ChatBubbleDelegate::paintQuotedText(QPainter* painter,
 
 void ChatBubbleDelegate::paintForwardedLabel(QPainter* painter,
                                              const QRect& area,
+                                             const QColor& color,
                                              int* consumedHeight) const {
     painter->save();
 
     QFont f = painter->font();
-    f.setPointSize(qMax(9, f.pointSize() - 1));
+    f.setPointSize(qMax(9, painter->font().pointSize() - 1));
     f.setItalic(true);
     painter->setFont(f);
-    painter->setPen(BubbleColors::forwardLabel());
+    painter->setPen(color);
     painter->drawText(area, Qt::AlignLeft | Qt::AlignVCenter,
-                      QStringLiteral("⇄ Forwarded"));
+                      QStringLiteral("⇄ 转发"));
 
     painter->restore();
     if (consumedHeight) {
@@ -565,7 +562,6 @@ int ChatBubbleDelegate::maxBubbleWidth(const QRect& rect, bool hasAvatar) const 
 }
 
 QRect ChatBubbleDelegate::contentRect(const QModelIndex& index) const {
-    // Not used directly; we work with the rect passed into paint()
-    Q_UNUSED(index);
+    Q_UNUSED(index)
     return QRect();
 }

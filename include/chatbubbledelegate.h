@@ -11,7 +11,6 @@
 
 // Custom data roles for chat bubble items
 enum ChatBubbleRole {
-    // Original roles (preserved for backward compatibility)
     ChatBubbleSenderIdRole = Qt::UserRole + 900,
     ChatBubbleSenderNameRole,
     ChatBubbleAvatarPathRole,
@@ -29,6 +28,21 @@ enum ChatBubbleRole {
     ChatBubbleIsGroupedRole           // bool - whether this message is grouped (no avatar, tighter)
 };
 
+struct BubbleColors {
+    QColor bg;
+    QColor text;
+    QColor timestamp;
+    QColor readStatus;
+    QColor link;
+    QColor quoteBar;
+    QColor quoteText;
+    QColor forwardLabel;
+    static BubbleColors sent(bool dark);
+    static BubbleColors received(bool dark);
+    static QColor systemBg(bool dark);
+    static QColor systemText(bool dark);
+};
+
 class ChatBubbleDelegate : public QStyledItemDelegate {
     Q_OBJECT
 
@@ -43,38 +57,39 @@ public:
                const QModelIndex& index) const override;
 
 private:
-    // Helper methods for paint
     void paintSystemMessage(QPainter* painter, const QRect& rect,
-                            const QString& text, QFontMetrics& fm) const;
+                            const QString& text, QFontMetrics& fm,
+                            bool dark) const;
 
     void paintUserMessage(QPainter* painter, const QRect& rect,
                           const QModelIndex& index, bool outgoing,
-                          bool hasImagePreview) const;
+                          bool hasImagePreview, const QString& text, bool dark) const;
 
     void paintImagePreview(QPainter* painter, const QRect& bubbleRect,
-                           const QModelIndex& index, const QString& text,
+                           int contentY, const QModelIndex& index, const QString& text,
                            const QPixmap& preview, const QSize& mediaSize,
-                           bool outgoing) const;
+                           bool outgoing, bool dark) const;
 
     void paintTextOnly(QPainter* painter, const QRect& bubbleRect,
                        const QString& text, const QPixmap& preview,
-                       bool outgoing, const QModelIndex& index) const;
+                       bool outgoing, const QModelIndex& index,
+                       bool dark) const;
 
     void paintAvatar(QPainter* painter, const QRect& avatarRect,
                      const QModelIndex& index) const;
 
     void paintTimestamp(QPainter* painter, const QRect& area,
-                        const QString& timestamp, bool outgoing) const;
+                        const QString& timestamp, const BubbleColors& colors) const;
 
     void paintReadStatus(QPainter* painter, const QRect& area,
-                         const QString& readStatus) const;
+                         const QString& readStatus, const BubbleColors& colors) const;
 
     void paintQuotedText(QPainter* painter, const QRect& bubbleRect,
-                         const QString& quotedText, bool outgoing,
+                         const QString& quotedText, const BubbleColors& colors,
                          int* consumedHeight) const;
 
-    void paintForwardedLabel(QPainter* painter, const QRect& bubbleRect,
-                             int* consumedHeight) const;
+    void paintForwardedLabel(QPainter* painter, const QRect& area,
+                             const QColor& color, int* consumedHeight) const;
 
     // Layout helpers
     bool isMessageGrouped(const QModelIndex& index) const;

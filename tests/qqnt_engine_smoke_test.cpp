@@ -1,0 +1,1243 @@
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
+#include <QSet>
+#include <QTextStream>
+#include <QThread>
+
+#include <cstdio>
+
+namespace {
+bool expect(bool condition, const char* message) {
+    if (!condition) {
+        std::fprintf(stderr, "%s\n", message);
+        return false;
+    }
+    return true;
+}
+
+bool expect(bool condition, const QString& message) {
+    if (!condition) {
+        std::fprintf(stderr, "%s\n", message.toUtf8().constData());
+        return false;
+    }
+    return true;
+}
+
+QJsonObject parseProtocolLine(const QByteArray& line, bool* ok) {
+    *ok = false;
+    const QByteArray trimmed = line.trimmed();
+    if (trimmed.isEmpty()) {
+        return QJsonObject();
+    }
+
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(trimmed, &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        return QJsonObject();
+    }
+
+    *ok = true;
+    return document.object();
+}
+
+QStringList readProtocolCommands(const QString& path, bool* ok) {
+    *ok = false;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        std::fprintf(stderr, "protocol contract fixture should be readable: %s\n", qPrintable(file.errorString()));
+        return {};
+    }
+
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        std::fprintf(stderr, "protocol contract fixture should be a JSON object: %s\n", qPrintable(error.errorString()));
+        return {};
+    }
+
+    QStringList commands;
+    const QJsonArray commandArray = document.object().value(QStringLiteral("commands")).toArray();
+    for (const QJsonValue& value : commandArray) {
+        const QString command = value.toString().trimmed();
+        if (!command.isEmpty()) {
+            commands.append(command);
+        }
+    }
+
+    if (commands.isEmpty()) {
+        std::fprintf(stderr, "protocol contract fixture should include commands\n");
+        return {};
+    }
+
+    *ok = true;
+    return commands;
+}
+
+QSet<QString> missingAckReqIds(const QSet<QString>& expectedAckReqIds, const QSet<QString>& seenAckReqIds) {
+    QSet<QString> missing = expectedAckReqIds;
+    missing.subtract(seenAckReqIds);
+    return missing;
+}
+
+bool readProcessOutput(QProcess* process,
+                       QByteArray* stdoutBytes,
+                       QByteArray* stderrBytes,
+                       const QSet<QString>& expectedAckReqIds) {
+    QSet<QString> seenAckReqIds;
+    QElapsedTimer timer;
+    timer.start();
+
+    while (timer.elapsed() < 5000 && !missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty()) {
+        process->waitForReadyRead(100);
+        *stdoutBytes += process->readAllStandardOutput();
+        *stderrBytes += process->readAllStandardError();
+        const QList<QByteArray> lines = stdoutBytes->split('\n');
+        for (const QByteArray& line : lines) {
+            bool parsed = false;
+            const QJsonObject object = parseProtocolLine(line, &parsed);
+            if (!parsed) {
+                continue;
+            }
+            if (object.value(QStringLiteral("type")).toString() == QLatin1String("ack")) {
+                seenAckReqIds.insert(object.value(QStringLiteral("reqId")).toString());
+            }
+        }
+    }
+
+    const QSet<QString> missing = missingAckReqIds(expectedAckReqIds, seenAckReqIds);
+    if (!missing.isEmpty()) {
+        QStringList missingIds = missing.values();
+        missingIds.sort();
+        std::fprintf(stderr, "missing ack reqIds: %s\n", qPrintable(missingIds.join(QLatin1String(", "))));
+    }
+    return missing.isEmpty();
+}
+
+bool writeCommand(QProcess* process, const QByteArray& command) {
+    process->write(command);
+    return process->waitForBytesWritten(1000);
+}
+
+QString contractReqId(const QString& op) {
+    return QStringLiteral("contract-%1").arg(op);
+}
+
+QJsonObject contractProbePayload(const QString& op) {
+    QJsonObject payload;
+    if (op == QLatin1String("connect")) {
+        payload[QStringLiteral("host")] = QStringLiteral("127.0.0.1");
+        payload[QStringLiteral("port")] = 65535;
+    } else if (op == QLatin1String("login")) {
+        payload[QStringLiteral("account")] = QStringLiteral("smoke-account");
+        payload[QStringLiteral("password")] = QStringLiteral("smoke-password");
+    } else if (op == QLatin1String("register")) {
+        payload[QStringLiteral("account")] = QStringLiteral("smoke-register");
+        payload[QStringLiteral("password")] = QStringLiteral("smoke-password");
+        payload[QStringLiteral("userName")] = QStringLiteral("Smoke Register");
+    } else if (op == QLatin1String("set_user_info")) {
+        payload[QStringLiteral("userId")] = QStringLiteral("10000");
+        payload[QStringLiteral("userName")] = QStringLiteral("Smoke User");
+    } else if (op == QLatin1String("search_friend")) {
+        payload[QStringLiteral("account")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("send_friend_request")) {
+        payload[QStringLiteral("receiverId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("respond_friend_request")) {
+        payload[QStringLiteral("senderId")] = QStringLiteral("10001");
+        payload[QStringLiteral("accepted")] = false;
+    } else if (op == QLatin1String("send_private_message")) {
+        payload[QStringLiteral("receiverId")] = QStringLiteral("10001");
+        payload[QStringLiteral("content")] = QStringLiteral("hello from smoke");
+    } else if (op == QLatin1String("send_group_message")) {
+        payload[QStringLiteral("groupId")] = QStringLiteral("public");
+        payload[QStringLiteral("content")] = QStringLiteral("hello from smoke");
+    } else if (op == QLatin1String("create_group")) {
+        payload[QStringLiteral("groupName")] = QStringLiteral("Smoke Group");
+        payload[QStringLiteral("members")] = QJsonArray();
+        payload[QStringLiteral("announcement")] = QStringLiteral("Smoke announcement");
+    } else if (op == QLatin1String("update_group_announcement")) {
+        payload[QStringLiteral("groupId")] = QStringLiteral("public");
+        payload[QStringLiteral("announcement")] = QStringLiteral("Smoke announcement");
+    } else if (op == QLatin1String("update_group_member")) {
+        payload[QStringLiteral("groupId")] = QStringLiteral("public");
+        payload[QStringLiteral("memberId")] = QStringLiteral("10001");
+        payload[QStringLiteral("action")] = QStringLiteral("add");
+    } else if (op == QLatin1String("send_file") || op == QLatin1String("send_image")) {
+        payload[QStringLiteral("filePath")] = QStringLiteral("C:/tmp/qqnt-smoke-missing.bin");
+        payload[QStringLiteral("receiverId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("cancel_transfer")) {
+        payload[QStringLiteral("transferId")] = QStringLiteral("contract-transfer");
+    } else if (op == QLatin1String("query_resume")) {
+        payload[QStringLiteral("transferId")] = QStringLiteral("contract-transfer");
+        payload[QStringLiteral("filePath")] = QStringLiteral("C:/tmp/qqnt-smoke-missing.bin");
+    } else if (op == QLatin1String("e2e_status")) {
+        payload[QStringLiteral("peerId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("e2e_announce_identity") || op == QLatin1String("e2e_request_rotation")) {
+        payload[QStringLiteral("peerId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("e2e_pin_identity")) {
+        payload[QStringLiteral("peerId")] = QStringLiteral("10001");
+        payload[QStringLiteral("fingerprint")] = QStringLiteral("smoke-fingerprint");
+    } else if (op == QLatin1String("profile_update")) {
+        payload[QStringLiteral("userName")] = QStringLiteral("Contract Smoke User");
+    } else if (op == QLatin1String("settings_sync")) {
+        QJsonObject notifications;
+        notifications[QStringLiteral("desktop")] = false;
+        QJsonObject settings;
+        settings[QStringLiteral("notifications")] = notifications;
+        payload[QStringLiteral("settings")] = settings;
+    }
+    return payload;
+}
+
+bool expectEmptyPayload(const QString& op, const QJsonObject& payload) {
+    return expect(payload.isEmpty(), QStringLiteral("%1 payload should be empty").arg(op));
+}
+
+bool expectArrayField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isArray(),
+                  QStringLiteral("%1 payload should include %2 array").arg(op, field));
+}
+
+bool expectBoolField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isBool(),
+                  QStringLiteral("%1 payload should include %2 boolean").arg(op, field));
+}
+
+bool expectTrueBoolField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).toBool(false),
+                  QStringLiteral("%1 payload should include true %2").arg(op, field));
+}
+
+bool expectObjectField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isObject(),
+                  QStringLiteral("%1 payload should include %2 object").arg(op, field));
+}
+
+bool expectStringField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(payload.value(field).isString(),
+                  QStringLiteral("%1 payload should include %2 string").arg(op, field));
+}
+
+bool expectNonEmptyStringField(const QString& op, const QJsonObject& payload, const QString& field) {
+    return expect(!payload.value(field).toString().isEmpty(),
+                  QStringLiteral("%1 payload should include non-empty %2").arg(op, field));
+}
+
+bool expectUnsignedIntegerStringField(const QString& op, const QJsonObject& payload, const QString& field) {
+    const QString text = payload.value(field).toString();
+    bool converted = false;
+    text.toULongLong(&converted);
+    return expect(converted && !text.isEmpty(),
+                  QStringLiteral("%1 payload should include unsigned integer string %2").arg(op, field));
+}
+
+bool expectUnsignedIntegerStringArrayField(const QString& op, const QJsonObject& payload, const QString& field) {
+    if (!expectArrayField(op, payload, field)) {
+        return false;
+    }
+
+    bool ok = true;
+    const QJsonArray values = payload.value(field).toArray();
+    for (const QJsonValue& value : values) {
+        const QString text = value.toString();
+        bool converted = false;
+        text.toULongLong(&converted);
+        ok = expect(converted && !text.isEmpty(),
+                    QStringLiteral("%1 payload should include unsigned integer string items in %2").arg(op, field)) && ok;
+    }
+    return ok;
+}
+
+bool expectAcceptedPayload(const QString& op, const QJsonObject& payload) {
+    return expectTrueBoolField(op, payload, QStringLiteral("accepted"));
+}
+
+bool expectExactAcceptedPayload(const QString& op, const QJsonObject& payload) {
+    bool ok = true;
+    ok = expect(payload.size() == 1,
+                QStringLiteral("%1 contract payload should only include accepted").arg(op)) && ok;
+    ok = expectAcceptedPayload(op, payload) && ok;
+    return ok;
+}
+
+bool expectExactPayloadFieldCount(const QString& op, const QJsonObject& payload, int expectedFields) {
+    return expect(payload.size() == expectedFields,
+                  QStringLiteral("%1 contract payload should include exactly %2 fields").arg(op).arg(expectedFields));
+}
+
+bool expectTargetFieldsDetails(const QJsonObject& error, const char* message) {
+    const QJsonArray targetFields = error.value(QStringLiteral("details"))
+        .toObject()
+        .value(QStringLiteral("targetFields"))
+        .toArray();
+    QSet<QString> fields;
+    for (const QJsonValue& value : targetFields) {
+        fields.insert(value.toString());
+    }
+
+    return expect(fields.contains(QStringLiteral("receiverId"))
+                      && fields.contains(QStringLiteral("groupId"))
+                      && fields.size() == 2,
+                  message);
+}
+
+bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload) {
+    bool ok = true;
+
+    if (op == QLatin1String("ready")) {
+        ok = expect(payload.value(QStringLiteral("protocolVersion")).toInt() == 1,
+                    "ready contract payload should advertise protocol version 1") && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("version")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("qtVersion")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("e2eStatus")) && ok;
+    } else if (op == QLatin1String("connect")) {
+        ok = expectTrueBoolField(op, payload, QStringLiteral("connected")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("host")) && ok;
+        const int port = payload.value(QStringLiteral("port")).toInt();
+        ok = expect(port > 0 && port <= 65535, "connect contract payload should include valid port") && ok;
+    } else if (op == QLatin1String("login") || op == QLatin1String("register")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("requiresConnect")) && ok;
+        ok = expect(payload.value(QStringLiteral("mode")).toString() == op,
+                    QStringLiteral("%1 contract payload should echo mode").arg(op)) && ok;
+    } else if (op == QLatin1String("disconnect")
+               || op == QLatin1String("logout")
+               || op == QLatin1String("set_user_info")) {
+        ok = expectEmptyPayload(op, payload) && ok;
+    } else if (op == QLatin1String("get_user_list")) {
+        ok = expectExactPayloadFieldCount(op, payload, 1) && ok;
+        ok = expectArrayField(op, payload, QStringLiteral("users")) && ok;
+        ok = expect(!payload.contains(QStringLiteral("friends")),
+                    "get_user_list contract payload should not alias friends") && ok;
+    } else if (op == QLatin1String("get_friend_list")) {
+        ok = expectExactPayloadFieldCount(op, payload, 1) && ok;
+        ok = expectArrayField(op, payload, QStringLiteral("friends")) && ok;
+        ok = expect(!payload.contains(QStringLiteral("users")),
+                    "get_friend_list contract payload should not alias users") && ok;
+    } else if (op == QLatin1String("get_group_list")) {
+        ok = expectExactPayloadFieldCount(op, payload, 3) && ok;
+        ok = expectArrayField(op, payload, QStringLiteral("groups")) && ok;
+        ok = expectArrayField(op, payload, QStringLiteral("removedGroups")) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("hasSnapshot")) && ok;
+    } else if (op == QLatin1String("search_friend")
+               || op == QLatin1String("send_friend_request")
+               || op == QLatin1String("respond_friend_request")
+               || op == QLatin1String("send_group_message")
+               || op == QLatin1String("create_group")
+               || op == QLatin1String("update_group_announcement")
+               || op == QLatin1String("update_group_member")
+               || op == QLatin1String("e2e_announce_identity")
+               || op == QLatin1String("e2e_pin_identity")
+               || op == QLatin1String("e2e_request_rotation")) {
+        ok = expectExactAcceptedPayload(op, payload) && ok;
+    } else if (op == QLatin1String("send_file") || op == QLatin1String("send_image")) {
+        ok = expectExactPayloadFieldCount(op, payload, 2) && ok;
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
+    } else if (op == QLatin1String("send_private_message")) {
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("receiverId")) && ok;
+    } else if (op == QLatin1String("cancel_transfer")) {
+        ok = expectExactPayloadFieldCount(op, payload, 2) && ok;
+        ok = expectTrueBoolField(op, payload, QStringLiteral("cancelled")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
+    } else if (op == QLatin1String("query_resume")) {
+        ok = expectExactPayloadFieldCount(op, payload, 11) && ok;
+        ok = expectTrueBoolField(op, payload, QStringLiteral("canResume")) && ok;
+        ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("confirmedBytes")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("nextChunkIndex")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("fileSize")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("chunkSize")) && ok;
+        ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("chunkCount")) && ok;
+        ok = expectStringField(op, payload, QStringLiteral("fileHash")) && ok;
+        ok = expectUnsignedIntegerStringArrayField(op, payload, QStringLiteral("receivedChunks")) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("resumed")) && ok;
+        const QString mode = payload.value(QStringLiteral("mode")).toString();
+        ok = expect(mode == QLatin1String("query") || mode == QLatin1String("resume"),
+                    "query_resume contract payload should include query/resume mode") && ok;
+    } else if (op == QLatin1String("e2e_status")) {
+        ok = expectObjectField(op, payload, QStringLiteral("localIdentity")) && ok;
+        if (payload.contains(QStringLiteral("peerId"))) {
+            ok = expectNonEmptyStringField(op, payload, QStringLiteral("peerId")) && ok;
+            ok = expectObjectField(op, payload, QStringLiteral("session")) && ok;
+            ok = expectObjectField(op, payload, QStringLiteral("identity")) && ok;
+        }
+    } else if (op == QLatin1String("profile_update")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expectBoolField(op, payload, QStringLiteral("avatarSent")) && ok;
+        ok = expectStringField(op, payload, QStringLiteral("userName")) && ok;
+    } else if (op == QLatin1String("settings_sync")) {
+        ok = expectAcceptedPayload(op, payload) && ok;
+        ok = expect(payload.value(QStringLiteral("revision")).toInt() >= 1,
+                    "settings_sync contract payload should include revision") && ok;
+        ok = expectObjectField(op, payload, QStringLiteral("settings")) && ok;
+        if (payload.contains(QStringLiteral("appliedDownloadDir"))) {
+            ok = expectNonEmptyStringField(op, payload, QStringLiteral("appliedDownloadDir")) && ok;
+        }
+    }
+
+    return ok;
+}
+
+bool writeJsonCommand(QProcess* process, const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QJsonObject command;
+    command[QStringLiteral("op")] = op;
+    command[QStringLiteral("reqId")] = reqId;
+    command[QStringLiteral("payload")] = payload;
+    QByteArray line = QJsonDocument(command).toJson(QJsonDocument::Compact);
+    line.push_back('\n');
+    return writeCommand(process, line);
+}
+}
+
+int main(int argc, char* argv[]) {
+    QCoreApplication app(argc, argv);
+    const QStringList arguments = app.arguments();
+    if (arguments.size() < 3) {
+        std::fprintf(stderr, "usage: %s <QQNTEngine executable> <protocol contract fixture>\n", argv[0]);
+        return 2;
+    }
+
+    const QString enginePath = arguments.at(1);
+    bool contractReadOk = false;
+    const QStringList contractCommands = readProtocolCommands(arguments.at(2), &contractReadOk);
+    if (!contractReadOk) {
+        return 1;
+    }
+
+    QProcess process;
+    process.setProgram(enginePath);
+    process.setProcessChannelMode(QProcess::SeparateChannels);
+    process.start();
+
+    bool ok = true;
+    bool sawSettingsSyncedEvent = false;
+    ok = expect(process.waitForStarted(5000), "QQNTEngine should start") && ok;
+    if (!ok) {
+        return 1;
+    }
+
+    ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"reqId\":\"smoke-ready\",\"payload\":{}}\n"),
+                "ready command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"reqId\":\"smoke-ready-extra-payload\",\"payload\":{\"unexpected\":true}}\n"),
+                "ready command with extra payload should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"get_user_list\",\"reqId\":\"smoke-users\",\"payload\":{}}\n"),
+                "get_user_list command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"get_friend_list\",\"reqId\":\"smoke-friends\",\"payload\":{}}\n"),
+                "get_friend_list command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"get_group_list\",\"reqId\":\"smoke-groups\",\"payload\":{}}\n"),
+                "get_group_list command should be written") && ok;
+    ok = expect(writeCommand(&process, "not-json\n"),
+                "invalid JSON line should be written") && ok;
+    ok = expect(writeCommand(&process, "[]\n"),
+                "non-object JSON line should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"   \",\"reqId\":\"smoke-blank-op\",\"payload\":{}}\n"),
+                "blank op command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"reqId\":\"smoke-missing-op\",\"payload\":{}}\n"),
+                "missing op command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"payload\":{}}\n"),
+                "missing reqId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"get_user_list\",\"reqId\":\"   \",\"payload\":{}}\n"),
+                "blank reqId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-missing-host\",\"payload\":{\"port\":8888}}\n"),
+                "connect missing host command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
+                "connect invalid port command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-extra-field\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":65535,\"debug\":true}}\n"),
+                "connect extra field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-missing-account\",\"payload\":{\"password\":\"smoke-password\"}}\n"),
+                "login missing account command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-missing-password\",\"payload\":{\"account\":\"smoke-account\"}}\n"),
+                "login missing password command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-extra-field\",\"payload\":{\"account\":\"smoke-account\",\"password\":\"smoke-password\",\"debug\":true}}\n"),
+                "login extra field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-account\",\"payload\":{\"password\":\"smoke-password\",\"userName\":\"Smoke Register\"}}\n"),
+                "register missing account command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-password\",\"payload\":{\"account\":\"smoke-register\",\"userName\":\"Smoke Register\"}}\n"),
+                "register missing password command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-user-name\",\"payload\":{\"account\":\"smoke-register\",\"password\":\"smoke-password\"}}\n"),
+                "register missing userName command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"set_user_info\",\"reqId\":\"smoke-user-info-missing-id\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
+                "set_user_info missing userId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"set_user_info\",\"reqId\":\"smoke-user-info-missing-name\",\"payload\":{\"userId\":\"10000\"}}\n"),
+                "set_user_info missing userName command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
+                "e2e_status command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e-invalid-peer\",\"payload\":{\"peerId\":10001}}\n"),
+                "e2e_status invalid peerId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
+                "e2e_announce_identity missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-blank\",\"payload\":{\"peerId\":\"   \"}}\n"),
+                "e2e_announce_identity blank peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-missing-peer\",\"payload\":{}}\n"),
+                "e2e_pin_identity missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-blank-peer\",\"payload\":{\"peerId\":\"   \"}}\n"),
+                "e2e_pin_identity blank peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-invalid-fingerprint\",\"payload\":{\"peerId\":\"10001\",\"fingerprint\":false}}\n"),
+                "e2e_pin_identity invalid fingerprint command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_request_rotation\",\"reqId\":\"smoke-e2e-rotation-missing-peer\",\"payload\":{}}\n"),
+                "e2e_request_rotation missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_request_rotation\",\"reqId\":\"smoke-e2e-rotation-blank-peer\",\"payload\":{\"peerId\":\"   \"}}\n"),
+                "e2e_request_rotation blank peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-missing\",\"payload\":{}}\n"),
+                "cancel_transfer missing field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
+                "cancel_transfer inactive command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-missing-path\",\"payload\":{\"receiverId\":\"10001\"}}\n"),
+                "send_file missing filePath command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-missing-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
+                "send_file missing target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-blank-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"   \"}}\n"),
+                "send_file blank target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_image\",\"reqId\":\"smoke-file-ambiguous-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.png\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
+                "send_image ambiguous target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-invalid-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":10001}}\n"),
+                "send_file invalid target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-missing-transfer\",\"payload\":{}}\n"),
+                "query_resume missing transferId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-missing-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
+                "query_resume missing target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-blank-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"groupId\":\"   \"}}\n"),
+                "query_resume blank target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-ambiguous-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
+                "query_resume ambiguous target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"groupId\":1}}\n"),
+                "query_resume invalid target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-file-path\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":42}}\n"),
+                "query_resume invalid filePath command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-invalid-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":1}}\n"),
+                "query_resume invalid contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-unsupported-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\"video\"}}\n"),
+                "query_resume unsupported contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-uppercase-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\"IMAGE\"}}\n"),
+                "query_resume uppercase contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-spaced-content-type\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"contentType\":\" image \"}}\n"),
+                "query_resume spaced contentType command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-target-without-file-path\",\"payload\":{\"transferId\":\"resume-transfer\",\"receiverId\":\"10001\"}}\n"),
+                "query_resume target without filePath command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-extra-field\",\"payload\":{\"transferId\":\"resume-transfer\",\"debug\":true}}\n"),
+                "query_resume extra field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
+                "profile_update command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-field\",\"payload\":{\"avatarBase64\":42}}\n"),
+                "profile_update invalid field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-avatar\",\"payload\":{\"avatarBase64\":\"not-base64%%%\"}}\n"),
+                "profile_update invalid avatar command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"unknown_command\",\"reqId\":\"smoke-unknown-op\",\"payload\":{}}\n"),
+                "unknown command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
+                "settings_sync command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-extra-field\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true}},\"debug\":true}}\n"),
+                "settings_sync extra field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
+                "invalid settings_sync command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-file-download-dir\",\"payload\":{\"settings\":{\"fileDownloadDir\":false}}}\n"),
+                "settings_sync invalid fileDownloadDir command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-files\",\"payload\":{\"settings\":{\"files\":\"bad\"}}}\n"),
+                "settings_sync invalid files command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-download-dir\",\"payload\":{\"settings\":{\"files\":{\"downloadDir\":42}}}}\n"),
+                "settings_sync invalid downloadDir command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-download-directory\",\"payload\":{\"settings\":{\"files\":{\"downloadDirectory\":42}}}}\n"),
+                "settings_sync invalid downloadDirectory command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-direct-dir-invalid-files\",\"payload\":{\"settings\":{\"fileDownloadDir\":\"C:/tmp/downloads\",\"files\":\"bad\"}}}\n"),
+                "settings_sync direct download dir with invalid files command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-direct-dir-invalid-nested-dir\",\"payload\":{\"settings\":{\"fileDownloadDir\":\"C:/tmp/downloads\",\"files\":{\"downloadDirectory\":42}}}}\n"),
+                "settings_sync direct download dir with invalid nested dir command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-invalid-payload\",\"payload\":\"bad\"}\n"),
+                "invalid payload command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
+                "missing field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-search-blank-account\",\"payload\":{\"account\":\"   \"}}\n"),
+                "search_friend blank account command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_friend_request\",\"reqId\":\"smoke-friend-request-missing-receiver\",\"payload\":{}}\n"),
+                "send_friend_request missing receiverId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-sender\",\"payload\":{\"accepted\":true}}\n"),
+                "respond_friend_request missing senderId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-accepted\",\"payload\":{\"senderId\":\"10001\"}}\n"),
+                "respond_friend_request missing accepted command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-missing-receiver\",\"payload\":{\"content\":\"hello\"}}\n"),
+                "send_private_message missing receiverId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-empty-content\",\"payload\":{\"receiverId\":\"10001\",\"content\":\"\"}}\n"),
+                "send_private_message empty content command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-extra-field\",\"payload\":{\"receiverId\":\"10001\",\"content\":\"hello\",\"debug\":true}}\n"),
+                "send_private_message extra field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_group_message\",\"reqId\":\"smoke-group-message-missing-group\",\"payload\":{\"content\":\"hello\"}}\n"),
+                "send_group_message missing groupId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_group_message\",\"reqId\":\"smoke-group-message-empty-content\",\"payload\":{\"groupId\":\"public\",\"content\":\"\"}}\n"),
+                "send_group_message empty content command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-missing-name\",\"payload\":{}}\n"),
+                "create_group missing groupName command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing-group\",\"payload\":{\"announcement\":\"hello\"}}\n"),
+                "update_group_announcement missing groupId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing\",\"payload\":{\"groupId\":\"public\"}}\n"),
+                "update_group_announcement missing announcement command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-missing-group\",\"payload\":{\"memberId\":\"10001\",\"action\":\"add\"}}\n"),
+                "update_group_member missing groupId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-missing-member\",\"payload\":{\"groupId\":\"public\",\"action\":\"add\"}}\n"),
+                "update_group_member missing memberId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-invalid-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"ban\"}}\n"),
+                "update_group_member invalid action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-uppercase-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"ADD\"}}\n"),
+                "update_group_member uppercase action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-spaced-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\" add \"}}\n"),
+                "update_group_member spaced action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-legacy-set-admin\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"set_admin\"}}\n"),
+                "update_group_member legacy set_admin action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-legacy-unset-admin\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"unset_admin\"}}\n"),
+                "update_group_member legacy unset_admin action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-members\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":\"10001\"}}\n"),
+                "create_group invalid members command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-entry\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[10001]}}\n"),
+                "create_group invalid member entry command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-member-objects\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[\"10001\",{\"account\":\"10002\"},{\"id\":\"10003\"},{\"memberId\":\"10004\"}],\"announcement\":\"\"}}\n"),
+                "create_group member object command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-object\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[{\"userId\":10001}]}}\n"),
+                "create_group invalid member object command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-announcement\",\"payload\":{\"groupName\":\"Smoke Group\",\"announcement\":true}}\n"),
+                "create_group invalid announcement command should be written") && ok;
+
+    QSet<QString> contractAckReqIds;
+    for (const QString& command : contractCommands) {
+        const QString reqId = contractReqId(command);
+        contractAckReqIds.insert(reqId);
+        ok = expect(writeJsonCommand(&process, command, reqId, contractProbePayload(command)),
+                    QStringLiteral("protocol contract command should be written: %1").arg(command)) && ok;
+    }
+    process.closeWriteChannel();
+
+    QSet<QString> expectedAckReqIds = {
+        QStringLiteral("smoke-ready"),
+        QStringLiteral("smoke-ready-extra-payload"),
+        QStringLiteral("smoke-users"),
+        QStringLiteral("smoke-friends"),
+        QStringLiteral("smoke-groups"),
+        QStringLiteral("smoke-blank-op"),
+        QStringLiteral("smoke-missing-op"),
+        QStringLiteral("smoke-connect-missing-host"),
+        QStringLiteral("smoke-connect-invalid-port"),
+        QStringLiteral("smoke-connect-extra-field"),
+        QStringLiteral("smoke-login-missing-account"),
+        QStringLiteral("smoke-login-missing-password"),
+        QStringLiteral("smoke-login-extra-field"),
+        QStringLiteral("smoke-register-missing-account"),
+        QStringLiteral("smoke-register-missing-password"),
+        QStringLiteral("smoke-register-missing-user-name"),
+        QStringLiteral("smoke-user-info-missing-id"),
+        QStringLiteral("smoke-user-info-missing-name"),
+        QStringLiteral("smoke-e2e"),
+        QStringLiteral("smoke-e2e-invalid-peer"),
+        QStringLiteral("smoke-e2e-announce-missing"),
+        QStringLiteral("smoke-e2e-pin-invalid-fingerprint"),
+        QStringLiteral("smoke-cancel-missing"),
+        QStringLiteral("smoke-cancel-inactive"),
+        QStringLiteral("smoke-file-missing-path"),
+        QStringLiteral("smoke-file-missing-target"),
+        QStringLiteral("smoke-file-blank-target"),
+        QStringLiteral("smoke-file-ambiguous-target"),
+        QStringLiteral("smoke-file-invalid-target"),
+        QStringLiteral("smoke-resume-missing-transfer"),
+        QStringLiteral("smoke-resume-missing-target"),
+        QStringLiteral("smoke-resume-blank-target"),
+        QStringLiteral("smoke-resume-ambiguous-target"),
+        QStringLiteral("smoke-resume-invalid-target"),
+        QStringLiteral("smoke-resume-invalid-file-path"),
+        QStringLiteral("smoke-resume-invalid-content-type"),
+        QStringLiteral("smoke-resume-unsupported-content-type"),
+        QStringLiteral("smoke-resume-uppercase-content-type"),
+        QStringLiteral("smoke-resume-spaced-content-type"),
+        QStringLiteral("smoke-resume-target-without-file-path"),
+        QStringLiteral("smoke-resume-extra-field"),
+        QStringLiteral("smoke-profile"),
+        QStringLiteral("smoke-profile-invalid-field"),
+        QStringLiteral("smoke-profile-invalid-avatar"),
+        QStringLiteral("smoke-unknown-op"),
+        QStringLiteral("smoke-settings"),
+        QStringLiteral("smoke-settings-extra-field"),
+        QStringLiteral("smoke-settings-invalid"),
+        QStringLiteral("smoke-settings-invalid-download-dir"),
+        QStringLiteral("smoke-settings-invalid-file-download-dir"),
+        QStringLiteral("smoke-settings-invalid-files"),
+        QStringLiteral("smoke-settings-invalid-download-directory"),
+        QStringLiteral("smoke-settings-direct-dir-invalid-files"),
+        QStringLiteral("smoke-settings-direct-dir-invalid-nested-dir"),
+        QStringLiteral("smoke-invalid-payload"),
+        QStringLiteral("smoke-missing-field"),
+        QStringLiteral("smoke-search-blank-account"),
+        QStringLiteral("smoke-friend-request-missing-receiver"),
+        QStringLiteral("smoke-friend-response-missing-sender"),
+        QStringLiteral("smoke-friend-response-missing-accepted"),
+        QStringLiteral("smoke-private-message-missing-receiver"),
+        QStringLiteral("smoke-private-message-empty-content"),
+        QStringLiteral("smoke-private-message-extra-field"),
+        QStringLiteral("smoke-group-message-missing-group"),
+        QStringLiteral("smoke-group-message-empty-content"),
+        QStringLiteral("smoke-create-group-missing-name"),
+        QStringLiteral("smoke-group-announcement-missing-group"),
+        QStringLiteral("smoke-group-announcement-missing"),
+        QStringLiteral("smoke-group-member-missing-group"),
+        QStringLiteral("smoke-group-member-missing-member"),
+        QStringLiteral("smoke-group-member-invalid-action"),
+        QStringLiteral("smoke-group-member-uppercase-action"),
+        QStringLiteral("smoke-group-member-spaced-action"),
+        QStringLiteral("smoke-group-member-legacy-set-admin"),
+        QStringLiteral("smoke-group-member-legacy-unset-admin"),
+        QStringLiteral("smoke-create-group-invalid-members"),
+        QStringLiteral("smoke-create-group-invalid-member-entry"),
+        QStringLiteral("smoke-create-group-member-objects"),
+        QStringLiteral("smoke-create-group-invalid-member-object"),
+        QStringLiteral("smoke-create-group-invalid-announcement")
+    };
+    expectedAckReqIds.unite(contractAckReqIds);
+
+    QByteArray stdoutBytes;
+    QByteArray stderrBytes;
+    ok = expect(readProcessOutput(&process, &stdoutBytes, &stderrBytes, expectedAckReqIds),
+                "QQNTEngine should ack core IPC commands") && ok;
+    process.waitForFinished(5000);
+    stdoutBytes += process.readAllStandardOutput();
+    stderrBytes += process.readAllStandardError();
+
+    bool sawReadyEvent = false;
+    QSet<QString> seenAckReqIds;
+    int invalidJsonAckCount = 0;
+    bool sawMissingReqIdAck = false;
+    bool sawBlankReqIdAck = false;
+    int protocolLineCount = 0;
+    const int contractReqIdPrefixLength = QStringLiteral("contract-").size();
+    const QList<QByteArray> lines = stdoutBytes.split('\n');
+    for (const QByteArray& line : lines) {
+        const QByteArray trimmed = line.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        ++protocolLineCount;
+        bool parsed = false;
+        const QJsonObject object = parseProtocolLine(trimmed, &parsed);
+        ok = expect(parsed, "stdout line should be a JSON object") && ok;
+        if (!parsed) {
+            continue;
+        }
+
+        const QString type = object.value(QStringLiteral("type")).toString();
+        if (type == QLatin1String("event")) {
+            sawReadyEvent = object.value(QStringLiteral("event")).toString() == QLatin1String("ready") || sawReadyEvent;
+            if (object.value(QStringLiteral("event")).toString() == QLatin1String("settings_synced")) {
+                const QJsonObject payload = object.value(QStringLiteral("payload")).toObject();
+                sawSettingsSyncedEvent = sawSettingsSyncedEvent
+                    || (payload.value(QStringLiteral("revision")).toInt() >= 1
+                        && payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("notifications")).isObject());
+            }
+            continue;
+        }
+
+        if (type != QLatin1String("ack")) {
+            continue;
+        }
+
+        const QString reqId = object.value(QStringLiteral("reqId")).toString();
+        seenAckReqIds.insert(reqId);
+        const QJsonObject payload = object.value(QStringLiteral("payload")).toObject();
+        const QJsonObject error = object.value(QStringLiteral("error")).toObject();
+        const QString errorCode = error.value(QStringLiteral("code")).toString();
+
+        if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")
+            && object.value(QStringLiteral("op")).toString().isEmpty()
+            && reqId.isEmpty()
+            && errorCode == QLatin1String("invalid_json")) {
+            ++invalidJsonAckCount;
+        }
+        if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")
+            && object.value(QStringLiteral("op")).toString() == QLatin1String("ready")
+            && reqId.isEmpty()
+            && errorCode == QLatin1String("missing_req_id")) {
+            sawMissingReqIdAck = true;
+        }
+        if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")
+            && object.value(QStringLiteral("op")).toString() == QLatin1String("get_user_list")
+            && reqId.isEmpty()
+            && errorCode == QLatin1String("missing_req_id")) {
+            sawBlankReqIdAck = true;
+        }
+
+        if (reqId == QLatin1String("smoke-ready")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "ready command should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("protocolVersion")).toInt() == 1,
+                        "ready payload should advertise protocol version 1") && ok;
+            ok = expect(!payload.value(QStringLiteral("version")).toString().isEmpty(),
+                        "ready payload should include engine version") && ok;
+            ok = expect(!payload.value(QStringLiteral("qtVersion")).toString().isEmpty(),
+                        "ready payload should include Qt version") && ok;
+            ok = expect(!payload.value(QStringLiteral("e2eStatus")).toString().isEmpty(),
+                        "ready payload should include E2E status") && ok;
+        } else if (reqId == QLatin1String("smoke-ready-extra-payload")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "ready command with extra payload should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "ready command with extra payload should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-users")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "get_user_list should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("users")).isArray(),
+                        "get_user_list payload should include users array") && ok;
+            ok = expect(!payload.contains(QStringLiteral("friends")),
+                        "get_user_list payload should not alias friends") && ok;
+        } else if (reqId == QLatin1String("smoke-friends")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "get_friend_list should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("friends")).isArray(),
+                        "get_friend_list payload should include friends array") && ok;
+            ok = expect(!payload.contains(QStringLiteral("users")),
+                        "get_friend_list payload should not alias users") && ok;
+        } else if (reqId == QLatin1String("smoke-groups")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "get_group_list should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("groups")).isArray(),
+                        "get_group_list payload should include groups array") && ok;
+            ok = expect(payload.value(QStringLiteral("removedGroups")).isArray(),
+                        "get_group_list payload should include removedGroups array") && ok;
+            ok = expect(payload.value(QStringLiteral("hasSnapshot")).isBool(),
+                        "get_group_list payload should include hasSnapshot boolean") && ok;
+        } else if (reqId == QLatin1String("smoke-blank-op")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "blank op command should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("missing_op"),
+                        "blank op command should use missing_op code") && ok;
+        } else if (reqId == QLatin1String("smoke-missing-op")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "missing op command should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("missing_op"),
+                        "missing op command should use missing_op code") && ok;
+        } else if (reqId == QLatin1String("smoke-connect-missing-host")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "connect without host should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "connect without host should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-connect-invalid-port")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "connect with invalid port should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
+                        "connect with invalid port should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-connect-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "connect with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "connect with extra field should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-login-missing-account")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "login without account should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "login without account should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-login-missing-password")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "login without password should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "login without password should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-login-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "login with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "login with extra field should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-register-missing-account")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "register without account should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "register without account should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-register-missing-password")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "register without password should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "register without password should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-register-missing-user-name")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "register without userName should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "register without userName should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-user-info-missing-id")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "set_user_info without userId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "set_user_info without userId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-user-info-missing-name")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "set_user_info without userName should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "set_user_info without userName should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "e2e_status should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("localIdentity")).isObject(),
+                        "e2e_status payload should include local identity object") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-invalid-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_status with non-string peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_peer_id"),
+                        "e2e_status with non-string peerId should use invalid_peer_id code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-announce-missing")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_announce_identity missing peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_announce_identity missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-announce-blank")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_announce_identity blank peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_announce_identity blank peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-pin-missing-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_pin_identity missing peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_pin_identity missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-pin-blank-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_pin_identity blank peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_pin_identity blank peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-pin-invalid-fingerprint")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_pin_identity with non-string fingerprint should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_fingerprint"),
+                        "e2e_pin_identity with non-string fingerprint should use invalid_fingerprint code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-rotation-missing-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_request_rotation missing peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_request_rotation missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-rotation-blank-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_request_rotation blank peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_request_rotation blank peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-cancel-missing")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "cancel_transfer missing transferId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "cancel_transfer missing transferId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-cancel-inactive")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "cancel_transfer without active transfer should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("transfer_not_active"),
+                        "cancel_transfer without active transfer should use transfer_not_active code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-missing-path")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file without filePath should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_file without filePath should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-missing-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file without target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "send_file without target should use missing_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "send_file without target should include target field details") && ok;
+        } else if (reqId == QLatin1String("smoke-file-blank-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file with blank target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "send_file with blank target should use missing_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-ambiguous-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_image with two targets should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
+                        "send_image with two targets should use ambiguous_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "send_image with two targets should include target field details") && ok;
+        } else if (reqId == QLatin1String("smoke-file-invalid-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file with non-string target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
+                        "send_file with non-string target should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-missing-transfer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume without transferId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "query_resume without transferId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-missing-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume without target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "query_resume without target should use missing_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "query_resume without target should include target field details") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-blank-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with blank target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "query_resume with blank target should use missing_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-ambiguous-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with two targets should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
+                        "query_resume with two targets should use ambiguous_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "query_resume with two targets should include target field details") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-invalid-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with non-string target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
+                        "query_resume with non-string target should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-invalid-file-path")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with non-string filePath should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_file_path"),
+                        "query_resume with non-string filePath should use invalid_file_path code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-invalid-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with non-string contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with non-string contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-unsupported-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with unsupported contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with unsupported contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-uppercase-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with uppercase contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with uppercase contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-spaced-content-type")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with spaced contentType should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_content_type"),
+                        "query_resume with spaced contentType should use invalid_content_type code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-target-without-file-path")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with target and no filePath should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
+                        "query_resume with target and no filePath should use invalid_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "query_resume target without filePath should include target field details") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "query_resume with extra field should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-profile")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "profile_update should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("userName")).toString() == QLatin1String("Smoke User"),
+                        "profile_update payload should echo updated user name") && ok;
+        } else if (reqId == QLatin1String("smoke-profile-invalid-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "profile_update with non-string optional field should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_profile_field"),
+                        "profile_update with non-string optional field should use invalid_profile_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-profile-invalid-avatar")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "profile_update with invalid avatar Base64 should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_profile_field"),
+                        "profile_update with invalid avatar Base64 should use invalid_profile_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-unknown-op")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "unknown command should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("unknown_op"),
+                        "unknown command should use unknown_op code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "settings_sync should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("accepted")).toBool(false),
+                        "settings_sync payload should be accepted") && ok;
+            ok = expect(payload.value(QStringLiteral("revision")).toInt() == 1,
+                        "settings_sync payload should include revision") && ok;
+            ok = expect(payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("files")).isObject(),
+                        "settings_sync payload should echo settings object") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "settings_sync with extra field should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "invalid settings_sync should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "invalid settings_sync should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-file-download-dir")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-string fileDownloadDir should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-string fileDownloadDir should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-files")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-object files should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-object files should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-download-dir")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-string downloadDir should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-string downloadDir should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-download-directory")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-string downloadDirectory should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-string downloadDirectory should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-direct-dir-invalid-files")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync should validate files even with direct fileDownloadDir") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync direct fileDownloadDir plus invalid files should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-direct-dir-invalid-nested-dir")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync should validate nested download dir even with direct fileDownloadDir") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync direct fileDownloadDir plus invalid nested dir should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-invalid-payload")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "non-object payload should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_payload"),
+                        "non-object payload should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-missing-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "missing required field should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "missing required field should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-search-blank-account")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "search_friend blank account should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "search_friend blank account should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-friend-request-missing-receiver")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_friend_request missing receiverId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_friend_request missing receiverId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-friend-response-missing-sender")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "respond_friend_request missing senderId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "respond_friend_request missing senderId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-friend-response-missing-accepted")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "respond_friend_request missing accepted should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "respond_friend_request missing accepted should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-private-message-missing-receiver")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_private_message missing receiverId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_private_message missing receiverId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-private-message-empty-content")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_private_message empty content should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_private_message empty content should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-private-message-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_private_message with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "send_private_message with extra field should use invalid_payload code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-message-missing-group")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_group_message missing groupId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_group_message missing groupId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-message-empty-content")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_group_message empty content should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_group_message empty content should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-missing-name")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group missing groupName should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "create_group missing groupName should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-announcement-missing-group")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_announcement missing groupId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_announcement missing groupId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-announcement-missing")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_announcement missing announcement should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_announcement missing announcement should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-missing-group")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member missing groupId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_member missing groupId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-missing-member")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member missing memberId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_member missing memberId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-invalid-action")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with invalid action should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with invalid action should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-uppercase-action")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with uppercase action should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with uppercase action should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-spaced-action")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with spaced action should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with spaced action should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-legacy-set-admin")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with set_admin should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with set_admin should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-legacy-unset-admin")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with unset_admin should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with unset_admin should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-members")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with non-array members should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
+                        "create_group with non-array members should use invalid_members code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-member-entry")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with non-string member entry should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
+                        "create_group with non-string member entry should use invalid_members code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-member-objects")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with member objects should pass validation and reach the client") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("create_group_failed"),
+                        "create_group with member objects should fail only because the engine is offline") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-member-object")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with invalid member object field should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
+                        "create_group with invalid member object field should use invalid_members code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-announcement")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with non-string announcement should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_announcement"),
+                        "create_group with non-string announcement should use invalid_announcement code") && ok;
+        }
+
+        if (contractAckReqIds.contains(reqId)) {
+            const QString contractOp = reqId.mid(contractReqIdPrefixLength);
+            ok = expect(object.value(QStringLiteral("op")).toString() == contractOp,
+                        QStringLiteral("protocol contract ack should echo op: %1").arg(contractOp)) && ok;
+            if (object.value(QStringLiteral("status")).toString() == QLatin1String("ok")) {
+                ok = validateOkContractAckPayload(contractOp, payload) && ok;
+            } else if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")) {
+                const QString errorCode = object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString();
+                ok = expect(errorCode != QLatin1String("unknown_op"),
+                            QStringLiteral("protocol contract command should be routed, not unknown_op: %1").arg(contractOp)) && ok;
+            }
+        }
+    }
+
+    ok = expect(protocolLineCount >= expectedAckReqIds.size() + 1, "QQNTEngine should emit startup event and command acks") && ok;
+    ok = expect(sawReadyEvent, "QQNTEngine should emit startup ready event") && ok;
+    ok = expect(invalidJsonAckCount >= 2, "QQNTEngine should ack malformed and non-object JSON lines with invalid_json") && ok;
+    ok = expect(sawMissingReqIdAck, "QQNTEngine should ack missing reqId commands with missing_req_id") && ok;
+    ok = expect(sawBlankReqIdAck, "QQNTEngine should ack blank reqId commands with missing_req_id") && ok;
+    ok = expect(sawSettingsSyncedEvent, "QQNTEngine should emit settings_synced event") && ok;
+    ok = expect(missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty(), "QQNTEngine should ack every smoke command") && ok;
+    return ok ? 0 : 1;
+}
