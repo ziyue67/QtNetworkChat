@@ -2,16 +2,28 @@
 
 #include "qqnt_client_bridge.h"
 #include "localfilemanager.h"
+#include "qqnt_backend_service.h"
 
 #include <QByteArray>
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QDir>
+#include <QMap>
 #include <QStringList>
 #include <QVector>
 
 namespace {
+QString canonicalEngineOp(const QString& op) {
+    static const QMap<QString, QString> aliases{
+        {QStringLiteral("engine_ready"), QStringLiteral("ready")},
+        {QStringLiteral("connect_server"), QStringLiteral("connect")},
+        {QStringLiteral("register_account"), QStringLiteral("register")},
+        {QStringLiteral("disconnect_server"), QStringLiteral("disconnect")},
+    };
+    return aliases.value(op, op);
+}
+
 QJsonObject makeResumeStatePayload(const QString& transferId,
                                    qint64 confirmedBytes,
                                    qint64 nextChunkIndex,
@@ -254,7 +266,21 @@ QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
 }
 
 void QQNTEngineCommandRouter::route(const QJsonObject& command) {
-    const QString op = command.value(QStringLiteral("op")).toString().trimmed();
+    const QString requestedOp = command.value(QStringLiteral("op")).toString().trimmed();
+    if (requestedOp == QLatin1String("qqnt_command")) {
+        const QJsonObject nested = command.value(QStringLiteral("payload")).toObject();
+        if (nested.isEmpty()) {
+            const QString reqId = command.value(QStringLiteral("reqId")).toString().trimmed();
+            m_bridge->sendErrorAck(requestedOp,
+                                   reqId,
+                                   QStringLiteral("invalid_payload"),
+                                   QStringLiteral("qqnt_command payload must contain an inner command object."));
+            return;
+        }
+        route(nested);
+        return;
+    }
+    const QString op = canonicalEngineOp(requestedOp);
     const QString reqId = command.value(QStringLiteral("reqId")).toString().trimmed();
     const QJsonValue payloadValue = command.value(QStringLiteral("payload"));
 
@@ -285,6 +311,18 @@ void QQNTEngineCommandRouter::route(const QJsonObject& command) {
 
     if (op == QLatin1String("ready")) {
         handleReady(op, reqId);
+    } else if (QQNTBackendService::isCommand(op)) {
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        if (!QQNTBackendService::handle(op, payload, &response, &errorCode, &errorMessage)) {
+            m_bridge->sendErrorAck(op,
+                                   reqId,
+                                   errorCode.isEmpty() ? QStringLiteral("backend_command_failed") : errorCode,
+                                   errorMessage.isEmpty() ? QStringLiteral("Local backend command failed.") : errorMessage);
+            return;
+        }
+        m_bridge->sendAck(op, reqId, response);
     } else if (op == QLatin1String("login")) {
         handleLogin(op, reqId, payload, false);
     } else if (op == QLatin1String("register")) {
@@ -401,14 +439,27 @@ void QQNTEngineCommandRouter::handleLogin(const QString& op, const QString& reqI
 }
 
 void QQNTEngineCommandRouter::handleConnect(const QString& op, const QString& reqId, const QJsonObject& payload) {
-    if (!requireOnlyFields(payload, {QStringLiteral("host"), QStringLiteral("port")}, op, reqId)) {
+    QJsonObject effectivePayload = payload;
+    if (effectivePayload.isEmpty()) {
+        effectivePayload[QStringLiteral("host")] = QString::fromLocal8Bit(qgetenv("QQNT_SERVER_HOST")).trimmed();
+        if (effectivePayload.value(QStringLiteral("host")).toString().isEmpty()) {
+            effectivePayload[QStringLiteral("host")] = QStringLiteral("127.0.0.1");
+        }
+        bool ok = false;
+        int port = QString::fromLocal8Bit(qgetenv("QQNT_SERVER_PORT")).toInt(&ok);
+        if (!ok || port <= 0 || port > 65535) {
+            port = 8888;
+        }
+        effectivePayload[QStringLiteral("port")] = port;
+    }
+    if (!requireOnlyFields(effectivePayload, {QStringLiteral("host"), QStringLiteral("port")}, op, reqId)) {
         return;
     }
 
     QString host;
     quint16 port = 0;
-    if (!requireString(payload, QStringLiteral("host"), &host, op, reqId)
-        || !requireTcpPort(payload, QStringLiteral("port"), &port, op, reqId)) {
+    if (!requireString(effectivePayload, QStringLiteral("host"), &host, op, reqId)
+        || !requireTcpPort(effectivePayload, QStringLiteral("port"), &port, op, reqId)) {
         return;
     }
 

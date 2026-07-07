@@ -1,9 +1,5 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-#include "chatbubbledelegate.h"
-#include "sessionitemdelegate.h"
-#include "groupmemberitemdelegate.h"
-#include "iconhelper.h"
 #include <QFile>
 #include <QTextStream>
 #include <QApplication>
@@ -31,14 +27,14 @@
 #include <QIcon>
 #include <QTextEdit>
 #include <QPushButton>
-#include <QButtonGroup>
-#include <QAbstractButton>
 #include <QListView>
 #include <QStatusBar>
 #include <QPixmap>
 #include <QImage>
 #include <QPainter>
+#include <QGraphicsDropShadowEffect>
 #include <QPropertyAnimation>
+#include <QPainter>
 #include <QLinearGradient>
 #include <QPolygonF>
 #include <QRegularExpression>
@@ -56,11 +52,11 @@
 #include <QUrl>
 #include <QSqlDatabase>
 #include <QSqlQuery>
-#include <QSettings>
 #include <QVariant>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSettings>
 #include <QProgressDialog>
 #include <QDateEdit>
 #include <QDialogButtonBox>
@@ -69,8 +65,6 @@
 #include <QStyledItemDelegate>
 #include <QBuffer>
 #include <QScrollArea>
-#include <QStyle>
-#include <QUuid>
 #include <functional>
 
 namespace {
@@ -82,16 +76,132 @@ enum ChatVisualRole {
     ChatSystemRole,
     ChatMediaKindRole,
     ChatMediaPreviewRole,
-    ChatMediaOpenPathRole,
-    ChatMessageIdRole,
-    ChatSessionIdRole,
-    ChatFavoritedRole,
-    ChatEssenceRole,
-    ChatRecalledRole
+    ChatMediaOpenPathRole
 };
 
 QPixmap roundAvatarPixmap(const QPixmap& source, int side);
 QIcon generatedPeerAvatarIcon(const QString& displayName, const QString& seedId, int side);
+
+class ChatMessageDelegate : public QStyledItemDelegate {
+public:
+    explicit ChatMessageDelegate(QObject* parent = nullptr)
+        : QStyledItemDelegate(parent) {
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        const bool system = index.data(ChatSystemRole).toBool();
+        const int width = qMax(360, option.rect.width() > 0 ? option.rect.width() : 640);
+        QFontMetrics fm(option.font);
+        const int maxTextWidth = system ? width - 80 : qMin(520, qMax(240, width - 156));
+        const QString mediaKind = index.data(ChatMediaKindRole).toString();
+        const QVariant mediaPreviewData = index.data(ChatMediaPreviewRole);
+        const bool hasImagePreview = mediaKind == QLatin1String("image")
+            && mediaPreviewData.canConvert<QPixmap>()
+            && !mediaPreviewData.value<QPixmap>().isNull();
+        const QRect textBounds = fm.boundingRect(QRect(0, 0, maxTextWidth, 1000),
+                                                 Qt::TextWordWrap,
+                                                 index.data(Qt::DisplayRole).toString());
+        if (hasImagePreview) {
+            QSize mediaSize = mediaPreviewData.value<QPixmap>().size();
+            mediaSize.scale(qMin(300, maxTextWidth), 220, Qt::KeepAspectRatio);
+            return QSize(width, qMax(120, mediaSize.height() + textBounds.height() + 44));
+        }
+        return QSize(width, qMax(system ? 42 : 58, textBounds.height() + (system ? 22 : 30)));
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QString text = index.data(Qt::DisplayRole).toString();
+        const bool outgoing = index.data(ChatOutgoingRole).toBool();
+        const bool system = index.data(ChatSystemRole).toBool();
+        const QString mediaKind = index.data(ChatMediaKindRole).toString();
+        const bool hasImagePreview = mediaKind == QLatin1String("image")
+            && index.data(ChatMediaPreviewRole).canConvert<QPixmap>()
+            && !index.data(ChatMediaPreviewRole).value<QPixmap>().isNull();
+        const QRect rect = option.rect.adjusted(10, 4, -10, -4);
+        QFontMetrics fm(option.font);
+
+        if (system) {
+            const int maxWidth = qMin(rect.width() - 40, 620);
+            const QRect textRect = fm.boundingRect(QRect(0, 0, maxWidth, 1000), Qt::TextWordWrap, text);
+            const QRect bubble(QPoint(rect.center().x() - textRect.width() / 2 - 14, rect.top() + 5),
+                               QSize(textRect.width() + 28, textRect.height() + 14));
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(QColor(245, 247, 250));
+            painter->drawRoundedRect(bubble, 13, 13);
+            painter->setPen(QColor(102, 116, 130));
+            painter->drawText(bubble.adjusted(14, 7, -14, -7), Qt::TextWordWrap | Qt::AlignCenter, text);
+            painter->restore();
+            return;
+        }
+
+        const int avatarSize = 38;
+        const int sideInset = 14;
+        const int avatarX = outgoing ? rect.right() - avatarSize - sideInset : rect.left() + sideInset;
+        const QRect avatarRect(avatarX, rect.top() + 8, avatarSize, avatarSize);
+        QPixmap avatar;
+        const QString avatarPath = index.data(ChatAvatarPathRole).toString();
+        if (!avatarPath.isEmpty()) {
+            avatar.load(avatarPath);
+        }
+        if (avatar.isNull()) {
+            avatar = generatedPeerAvatarIcon(index.data(ChatSenderNameRole).toString(),
+                                             index.data(ChatSenderIdRole).toString(),
+                                             avatarSize).pixmap(avatarSize, avatarSize);
+        } else {
+            avatar = roundAvatarPixmap(avatar, avatarSize);
+        }
+        painter->drawPixmap(avatarRect, avatar);
+
+        const int maxBubbleWidth = qMin(560, qMax(250, rect.width() - avatarSize - 88));
+        QSize bubbleSize;
+        QRect textBounds;
+        QPixmap mediaPreview;
+        QSize mediaSize;
+        if (hasImagePreview) {
+            mediaPreview = index.data(ChatMediaPreviewRole).value<QPixmap>();
+            mediaSize = mediaPreview.size();
+            const int maxPreviewWidth = qMin(300, maxBubbleWidth - 24);
+            const int maxPreviewHeight = 220;
+            mediaSize.scale(maxPreviewWidth, maxPreviewHeight, Qt::KeepAspectRatio);
+            textBounds = fm.boundingRect(QRect(0, 0, maxPreviewWidth, 1000), Qt::TextWordWrap, text);
+            bubbleSize = QSize(qMax(mediaSize.width(), textBounds.width()) + 24,
+                               mediaSize.height() + textBounds.height() + 30);
+        } else {
+            textBounds = fm.boundingRect(QRect(0, 0, maxBubbleWidth, 1000), Qt::TextWordWrap, text);
+            bubbleSize = QSize(textBounds.width() + 28, textBounds.height() + 20);
+        }
+        const int bubbleX = outgoing
+            ? avatarRect.left() - 10 - bubbleSize.width()
+            : avatarRect.right() + 10;
+        const QRect bubbleRect(QPoint(bubbleX, rect.top() + 6), bubbleSize);
+
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(outgoing ? QColor(218, 241, 255) : QColor(246, 250, 253));
+        painter->drawRoundedRect(bubbleRect, 14, 14);
+        painter->setPen(outgoing ? QColor(20, 92, 160) : QColor(38, 50, 56));
+        if (hasImagePreview) {
+            const QRect imageRect(bubbleRect.left() + 12,
+                                  bubbleRect.top() + 12,
+                                  mediaSize.width(),
+                                  mediaSize.height());
+            painter->drawPixmap(imageRect, mediaPreview);
+            painter->setPen(QColor(86, 116, 130));
+            painter->drawText(QRect(bubbleRect.left() + 12,
+                                    imageRect.bottom() + 8,
+                                    bubbleRect.width() - 24,
+                                    textBounds.height() + 4),
+                              Qt::TextWordWrap,
+                              text);
+        } else {
+            painter->drawText(bubbleRect.adjusted(14, 10, -14, -10), Qt::TextWordWrap, text);
+        }
+
+        painter->restore();
+    }
+};
 
 void applyTransferActionState(QAction* action, const TransferActionUiState& state) {
     if (!action) return;
@@ -381,11 +491,6 @@ QIcon generatedPeerAvatarIcon(const QString& displayName, const QString& seedId,
     return QIcon(pixmap);
 }
 
-QString compactMessageId(const QString& seed) {
-    const QByteArray hash = QCryptographicHash::hash(seed.toUtf8(), QCryptographicHash::Sha1).toHex();
-    return QString::fromLatin1(hash.left(16));
-}
-
 QString appWindowTitle(const QString& suffix = QString()) {
     return WindowStateManager::appWindowTitle(QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING), suffix);
 }
@@ -410,7 +515,6 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_clearSavedTransferAction(nullptr)
     , m_unreadCount(0)
     , m_isQuitting(false)
-    , m_navGroup(nullptr)
 {
         ui->setupUi(this);
 
@@ -423,20 +527,32 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     fadeAnim->setEasingCurve(QEasingCurve::InOutQuad);
     fadeAnim->start(QAbstractAnimation::DeleteWhenStopped);
 
+    // Apply drop shadows to structural cards to create Z-depth
+    auto addShadow = [](QWidget* widget) {
+        if (!widget) return;
+        QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(widget);
+        shadow->setBlurRadius(20);
+        shadow->setColor(QColor(94, 92, 230, 60));
+        shadow->setOffset(0, 4);
+        widget->setGraphicsEffect(shadow);
+    };
+
+    addShadow(ui->profileCard);
+    addShadow(ui->announcementCard);
+    addShadow(ui->groupOverviewCard);
+    addShadow(ui->transferOverviewCard);
+
     // Load modern stylesheet
     QFile styleFile("ui/style.qss");
-    if (styleFile.open(QFile::ReadOnly)) {
+    if(styleFile.open(QFile::ReadOnly)) {
         QTextStream textStream(&styleFile);
         QString styleSheet = textStream.readAll();
         this->setStyleSheet(styleSheet);
     }
-    setProperty("theme", "light");
-    loadTheme();
     setMinimumSize(980, 680);
     setWindowIcon(createChatIcon(userName));
     setupUi();
     setupTray();
-    setupNavPanel();
 
     if (m_client && !m_client->parent()) {
         m_client->setParent(this);
@@ -452,8 +568,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     ui->profileNameLabel->setText("QQ: " + userId);
     ui->profileIdLabel->setText("昵称: " + userName);
     loadAvatar();
+    ui->appTitleLabel->setText("Qt 聊天室");
     ui->chatTitleLabel->setText("公共聊天室");
-    ui->chatStatusLabel->setText("Redis 在线工作台 · 多实例状态同步中");
     ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
 
     connect(m_client, &Client::connected, this, [this]() {
@@ -473,13 +589,6 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendRequestSent, this, &MainWindow::onFriendRequestSent);
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
     connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
-    connect(m_client, &Client::serverGroupEssenceUpdated, this, &MainWindow::handleServerGroupEssenceUpdated);
-    connect(m_client, &Client::messageFavoriteUpdated, this, &MainWindow::handleMessageFavoriteUpdated);
-    connect(m_client, &Client::favoriteMessagesSnapshotReceived, this, &MainWindow::handleFavoriteMessagesSnapshotReceived);
-    connect(m_client, &Client::serverGroupMessageRecalled, this, &MainWindow::handleServerGroupMessageRecalled);
-    connect(m_client, &Client::serverGroupMemberMuted, this, &MainWindow::handleServerGroupMemberMuted);
-    connect(m_client, &Client::serverGroupMemberUnmuted, this, &MainWindow::handleServerGroupMemberUnmuted);
-    connect(m_client, &Client::serverGroupMemberProfileReceived, this, &MainWindow::handleServerGroupMemberProfileReceived);
     connect(m_client, &Client::e2eSessionStateChanged, this, &MainWindow::onE2ESessionStateChanged);
     connect(m_client, &Client::e2eIdentityStateChanged, this, &MainWindow::onE2EIdentityStateChanged);
     connect(m_client, &Client::e2eSessionRotationRequested, this, &MainWindow::onE2ESessionRotationRequested);
@@ -505,11 +614,11 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     ui->profileIdLabel->setText("昵称: " + m_currentUserName);
     ui->profileNameLabel->setToolTip(QString("当前 QQ 号：%1").arg(m_currentUserId));
     ui->profileIdLabel->setToolTip(QString("当前昵称：%1").arg(m_currentUserName));
-    ui->uploadAvatarBtn->setToolTip("更换当前头像");
-    if (ui->groupMemberListView) {
-        ui->groupMemberListView->setProperty("currentUserId", m_currentUserId);
-    }
+    ui->profileCard->setToolTip("右键可复制名片、在线状态，或打开好友管理");
+    ui->copyAccountBtn->setToolTip(QString("复制 QQ 号 %1 到剪贴板").arg(m_currentUserId));
     saveProfileToSqlite();
+    ui->addFriendBtn->hide();
+    ui->uploadAvatarBtn->setText("换头像");
     if (m_client->hasServerGroupSnapshot()) {
         onServerGroupSnapshotReceived(m_client->serverGroups());
     }
@@ -615,13 +724,9 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                 QApplication::processEvents();
             });
 
-        const bool ok = receiverId.trimmed().isEmpty() && m_hasServerGroupSnapshot
-            ? (asImage
-                ? m_client->sendServerGroupImage(QStringLiteral("public"), filePath)
-                : m_client->sendServerGroupFile(QStringLiteral("public"), filePath))
-            : (asImage
-                ? m_client->sendImage(filePath, receiverId)
-                : m_client->sendFile(filePath, receiverId));
+        const bool ok = asImage
+            ? m_client->sendImage(filePath, receiverId)
+            : m_client->sendFile(filePath, receiverId);
 
         QObject::disconnect(progressConnection);
         QObject::disconnect(preparedConnection);
@@ -1191,7 +1296,6 @@ void MainWindow::openPrivateSession(const QString& userId) {
     m_chatModel->clear();
     m_chatModel->setHorizontalHeaderLabels({QStringLiteral("聊天记录")});
     loadHistory(userId);
-    updateEmptyStateVisibility();
     const PrivateChatUiState privateState = ChatSessionManager::privateChatState(
         userId,
         userName,
@@ -1202,7 +1306,6 @@ void MainWindow::openPrivateSession(const QString& userId) {
     ui->chatTitleLabel->setText(privateState.titleText);
     ui->chatHintLabel->setText(privateState.hintText);
     refreshComposerState();
-    refreshSessionSummary();
 }
 
 bool MainWindow::ensureFriendRequestQueued(const QString& userId,
@@ -1687,201 +1790,6 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
     return false;
 }
 
-QString MainWindow::currentServerGroupId() const {
-    if (m_privateChatTarget.isEmpty() && m_hasServerGroupSnapshot && m_serverGroupMembers.contains(QStringLiteral("public"))) {
-        return QStringLiteral("public");
-    }
-    return QString();
-}
-
-QString MainWindow::currentFavoriteSessionId() const {
-    if (m_privateChatTarget.isEmpty()) {
-        return QStringLiteral("public");
-    }
-    if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
-        return m_privateChatTarget.mid(QStringLiteral("local_group_").size());
-    }
-    return m_privateChatTarget;
-}
-
-QString MainWindow::chatMessageIdForIndex(const QModelIndex& index) const {
-    if (!index.isValid()) {
-        return QString();
-    }
-    QString messageId = index.data(ChatMessageIdRole).toString().trimmed();
-    if (messageId.isEmpty()) {
-        const QString sessionId = index.data(ChatSessionIdRole).toString().trimmed().isEmpty()
-            ? currentFavoriteSessionId()
-            : index.data(ChatSessionIdRole).toString().trimmed();
-        messageId = compactMessageId(QStringLiteral("%1|%2").arg(sessionId, index.data().toString()));
-        if (QStandardItem* item = m_chatModel->itemFromIndex(index)) {
-            item->setData(messageId, ChatMessageIdRole);
-            item->setData(sessionId, ChatSessionIdRole);
-        }
-    }
-    return messageId;
-}
-
-QJsonObject MainWindow::chatMessagePayloadForFavorite(const QModelIndex& index,
-                                                      const QString& messageId) const {
-    QJsonObject message;
-    const QString text = index.data().toString();
-    const QString sessionId = index.data(ChatSessionIdRole).toString().trimmed().isEmpty()
-        ? currentFavoriteSessionId()
-        : index.data(ChatSessionIdRole).toString().trimmed();
-    const QString senderId = index.data(ChatBubbleSenderIdRole).toString();
-    const QString senderName = index.data(ChatBubbleSenderNameRole).toString();
-    message["id"] = messageId;
-    message["messageId"] = messageId;
-    message["sessionId"] = sessionId;
-    message["senderId"] = senderId;
-    message["senderName"] = senderName;
-    message["content"] = text;
-    message["type"] = QStringLiteral("text");
-    message["timestamp"] = QString::number(QDateTime::currentMSecsSinceEpoch());
-    return message;
-}
-
-void MainWindow::applyRecalledChatMessage(const QString& messageId,
-                                          const QString& groupId,
-                                          const QString& operatorId) {
-    if (messageId.isEmpty()) {
-        return;
-    }
-    for (int row = 0; row < m_chatModel->rowCount(); ++row) {
-        QStandardItem* item = m_chatModel->item(row);
-        if (!item || item->data(ChatMessageIdRole).toString() != messageId) {
-            continue;
-        }
-        const QString oldText = item->text();
-        if (!oldText.contains(QStringLiteral("已撤回"))) {
-            item->setText(QStringLiteral("[已撤回] %1").arg(oldText));
-        }
-        item->setData(true, ChatRecalledRole);
-        item->setForeground(QColor(135, 150, 165));
-        item->setToolTip(QStringLiteral("服务端群 %1 消息已由 %2 撤回").arg(groupId, operatorId));
-    }
-    if (ui->chatListView) {
-        ui->chatListView->viewport()->update();
-    }
-}
-
-void MainWindow::handleServerGroupEssenceUpdated(const QJsonObject& payload) {
-    const QString groupId = payload["groupId"].toString(QStringLiteral("public")).trimmed();
-    const QString messageId = payload["messageId"].toString().trimmed();
-    const bool enabled = payload["enabled"].toBool(true);
-    if (groupId.isEmpty() || messageId.isEmpty()) {
-        return;
-    }
-    const QString key = groupId + QLatin1Char('|') + messageId;
-    if (enabled) {
-        m_serverGroupEssenceMessageKeys.insert(key);
-    } else {
-        m_serverGroupEssenceMessageKeys.remove(key);
-    }
-    for (int row = 0; row < m_chatModel->rowCount(); ++row) {
-        QStandardItem* item = m_chatModel->item(row);
-        if (item && item->data(ChatMessageIdRole).toString() == messageId) {
-            item->setData(enabled, ChatEssenceRole);
-            item->setToolTip(enabled ? QStringLiteral("已设为群精华") : QString());
-        }
-    }
-    appendSystemMessage(QStringLiteral("群精华已%1：%2").arg(enabled ? QStringLiteral("设置") : QStringLiteral("取消"), messageId));
-}
-
-void MainWindow::handleMessageFavoriteUpdated(const QJsonObject& payload) {
-    const QString sessionId = payload["sessionId"].toString().trimmed();
-    const QString messageId = payload["messageId"].toString().trimmed();
-    const bool favorite = payload["favorite"].toBool(false);
-    if (sessionId.isEmpty() || messageId.isEmpty()) {
-        return;
-    }
-    const QString key = sessionId + QLatin1Char('|') + messageId;
-    if (favorite) {
-        m_favoriteMessageKeys.insert(key);
-    } else {
-        m_favoriteMessageKeys.remove(key);
-    }
-    for (int row = 0; row < m_chatModel->rowCount(); ++row) {
-        QStandardItem* item = m_chatModel->item(row);
-        if (item && item->data(ChatMessageIdRole).toString() == messageId) {
-            item->setData(favorite, ChatFavoritedRole);
-            item->setToolTip(favorite ? QStringLiteral("已收藏到服务端") : QString());
-        }
-    }
-    ui->statusbar->showMessage(favorite ? QStringLiteral("服务端收藏已同步") : QStringLiteral("服务端收藏已取消"), 1800);
-}
-
-void MainWindow::handleFavoriteMessagesSnapshotReceived(const QJsonArray& favorites) {
-    m_favoriteMessageKeys.clear();
-    for (const QJsonValue& value : favorites) {
-        const QJsonObject obj = value.toObject();
-        const QString sessionId = obj["sessionId"].toString().trimmed();
-        const QString messageId = obj["messageId"].toString(obj["id"].toString()).trimmed();
-        if (!sessionId.isEmpty() && !messageId.isEmpty()) {
-            m_favoriteMessageKeys.insert(sessionId + QLatin1Char('|') + messageId);
-        }
-    }
-    ui->statusbar->showMessage(QStringLiteral("已同步服务端收藏 %1 条").arg(favorites.size()), 1600);
-}
-
-void MainWindow::handleServerGroupMessageRecalled(const QJsonObject& payload) {
-    const QString groupId = payload["groupId"].toString(QStringLiteral("public")).trimmed();
-    const QString messageId = payload["messageId"].toString().trimmed();
-    if (groupId.isEmpty() || messageId.isEmpty()) {
-        return;
-    }
-    m_serverGroupRecalledMessageKeys.insert(groupId + QLatin1Char('|') + messageId);
-    applyRecalledChatMessage(messageId, groupId, payload["operatorId"].toString());
-    appendSystemMessage(QStringLiteral("群消息已撤回：%1").arg(messageId));
-}
-
-void MainWindow::handleServerGroupMemberMuted(const QJsonObject& payload) {
-    const QString groupId = payload["groupId"].toString(QStringLiteral("public")).trimmed();
-    const QString memberId = payload["memberId"].toString().trimmed();
-    const qint64 mutedUntil = payload["mutedUntil"].toVariant().toLongLong();
-    if (!groupId.isEmpty() && !memberId.isEmpty() && mutedUntil > 0) {
-        m_serverGroupMemberMutedUntil[groupId + QLatin1Char('|') + memberId] = mutedUntil;
-        refreshGroupMemberPanel();
-    }
-    const QString message = payload["message"].toString();
-    if (!message.isEmpty()) {
-        ui->statusbar->showMessage(message, 2600);
-    } else if (!memberId.isEmpty()) {
-        appendSystemMessage(QStringLiteral("群成员 %1 已被禁言").arg(contactDisplayName(memberId)));
-    }
-}
-
-void MainWindow::handleServerGroupMemberUnmuted(const QJsonObject& payload) {
-    const QString groupId = payload["groupId"].toString(QStringLiteral("public")).trimmed();
-    const QString memberId = payload["memberId"].toString().trimmed();
-    if (!groupId.isEmpty() && !memberId.isEmpty()) {
-        m_serverGroupMemberMutedUntil.remove(groupId + QLatin1Char('|') + memberId);
-        refreshGroupMemberPanel();
-        appendSystemMessage(QStringLiteral("群成员 %1 已解除禁言").arg(contactDisplayName(memberId)));
-    }
-}
-
-void MainWindow::handleServerGroupMemberProfileReceived(const QJsonObject& payload) {
-    const QString memberId = payload["memberId"].toString().trimmed();
-    const QString userName = payload["userName"].toString(contactDisplayName(memberId));
-    const QString role = payload["role"].toString(QStringLiteral("member"));
-    const QString groupId = payload["groupId"].toString(QStringLiteral("public"));
-    const qint64 mutedUntil = payload["mutedUntil"].toVariant().toLongLong();
-    const QString mutedText = mutedUntil > QDateTime::currentMSecsSinceEpoch()
-        ? QDateTime::fromMSecsSinceEpoch(mutedUntil).toString(QStringLiteral("yyyy-MM-dd hh:mm:ss"))
-        : QStringLiteral("未禁言");
-    QMessageBox::information(this,
-                             "群成员资料",
-                             QStringLiteral("QQ:%1\n昵称:%2\n群:%3\n角色:%4\n在线:%5\n禁言:%6")
-                                 .arg(memberId,
-                                      userName,
-                                      groupId,
-                                      role,
-                                      payload["online"].toBool(false) ? QStringLiteral("在线") : QStringLiteral("离线"),
-                                      mutedText));
-}
-
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
     if (!m_resumeSavedTransferAction || !m_clearSavedTransferAction) return;
 
@@ -2092,82 +2000,61 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
 void MainWindow::setupUi() {
     m_userListModel->setHorizontalHeaderLabels({"在线用户"});
     ui->userListView->setModel(m_userListModel);
-    ui->userListView->setItemDelegate(new SessionItemDelegate(ui->userListView));
     ui->userListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    ui->userListView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    ui->userListView->setSpacing(0);
 
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     ui->chatListView->setModel(m_chatModel);
-    ui->chatListView->setItemDelegate(new ChatBubbleDelegate(ui->chatListView));
+    ui->chatListView->setItemDelegate(new ChatMessageDelegate(ui->chatListView));
     ui->chatListView->setIconSize(QSize(34, 34));
-    ui->chatListView->setSpacing(0);
-    ui->chatListView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    ui->chatListView->setSpacing(8);
     ui->chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
     ui->chatListView->setToolTip("右键消息可复制、引用和转发；双击带保存路径的文件记录可直接打开文件");
 
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
     ui->groupMemberListView->setModel(m_groupMemberModel);
-    ui->groupMemberListView->setItemDelegate(new GroupMemberItemDelegate(ui->groupMemberListView));
-    ui->groupMemberListView->setProperty("currentUserId", m_currentUserId);
     ui->groupMemberListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    ui->groupMemberListView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    ui->groupMemberListView->setSpacing(0);
-    ui->groupMemberListView->setWordWrap(true);
 
     ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)");
     ui->messageEdit->setFocus();
     ui->messageEdit->installEventFilter(this);
     ui->messageEdit->setContextMenuPolicy(Qt::CustomContextMenu);
-    ui->chatStatusLabel->setText("Redis 在线工作台 · 多实例状态同步中");
+    ui->chatSubtitleLabel->setText("Redis 在线工作台 · 多实例状态同步中");
+    ui->chatStatusBadgeLabel->setText("公共群会话");
     ui->composerStateLabel->setText("Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿");
+    ui->sideSummaryTitleLabel->setText("工作台概览");
+    ui->sideSummaryStatsLabel->setText("好友 0 · 群聊 0 · 在线 0");
+    ui->sideSummaryStateLabel->setText("等待服务端在线状态同步");
+    ui->groupOverviewTitleLabel->setText("会话状态");
+    ui->groupOverviewStateLabel->setText("公共群在线视图已准备");
+    ui->groupOverviewMetaLabel->setText("成员面板会随着当前会话自动刷新");
+    ui->transferOverviewTitleLabel->setText("文件传输");
+    setTransferWorkspaceState(m_transferManager.idleWorkspaceState(false, false, false));
     ui->contactSearchEdit->installEventFilter(this);
     ui->memberSearchEdit->installEventFilter(this);
     ui->contactSearchEdit->setToolTip("搜索联系人、QQ 号或群聊；按 Enter 搜索账号，Esc 清空");
     ui->memberSearchEdit->setToolTip("搜索当前群成员；群聊中可输入 QQ 号后按 Enter 邀请");
 
-    ui->clearBtn->setText(IconHelper::iconFor("clear"));
     ui->clearBtn->setObjectName("clearBtn");
     ui->clearBtn->setToolTip("清空当前会话的本地聊天记录");
-    ui->clearBtn->setProperty("navBtn", true);
-    ui->fileBtn->setText(IconHelper::iconFor("file"));
     ui->fileBtn->setObjectName("toolBtn");
     ui->fileBtn->setToolTip("闪传文件，支持文档、压缩包和媒体文件");
-    ui->imageBtn->setText(IconHelper::iconFor("image"));
     ui->imageBtn->setObjectName("toolBtn");
+    ui->imageBtn->setText("图片/视频");
     ui->imageBtn->setToolTip("发送图片或视频文件，图片会显示预览");
-    ui->emojiBtn->setText(IconHelper::iconFor("emoji"));
     ui->emojiBtn->setObjectName("iconToolBtn");
     ui->emojiBtn->setToolTip("插入常用表情");
-    ui->mentionBtn->setText("@");
     ui->mentionBtn->setObjectName("iconToolBtn");
     ui->mentionBtn->setToolTip("快速 @ 群成员或插入会话提醒");
-    ui->sendBtn->setText(IconHelper::iconFor("send"));
-    ui->sendBtn->setObjectName("sendBtn");
     ui->sendBtn->setToolTip("请输入消息后发送");
     ui->sendBtn->setEnabled(false);
-    ui->globalSearchBtn->setText(IconHelper::iconFor("search"));
-    ui->globalSearchBtn->setObjectName("globalSearchBtn");
     ui->globalSearchBtn->setToolTip("打开综合搜索；搜索框有内容时直接搜索该 QQ 号");
-    ui->createMenuBtn->setText(IconHelper::iconFor("menu"));
-    ui->createMenuBtn->setObjectName("createMenuBtn");
     ui->createMenuBtn->setToolTip("打开创建和快捷操作菜单");
-    ui->uploadAvatarBtn->setText(IconHelper::iconFor("avatar"));
-    ui->uploadAvatarBtn->setObjectName("toolBtn");
+    ui->friendNoticeBtn->setToolTip("查看并处理好友申请");
+    ui->groupNoticeBtn->setToolTip("查看群聊、群公告和入群邀请");
+    ui->copyAccountBtn->setToolTip("复制当前 QQ 账号");
+    ui->friendManagerBtn->setToolTip("打开好友管理器");
+    ui->groupChatBtn->setToolTip("返回公共聊天室");
     ui->uploadAvatarBtn->setToolTip("更换当前头像");
-
-    ui->navMessages->setIcon(IconHelper::icon("messages", QColor(95, 102, 114)));
-    ui->navContacts->setIcon(IconHelper::icon("contacts", QColor(95, 102, 114)));
-    ui->navSpace->setIcon(IconHelper::icon("space", QColor(95, 102, 114)));
-    ui->navChannel->setIcon(IconHelper::icon("channel", QColor(95, 102, 114)));
-    ui->navMail->setIcon(IconHelper::icon("mail", QColor(95, 102, 114)));
-    ui->navDocs->setIcon(IconHelper::icon("docs", QColor(95, 102, 114)));
-    ui->navCalendar->setIcon(IconHelper::icon("calendar", QColor(95, 102, 114)));
-    ui->navMeeting->setIcon(IconHelper::icon("meeting", QColor(95, 102, 114)));
-    ui->navFavorites->setIcon(IconHelper::icon("favorites", QColor(95, 102, 114)));
-    ui->navWallet->setIcon(IconHelper::icon("wallet", QColor(95, 102, 114)));
-    ui->navSettings->setIcon(IconHelper::icon("settings", QColor(95, 102, 114)));
-    ui->navProfile->setIcon(IconHelper::icon("friends", QColor(95, 102, 114)));
 
     QAction* friendManagerAction = new QAction("好友管理器", this);
     QAction* storageManagerAction = new QAction("存储管理", this);
@@ -2188,8 +2075,6 @@ void MainWindow::setupUi() {
     QAction* exportHistoryAction = new QAction("导出聊天记录", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
-    QAction* deactivateAccountAction = new QAction("申请注销账号", this);
-    QAction* cancelDeactivationAction = new QAction("取消注销申请", this);
     QAction* logoutAction = new QAction("退出登录", this);
     ui->menubar->addAction(friendManagerAction);
     ui->menubar->addAction(storageManagerAction);
@@ -2204,8 +2089,6 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(exportHistoryAction);
     ui->menubar->addAction(copyAccountAction);
     ui->menubar->addAction(copySummaryAction);
-    ui->menubar->addAction(deactivateAccountAction);
-    ui->menubar->addAction(cancelDeactivationAction);
     ui->menubar->addAction(logoutAction);
 
     connect(friendManagerAction, &QAction::triggered, this, &MainWindow::onShowFriendManager);
@@ -2238,45 +2121,7 @@ void MainWindow::setupUi() {
         QApplication::clipboard()->setText(summary);
         ui->statusbar->showMessage("账号摘要已复制", 2200);
     });
-    connect(deactivateAccountAction, &QAction::triggered, this, [this]() {
-        bool ok = false;
-        const QString reason = QInputDialog::getText(this,
-                                                     "申请注销账号",
-                                                     "注销原因（可选）:",
-                                                     QLineEdit::Normal,
-                                                     QString(),
-                                                     &ok).trimmed();
-        if (!ok) {
-            ui->statusbar->showMessage("已取消注销申请", 1600);
-            return;
-        }
-        if (!confirmAction("申请注销账号",
-                           QString("确定提交账号 %1 的注销申请吗？可在宽限期内取消。").arg(m_currentUserId),
-                           "已取消注销申请")) {
-            return;
-        }
-        if (!m_client || !m_client->requestAccountDeactivation(reason)) {
-            ui->statusbar->showMessage("注销申请提交失败，请检查连接", 2600);
-            return;
-        }
-        appendSystemMessage("账号注销申请已提交，等待服务端确认。");
-        ui->statusbar->showMessage("注销申请已提交", 2200);
-    });
-    connect(cancelDeactivationAction, &QAction::triggered, this, [this]() {
-        if (!m_client || !m_client->cancelAccountDeactivation()) {
-            ui->statusbar->showMessage("取消注销提交失败，请检查连接", 2600);
-            return;
-        }
-        appendSystemMessage("取消账号注销申请已提交。");
-        ui->statusbar->showMessage("取消注销申请已提交", 2200);
-    });
     connect(logoutAction, &QAction::triggered, this, &MainWindow::onLogout);
-
-    // Theme toggle from designer action.
-    if (ui->actionTheme) {
-        connect(ui->actionTheme, &QAction::triggered, this, &MainWindow::on_actionTheme_triggered);
-    }
-
     refreshFriendList();
 
     connect(ui->sendBtn, &QPushButton::clicked, this, &MainWindow::onSendMessage);
@@ -2437,91 +2282,9 @@ void MainWindow::setupUi() {
                                  spec.commandId,
                                  spec.enabled);
         }
-        const QString messageId = chatMessageIdForIndex(index);
-        const QString favoriteSessionId = currentFavoriteSessionId();
-        const QString serverGroupId = currentServerGroupId();
-        const bool hasBackendMessageId = !messageId.isEmpty();
-        const bool favorited = m_favoriteMessageKeys.contains(favoriteSessionId + QLatin1Char('|') + messageId);
-        const bool isEssence = !serverGroupId.isEmpty()
-            && m_serverGroupEssenceMessageKeys.contains(serverGroupId + QLatin1Char('|') + messageId);
-        menu.addSeparator();
-        addChatContextAction(menu,
-                             favorited ? QStringLiteral("取消收藏") : QStringLiteral("收藏消息"),
-                             QStringLiteral("同步到服务端收藏列表"),
-                             QStringLiteral("qt-toggle-favorite"),
-                             hasBackendMessageId && m_client && m_client->isConnected());
-        addChatContextAction(menu,
-                             isEssence ? QStringLiteral("取消精华") : QStringLiteral("设为精华"),
-                             QStringLiteral("服务端群主/管理员可设置或取消群精华"),
-                             QStringLiteral("qt-toggle-essence"),
-                             hasBackendMessageId && !serverGroupId.isEmpty() && canCurrentUserManageServerGroup(serverGroupId));
-        addChatContextAction(menu,
-                             QStringLiteral("撤回群消息"),
-                             QStringLiteral("服务端群主/管理员可撤回群消息"),
-                             QStringLiteral("qt-recall-group-message"),
-                             hasBackendMessageId && !serverGroupId.isEmpty() && canCurrentUserManageServerGroup(serverGroupId));
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
-        const QString commandId = selected->data().toString();
-        if (commandId == QLatin1String("qt-toggle-favorite")
-            || commandId == QLatin1String("qt-toggle-essence")
-            || commandId == QLatin1String("qt-recall-group-message")) {
-            if (!m_client || !m_client->isConnected()) {
-                ui->statusbar->showMessage("后端未连接，无法执行服务端消息操作", 2400);
-                return;
-            }
-            const QString messageId = chatMessageIdForIndex(index);
-            if (messageId.isEmpty()) {
-                ui->statusbar->showMessage("该消息缺少 messageId，无法同步到服务端", 2400);
-                return;
-            }
-            const QString groupId = currentServerGroupId();
-            if (commandId == QLatin1String("qt-toggle-favorite")) {
-                const QString sessionId = currentFavoriteSessionId();
-                const QString key = sessionId + QLatin1Char('|') + messageId;
-                const bool favorite = !m_favoriteMessageKeys.contains(key);
-                if (!m_client->sendMessageFavoriteUpdate(sessionId, messageId, favorite, chatMessagePayloadForFavorite(index, messageId))) {
-                    ui->statusbar->showMessage("收藏同步失败，请检查连接", 2400);
-                    return;
-                }
-                ui->statusbar->showMessage(favorite ? "收藏请求已提交" : "取消收藏请求已提交", 1800);
-                return;
-            }
-            if (groupId.isEmpty()) {
-                ui->statusbar->showMessage("当前会话不是服务端群，无法操作精华/撤回", 2400);
-                return;
-            }
-            if (commandId == QLatin1String("qt-toggle-essence")) {
-                if (!canCurrentUserManageServerGroup(groupId)) {
-                    ui->statusbar->showMessage("只有群主或管理员可以设置精华", 2400);
-                    return;
-                }
-                const QString key = groupId + QLatin1Char('|') + messageId;
-                const bool enabled = !m_serverGroupEssenceMessageKeys.contains(key);
-                if (!m_client->sendServerGroupEssenceUpdate(groupId, messageId, enabled)) {
-                    ui->statusbar->showMessage("精华同步失败，请检查连接", 2400);
-                    return;
-                }
-                ui->statusbar->showMessage(enabled ? "设为精华请求已提交" : "取消精华请求已提交", 1800);
-                return;
-            }
-            if (commandId == QLatin1String("qt-recall-group-message")) {
-                if (!canCurrentUserManageServerGroup(groupId)) {
-                    ui->statusbar->showMessage("只有群主或管理员可以撤回群消息", 2400);
-                    return;
-                }
-                if (!confirmAction("撤回群消息", "确定撤回这条服务端群消息吗？", "已取消撤回群消息")) {
-                    return;
-                }
-                if (!m_client->sendServerGroupMessageRecall(groupId, messageId)) {
-                    ui->statusbar->showMessage("撤回同步失败，请检查连接", 2400);
-                    return;
-                }
-                ui->statusbar->showMessage("撤回请求已提交", 1800);
-                return;
-            }
-        }
-        handleChatContextCommand(commandId, text, savedFileState);
+        handleChatContextCommand(selected->data().toString(), text, savedFileState);
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
     ui->contactSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -2598,8 +2361,62 @@ void MainWindow::setupUi() {
         }
     });
     connect(ui->createMenuBtn, &QPushButton::clicked, this, &MainWindow::onShowCreateMenu);
+    connect(ui->friendNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendNotifications);
+    connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowGroupNotifications);
     connect(ui->announcementTitleLabel, &QLabel::linkActivated, this, &MainWindow::onEditGroupAnnouncement);
-    connect(ui->uploadAvatarBtn, &QPushButton::clicked, this, &MainWindow::onUploadAvatar);
+    connect(ui->copyAccountBtn, &QPushButton::clicked, this, &MainWindow::onCopyAccount);
+    ui->profileCard->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->profileCard, &QFrame::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        QAction* copyAccountAction = menu.addAction("复制QQ号");
+        QAction* copyCardAction = menu.addAction("复制我的名片");
+        QAction* copyStatusAction = menu.addAction("复制在线状态");
+        QAction* copyProfileSummaryAction = menu.addAction("复制账号摘要");
+        QAction* globalSearchAction = menu.addAction("打开综合搜索");
+        QAction* friendManagerAction = menu.addAction("打开好友管理");
+        auto describeProfileAction = [](QAction* action, const QString& tip) {
+            action->setToolTip(tip);
+            action->setStatusTip(tip);
+        };
+        describeProfileAction(copyAccountAction, "复制当前登录账号的 QQ 号");
+        describeProfileAction(copyCardAction, "复制我的 QQ、昵称、好友数和群聊数");
+        describeProfileAction(copyStatusAction, "复制当前在线状态和好友/群聊数量");
+        describeProfileAction(copyProfileSummaryAction, "复制账号、当前会话和可用操作摘要");
+        describeProfileAction(globalSearchAction, "打开综合搜索，查找 QQ、好友和群聊");
+        describeProfileAction(friendManagerAction, "打开好友管理器，搜索、备注和整理好友");
+        QAction* selected = menu.exec(ui->profileCard->mapToGlobal(pos));
+        if (selected == copyAccountAction) {
+            onCopyAccount();
+        } else if (selected == copyCardAction) {
+            QString card = QString("QQ:%1\n昵称:%2\n好友:%3\n群聊:%4")
+                .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()));
+            QApplication::clipboard()->setText(card);
+            ui->statusbar->showMessage("我的 QQ 名片已复制", 2200);
+        } else if (selected == copyStatusAction) {
+            QString status = QString("QQ:%1 · %2 · 在线 · 好友%3 · 群聊%4")
+                .arg(m_currentUserId, m_currentUserName)
+                .arg(m_friendIds.size())
+                .arg(m_localGroupIds.size());
+            QApplication::clipboard()->setText(status);
+            ui->statusbar->showMessage("在线状态已复制", 2200);
+        } else if (selected == copyProfileSummaryAction) {
+            QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n在线状态:在线\n好友:%3\n群聊:%4\n当前会话:%5\n可通过综合搜索发送好友申请或创建群聊")
+                .arg(m_currentUserId,
+                     m_currentUserName,
+                     QString::number(m_friendIds.size()),
+                     QString::number(m_localGroupIds.size()),
+                     m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+            QApplication::clipboard()->setText(summary);
+            ui->statusbar->showMessage("账号摘要已复制", 2200);
+        } else if (selected == globalSearchAction) {
+            onShowGlobalSearch();
+        } else if (selected == friendManagerAction) {
+            onShowFriendManager();
+        }
+    });
+    connect(ui->addFriendBtn, &QPushButton::clicked, this, &MainWindow::onShowQuickAddFriend);
+    connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
+    connect(ui->groupChatBtn, &QPushButton::clicked, this, &MainWindow::onBackToGroupChat);
     connect(ui->memberSearchEdit, &QLineEdit::textChanged, this, [this]() { refreshGroupMemberPanel(); });
     connect(ui->memberSearchEdit, &QLineEdit::returnPressed, this, [this]() {
         QString text = ui->memberSearchEdit->text().trimmed();
@@ -2807,15 +2624,9 @@ void MainWindow::setupUi() {
         QAction* copyAllAction = menu.addAction("复制群成员列表");
         QAction* copyOnlineAction = menu.addAction("复制在线群成员");
         QAction* renameAction = menu.addAction("设置备注");
-        QAction* requestProfileAction = nullptr;
-        QAction* muteAction = nullptr;
-        QAction* unmuteAction = nullptr;
         QAction* promoteAdminAction = nullptr;
         QAction* demoteAdminAction = nullptr;
         if (isServerPublicGroup) {
-            requestProfileAction = menu.addAction("查看服务端资料");
-            muteAction = menu.addAction("禁言 10 分钟");
-            unmuteAction = menu.addAction("解除禁言");
             promoteAdminAction = menu.addAction("设为管理员");
             demoteAdminAction = menu.addAction("取消管理员");
         }
@@ -2830,18 +2641,6 @@ void MainWindow::setupUi() {
         describeMemberAction(copyAllAction, plan.copyAllToolTip);
         describeMemberAction(copyOnlineAction, plan.copyOnlineToolTip);
         describeMemberAction(renameAction, plan.renameToolTip);
-        if (requestProfileAction) {
-            describeMemberAction(requestProfileAction, "向服务端请求群成员资料、角色和禁言状态");
-            requestProfileAction->setEnabled(m_client && m_client->isConnected());
-        }
-        if (muteAction) {
-            describeMemberAction(muteAction, "群主或管理员可禁言该成员 10 分钟");
-            muteAction->setEnabled(plan.canManageGroup && memberId != plan.ownerId && m_client && m_client->isConnected());
-        }
-        if (unmuteAction) {
-            describeMemberAction(unmuteAction, "群主或管理员可解除该成员禁言");
-            unmuteAction->setEnabled(plan.canManageGroup && memberId != plan.ownerId && m_client && m_client->isConnected());
-        }
         if (promoteAdminAction) {
             describeMemberAction(promoteAdminAction, plan.promoteAdminToolTip);
             promoteAdminAction->setEnabled(plan.promoteAdminEnabled);
@@ -2910,33 +2709,6 @@ void MainWindow::setupUi() {
             refreshFriendList();
             refreshGroupMemberPanel();
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
-        } else if (requestProfileAction && selected == requestProfileAction) {
-            if (!m_client || !m_client->requestServerGroupMemberProfile("public", memberId)) {
-                ui->statusbar->showMessage("成员资料请求失败，请检查连接", 2400);
-                return;
-            }
-            ui->statusbar->showMessage("成员资料请求已提交", 1800);
-        } else if (muteAction && selected == muteAction) {
-            if (!plan.canManageGroup) {
-                ui->statusbar->showMessage(plan.removeDeniedMessage, 2400);
-                return;
-            }
-            const qint64 mutedUntil = QDateTime::currentMSecsSinceEpoch() + 10LL * 60 * 1000;
-            if (!m_client || !m_client->sendServerGroupMemberMute("public", memberId, mutedUntil, QStringLiteral("Qt 管理菜单禁言 10 分钟"))) {
-                ui->statusbar->showMessage("禁言提交失败，请检查连接", 2400);
-                return;
-            }
-            ui->statusbar->showMessage("禁言请求已提交", 1800);
-        } else if (unmuteAction && selected == unmuteAction) {
-            if (!plan.canManageGroup) {
-                ui->statusbar->showMessage(plan.removeDeniedMessage, 2400);
-                return;
-            }
-            if (!m_client || !m_client->sendServerGroupMemberUnmute("public", memberId)) {
-                ui->statusbar->showMessage("解除禁言提交失败，请检查连接", 2400);
-                return;
-            }
-            ui->statusbar->showMessage("解除禁言请求已提交", 1800);
         } else if (promoteAdminAction && selected == promoteAdminAction) {
             if (!plan.canSetPublicAdmin) {
                 ui->statusbar->showMessage(plan.promoteDeniedMessage, 2400);
@@ -3027,16 +2799,22 @@ void MainWindow::refreshWorkspaceChrome() {
     const bool inPublicSession = m_privateChatTarget.isEmpty();
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
     const QString sessionName = inPublicSession ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget);
+    const QString redisStateText = connected
+        ? QStringLiteral("Redis 就绪工作流已接入")
+        : QStringLiteral("等待重连，当前处于只读/暂缓发送态");
     const QString sessionKind = inPublicSession
         ? QStringLiteral("公共群会话")
         : (isLocalGroup ? QStringLiteral("本地群会话") : QStringLiteral("私聊会话"));
-    const QString statusText = QString("%1 · %2")
-        .arg(sessionName, sessionKind);
 
-    ui->chatStatusLabel->setText(statusText);
-    ui->chatStatusLabel->setToolTip(connected
-        ? QString("Redis 就绪工作流已接入 · %1").arg(statusText)
-        : QString("等待重连，当前处于只读/暂缓发送态 · %1").arg(statusText));
+    ui->chatSubtitleLabel->setText(QString("%1 · %2").arg(redisStateText, sessionName));
+    ui->chatStatusBadgeLabel->setText(sessionKind);
+    ui->sideSummaryStatsLabel->setText(QString("好友 %1 · 群聊 %2 · 在线 %3")
+        .arg(m_friendIds.size())
+        .arg(m_localGroupIds.size())
+        .arg(knownOnlineUserCount()));
+    ui->sideSummaryStateLabel->setText(connected
+        ? QString("当前会话：%1 · 服务端在线视图已同步").arg(sessionName)
+        : QString("当前会话：%1 · 连接中断时只保留本地视图与草稿").arg(sessionName));
 }
 
 void MainWindow::refreshSessionSummary() {
@@ -3045,33 +2823,37 @@ void MainWindow::refreshSessionSummary() {
     const QString sessionName = inPublicSession ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget);
 
     QString overviewState;
+    QString overviewMeta;
     if (inPublicSession) {
         overviewState = isCurrentUserRemovedFromPublicGroup()
             ? QStringLiteral("公共群当前为只读历史态")
             : QStringLiteral("公共群在线成员与公告联动刷新中");
+        overviewMeta = QString("会话：%1 · 在线 %2 · 好友 %3")
+            .arg(sessionName)
+            .arg(knownOnlineUserCount())
+            .arg(m_friendIds.size());
     } else if (isLocalGroup) {
-        overviewState = QString("本地群聊 %1 · 成员 %2").arg(sessionName).arg(m_localGroupMembers.value(m_privateChatTarget).size());
+        const QStringList members = m_localGroupMembers.value(m_privateChatTarget);
+        int onlineMembers = 0;
+        for (const QString& memberId : members) {
+            if (memberId == m_currentUserId || isContactOnline(memberId)) {
+                ++onlineMembers;
+            }
+        }
+        overviewState = QString("本地群聊 %1 · 成员 %2").arg(sessionName).arg(members.size());
+        overviewMeta = QString("群主：%1 · 在线 %2 · 可继续邀请好友扩展会话")
+            .arg(contactDisplayName(groupOwnerId(m_privateChatTarget)))
+            .arg(onlineMembers);
     } else {
         overviewState = QString("私聊对象：%1 · %2")
             .arg(sessionName, isContactOnline(m_privateChatTarget) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        overviewMeta = QString("端到端状态：%1")
+            .arg(e2eSessionStatusText(m_privateChatTarget));
     }
 
-    ui->chatHintLabel->setText(overviewState);
+    ui->groupOverviewStateLabel->setText(overviewState);
+    ui->groupOverviewMetaLabel->setText(overviewMeta);
     refreshWorkspaceChrome();
-    updateEmptyStateVisibility();
-}
-
-void MainWindow::updateEmptyStateVisibility() {
-    const bool hasSession = !m_privateChatTarget.isEmpty() || m_knownUsers.size() >= 0;
-    // Public chat is always considered an active session once the client is initialized.
-    Q_UNUSED(hasSession)
-    if (ui->chatStackedWidget) {
-        if (m_privateChatTarget.isEmpty()) {
-            ui->chatStackedWidget->setCurrentWidget(ui->chatListPage);
-        } else {
-            ui->chatStackedWidget->setCurrentWidget(ui->chatListPage);
-        }
-    }
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -3197,126 +2979,6 @@ void MainWindow::setupTray() {
     connect(m_trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::onTrayIconActivated);
 }
 
-void MainWindow::setupNavPanel() {
-    if (!m_navGroup) {
-        m_navGroup = new QButtonGroup(this);
-        m_navGroup->setExclusive(true);
-    }
-
-    const QList<QPushButton*> navButtons = {
-        ui->navMessages,
-        ui->navContacts,
-        ui->navSpace,
-        ui->navChannel,
-        ui->navMail,
-        ui->navDocs,
-        ui->navCalendar,
-        ui->navMeeting,
-        ui->navFavorites,
-        ui->navWallet,
-        ui->navSettings,
-        ui->navProfile
-    };
-
-    for (QPushButton* btn : navButtons) {
-        if (!btn) continue;
-        btn->setProperty("navBtn", true);
-        btn->setFlat(true);
-        btn->setCheckable(true);
-        btn->setCursor(Qt::PointingHandCursor);
-        btn->setIconSize(QSize(22, 22));
-        btn->setMaximumSize(QSize(48, 48));
-        if (m_navGroup) m_navGroup->addButton(btn);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() { updateNavActiveState(btn); });
-    }
-
-    if (ui->navMessages) updateNavActiveState(ui->navMessages);
-}
-
-void MainWindow::updateNavActiveState(QPushButton* activeNav) {
-    const QList<QPushButton*> navButtons = {
-        ui->navMessages,
-        ui->navContacts,
-        ui->navSpace,
-        ui->navChannel,
-        ui->navMail,
-        ui->navDocs,
-        ui->navCalendar,
-        ui->navMeeting,
-        ui->navFavorites,
-        ui->navWallet,
-        ui->navSettings,
-        ui->navProfile
-    };
-    for (QPushButton* btn : navButtons) {
-        if (!btn) continue;
-        btn->setProperty("navActive", (btn == activeNav));
-        btn->style()->unpolish(btn);
-        btn->style()->polish(btn);
-    }
-}
-
-void MainWindow::on_actionTheme_triggered() {
-    const QString currentTheme = property("theme").toString();
-    const QString nextTheme = (currentTheme == QStringLiteral("dark")) ? QStringLiteral("light") : QStringLiteral("dark");
-    setProperty("theme", nextTheme);
-
-    QPalette pal = palette();
-    if (nextTheme == QStringLiteral("dark")) {
-        pal.setColor(QPalette::Window, QColor("#1e1e1e"));
-        pal.setColor(QPalette::Base, QColor("#262626"));
-        pal.setColor(QPalette::AlternateBase, QColor("#252525"));
-        pal.setColor(QPalette::Text, QColor("#e8e8e8"));
-    } else {
-        pal.setColor(QPalette::Window, QColor("#ffffff"));
-        pal.setColor(QPalette::Base, QColor("#ffffff"));
-        pal.setColor(QPalette::AlternateBase, QColor("#f5f6f7"));
-        pal.setColor(QPalette::Text, QColor("#1f2329"));
-    }
-    setPalette(pal);
-
-    style()->unpolish(this);
-    style()->polish(this);
-    for (QWidget* w : findChildren<QWidget*>()) {
-        if (w) {
-            w->style()->unpolish(w);
-            w->style()->polish(w);
-        }
-    }
-    if (ui->userListView) ui->userListView->viewport()->update();
-    if (ui->chatListView) ui->chatListView->viewport()->update();
-    if (ui->groupMemberListView) ui->groupMemberListView->viewport()->update();
-    update();
-    repaint();
-    saveTheme();
-    ui->statusbar->showMessage(nextTheme == QStringLiteral("dark") ? "已切换为深色主题" : "已切换为浅色主题", 1600);
-}
-
-void MainWindow::saveTheme() const {
-    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("Theme"));
-    settings.setValue(QStringLiteral("theme"), property("theme").toString());
-}
-
-void MainWindow::loadTheme() {
-    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("Theme"));
-    const QString savedTheme = settings.value(QStringLiteral("theme"), QStringLiteral("light")).toString();
-    setProperty("theme", savedTheme);
-
-    QPalette pal = palette();
-    if (savedTheme == QStringLiteral("dark")) {
-        pal.setColor(QPalette::Window, QColor("#1e1e1e"));
-        pal.setColor(QPalette::Base, QColor("#262626"));
-        pal.setColor(QPalette::AlternateBase, QColor("#252525"));
-        pal.setColor(QPalette::Text, QColor("#e8e8e8"));
-    } else {
-        pal.setColor(QPalette::Window, QColor("#ffffff"));
-        pal.setColor(QPalette::Base, QColor("#ffffff"));
-        pal.setColor(QPalette::AlternateBase, QColor("#f5f6f7"));
-        pal.setColor(QPalette::Text, QColor("#1f2329"));
-    }
-    setPalette(pal);
-}
-
 void MainWindow::onSendMessage() {
     QString text = ui->messageEdit->toPlainText().trimmed();
     if (text.isEmpty()) {
@@ -3366,14 +3028,14 @@ void MainWindow::onSendMessage() {
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
         QString line = QString("[%1] <%2> %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, text);
-        const QString clientMessageId = QStringLiteral("qt-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
         saveHistory(m_privateChatTarget, line);
 
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
         decorateChatItem(item, m_currentUserId, m_currentUserName, true);
-        item->setData(clientMessageId, ChatMessageIdRole);
-        item->setData(m_privateChatTarget, ChatSessionIdRole);
+        item->setForeground(QColor(20, 92, 160));
+        item->setBackground(QColor(218, 241, 255));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         ui->messageEdit->clear();
         ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
@@ -3401,7 +3063,6 @@ void MainWindow::onSendMessage() {
     bool ok = false;
     bool sentEncrypted = false;
     QString encryptedRejectReason;
-    const QString clientMessageId = QStringLiteral("qt-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
     if (!m_privateChatTarget.isEmpty()) {
         if (m_client->hasE2ESession(m_privateChatTarget) && !m_client->e2eSessionNeedsRotation(m_privateChatTarget)) {
             ok = m_client->sendEncryptedPrivateMessage(m_privateChatTarget, text, &encryptedRejectReason);
@@ -3413,12 +3074,10 @@ void MainWindow::onSendMessage() {
                 return;
             }
         } else {
-            ok = m_client->sendPrivateMessage(m_privateChatTarget, text, clientMessageId);
+            ok = m_client->sendPrivateMessage(m_privateChatTarget, text);
         }
     } else {
-        ok = m_hasServerGroupSnapshot
-            ? m_client->sendServerGroupMessage(QStringLiteral("public"), text, clientMessageId)
-            : m_client->sendMessage(text);
+        ok = m_client->sendMessage(text);
     }
 
     if (ok) {
@@ -3437,8 +3096,9 @@ void MainWindow::onSendMessage() {
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
         decorateChatItem(item, m_currentUserId, m_currentUserName, true);
-        item->setData(clientMessageId, ChatMessageIdRole);
-        item->setData(m_privateChatTarget.isEmpty() ? QStringLiteral("public") : peerId, ChatSessionIdRole);
+        item->setForeground(QColor(20, 92, 160));
+        item->setBackground(QColor(218, 241, 255));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         int rowCount = m_chatModel->rowCount();
         if (rowCount > MAX_HISTORY_LINES) {
@@ -3640,17 +3300,24 @@ void MainWindow::onNewMessage(const Message& msg) {
         return;
     }
 
-    const QString historyPeerId = msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group";
     QStandardItem* item = new QStandardItem(line);
     item->setEditable(false);
     decorateChatItem(item, avatarUserId, displayName, msg.senderId == m_currentUserId);
-    const QString incomingMessageId = msg.clientMessageId.trimmed().isEmpty()
-        ? compactMessageId(QStringLiteral("%1|%2|%3|%4")
-              .arg(msg.receiverId, msg.senderId, timeStr, msg.content.left(128)))
-        : msg.clientMessageId.trimmed();
-    item->setData(incomingMessageId, ChatMessageIdRole);
-    item->setData(msg.isPrivate() ? historyPeerId : msg.receiverId.trimmed().isEmpty() ? QStringLiteral("public") : msg.receiverId.trimmed(), ChatSessionIdRole);
+    if (msg.isPrivate()) {
+        item->setForeground(Qt::darkMagenta);
+        item->setBackground(QColor(252, 240, 255));
+        item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    } else if (msg.senderName == m_currentUserName) {
+        item->setForeground(QColor(20, 92, 160));
+        item->setBackground(QColor(218, 241, 255));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    } else {
+        item->setForeground(QColor(38, 50, 56));
+        item->setBackground(QColor(246, 250, 253));
+        item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    }
     m_chatModel->appendRow(item);
+    const QString historyPeerId = msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group";
     const QString encryptionState = msg.e2eEnvelope.isValid()
         ? (msg.content == QStringLiteral("加密消息无法解密")
             ? QStringLiteral("decrypt-failed")
@@ -3724,10 +3391,8 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     m_serverGroupMembers.clear();
     m_serverGroupMemberNames.clear();
     m_serverGroupMemberRoles.clear();
-    m_serverGroupMemberMutedUntil.clear();
     m_serverGroupAuditEvents.clear();
     m_removedServerGroups.clear();
-    m_serverGroupEssenceMessageKeys.clear();
 
     for (const QJsonValue& value : groups) {
         const QJsonObject groupObj = value.toObject();
@@ -3748,20 +3413,8 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
             memberIds << memberId;
             m_serverGroupMemberNames[groupId + "|" + memberId] = memberObj["userName"].toString(memberId);
             m_serverGroupMemberRoles[groupId + "|" + memberId] = memberObj["role"].toString("member");
-            const qint64 mutedUntil = memberObj["mutedUntil"].toVariant().toLongLong();
-            if (mutedUntil > QDateTime::currentMSecsSinceEpoch()) {
-                m_serverGroupMemberMutedUntil[groupId + "|" + memberId] = mutedUntil;
-            }
         }
         m_serverGroupMembers[groupId] = memberIds;
-        const QJsonArray essenceMessages = groupObj["essenceMessages"].toArray();
-        for (const QJsonValue& essenceValue : essenceMessages) {
-            const QJsonObject essenceObj = essenceValue.toObject();
-            const QString messageId = essenceObj["messageId"].toString().trimmed();
-            if (!messageId.isEmpty() && essenceObj["enabled"].toBool(true)) {
-                m_serverGroupEssenceMessageKeys.insert(groupId + QLatin1Char('|') + messageId);
-            }
-        }
         m_serverGroupAuditEvents[groupId] = groupObj["auditEvents"].toArray();
     }
 
@@ -4831,7 +4484,6 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     ui->chatHintLabel->setText(ChatSessionManager::localGroupHint(groupId, ownerId, isOwner));
     ui->announcementTitleLabel->setText(isOwner ? "群公告 <a href=\"edit\">编辑</a>" : "群公告");
     ui->announcementBodyLabel->setText(m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName)));
-    updateEmptyStateVisibility();
     refreshGroupMemberPanel();
     refreshComposerState();
     refreshSessionSummary();
@@ -5767,7 +5419,8 @@ void MainWindow::onFriendRequestReceived(const QString& senderId, const QString&
     }
     m_pendingFriendRequests << senderId;
     saveFriends();
-    updateFriendNoticeBadge();
+    ui->friendNoticeBtn->setText(QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+    ui->friendNoticeBtn->setToolTip(QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
     appendSystemMessage(QString("收到好友申请：%1（QQ:%2），请在好友通知中处理").arg(displayName, senderId));
     ui->statusbar->showMessage(QString("新的好友申请 · %1").arg(displayName), 3500);
     if (m_trayIcon && m_trayIcon->isVisible()) {
@@ -5887,7 +5540,8 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
         m_pendingFriendRequests.removeAll(senderId);
         saveFriends();
         const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
-        updateFriendNoticeBadge();
+        ui->friendNoticeBtn->setText(noticeState.text);
+        ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
         appendSystemMessage(displayName + " 已同意你的好友申请");
         ui->statusbar->showMessage(QString("%1 已同意好友申请").arg(displayName), 2800);
     } else {
@@ -5897,7 +5551,8 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
         saveFriends();
         refreshFriendList();
         refreshGroupMemberPanel();
-        updateFriendNoticeBadge();
+        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+        ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
         appendSystemMessage(displayName + " 已拒绝你的好友申请");
         ui->statusbar->showMessage(QString("%1 已拒绝好友申请").arg(displayName), 2800);
     }
@@ -6500,15 +6155,6 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     }
 }
 
-void MainWindow::updateFriendNoticeBadge() {
-#ifndef QT_NO_DEBUG
-    const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
-    Q_UNUSED(noticeState)
-#else
-    Q_UNUSED(m_friendManager)
-#endif
-}
-
 void MainWindow::onShowFriendNotifications() {
     const FriendNoticeDialogChrome chrome = NotificationPanelManager::friendNoticeDialogChrome();
     QDialog dialog(this);
@@ -6646,7 +6292,9 @@ void MainWindow::onShowFriendNotifications() {
     dialog.setStyleSheet(NotificationPanelManager::friendNoticeDialogStyleSheet());
 
     auto updateBadge = [this]() {
-        updateFriendNoticeBadge();
+        const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+        ui->friendNoticeBtn->setText(noticeState.text);
+        ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
     };
     auto currentRequestId = [noticeList]() -> QString {
         return selectedFriendNoticeEntryId(noticeList);
@@ -7199,20 +6847,17 @@ void MainWindow::appendSystemMessage(const QString& text) {
     QStandardItem* item = new QStandardItem(line);
     item->setEditable(false);
     decorateChatItem(item, QString(), QStringLiteral("系统"), false, true);
+    item->setBackground(QColor(245, 247, 250));
+    item->setForeground(Qt::darkGray);
     m_chatModel->appendRow(item);
     ui->chatListView->scrollToBottom();
 }
 
 void MainWindow::setTransferWorkspaceState(const TransferWorkspaceCardState& state) {
-    // The old transfer-overview card widgets were removed in the QQNT redesign.
-    // Surface the same state in the chat hint and status bar instead.
-    if (!state.summaryText.isEmpty()) {
-        ui->chatHintLabel->setText(state.summaryText);
-    }
-    if (!state.detailText.isEmpty()) {
-        ui->statusbar->showMessage(QString("%1 · %2").arg(state.stageText, state.detailText), 2400);
-    }
-    Q_UNUSED(state.actionText)
+    ui->transferOverviewStageLabel->setText(state.stageText);
+    ui->transferOverviewSummaryLabel->setText(state.summaryText);
+    ui->transferOverviewDetailLabel->setText(state.detailText);
+    ui->transferOverviewActionLabel->setText(state.actionText);
 }
 
 bool MainWindow::ensureTransferTargetReady(const QString& kind, const QString& targetName, bool isLocalGroup) {
@@ -7356,6 +7001,9 @@ void MainWindow::appendLocalGroupFileTransferCompletion(const TransferSelectionP
     saveHistory(m_privateChatTarget, line);
     QStandardItem* item = new QStandardItem(line);
     item->setEditable(false);
+    item->setForeground(QColor(20, 92, 160));
+    item->setBackground(QColor(218, 241, 255));
+    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_chatModel->appendRow(item);
     setTransferWorkspaceState(m_transferManager.localSendCompletedWorkspaceState(selectionPlan.preparingKind,
                                                                                  info.fileName(),
@@ -7501,16 +7149,23 @@ void MainWindow::appendMediaPreviewItem(const QString& text,
                                         const QString& senderName) {
     QStandardItem* previewItem = new QStandardItem(text);
     if (!isVideo && !pixmap.isNull()) {
-        previewItem->setData(pixmap.scaled(360, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation), ChatBubbleMediaPreviewRole);
-        previewItem->setData(QStringLiteral("image"), ChatBubbleMediaKindRole);
+        previewItem->setData(pixmap.scaled(360, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation), ChatMediaPreviewRole);
+        previewItem->setData(QStringLiteral("image"), ChatMediaKindRole);
     } else if (isVideo) {
-        previewItem->setData(QStringLiteral("video"), ChatBubbleMediaKindRole);
+        previewItem->setData(QStringLiteral("video"), ChatMediaKindRole);
     }
     if (!openPath.trimmed().isEmpty()) {
-        previewItem->setData(openPath.trimmed(), ChatBubbleMediaOpenPathRole);
+        previewItem->setData(openPath.trimmed(), ChatMediaOpenPathRole);
         previewItem->setData(QStringLiteral("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(openPath.trimmed()), Qt::ToolTipRole);
     }
     previewItem->setEditable(false);
+    previewItem->setBackground(isVideo ? QColor(245, 240, 255) : QColor(246, 250, 253));
+    if (isVideo) {
+        previewItem->setForeground(QColor(126, 87, 194));
+    }
+    if (alignRight) {
+        previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    }
     decorateChatItem(previewItem,
                      senderId.isEmpty() ? m_currentUserId : senderId,
                      senderName.isEmpty() ? m_currentUserName : senderName,
@@ -7659,36 +7314,8 @@ void MainWindow::loadHistory(const QString& peerId) {
     for (const QString& line : rows) {
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
-
-        QString senderName;
-        QString senderId;
-        bool outgoing = false;
-        bool system = false;
-
-        const int nameOpen = line.indexOf('<');
-        const int nameClose = line.indexOf('>');
-        if (nameOpen != -1 && nameClose > nameOpen) {
-            senderName = line.mid(nameOpen + 1, nameClose - nameOpen - 1).trimmed();
-        }
-
-        if (line.contains(QStringLiteral("[系统]"))) {
-            system = true;
-            senderName = QStringLiteral("系统");
-        } else if (senderName == m_currentUserName) {
-            outgoing = true;
-            senderId = m_currentUserId;
-        } else {
-            senderId = peerId;
-        }
-
-        decorateChatItem(item, senderId, senderName, outgoing, system);
-        const QString sessionId = peerId == QLatin1String("group") ? QStringLiteral("public") : peerId;
-        const QString historyMessageId = compactMessageId(QStringLiteral("%1|%2").arg(sessionId, line));
-        item->setData(historyMessageId, ChatMessageIdRole);
-        item->setData(sessionId, ChatSessionIdRole);
-        item->setData(m_favoriteMessageKeys.contains(sessionId + QLatin1Char('|') + historyMessageId), ChatFavoritedRole);
-        item->setData(m_serverGroupEssenceMessageKeys.contains(sessionId + QLatin1Char('|') + historyMessageId), ChatEssenceRole);
-        item->setData(m_serverGroupRecalledMessageKeys.contains(sessionId + QLatin1Char('|') + historyMessageId), ChatRecalledRole);
+        item->setBackground(QColor(250, 252, 254));
+        item->setForeground(Qt::gray);
         m_chatModel->appendRow(item);
     }
 }
@@ -7779,20 +7406,11 @@ void MainWindow::decorateChatItem(QStandardItem* item,
         return;
     }
 
-    // Legacy roles (still used by some saved-file helpers)
     item->setData(senderId, ChatSenderIdRole);
     item->setData(senderName, ChatSenderNameRole);
     item->setData(chatAvatarPath(senderId), ChatAvatarPathRole);
     item->setData(outgoing, ChatOutgoingRole);
     item->setData(system, ChatSystemRole);
-
-    // ChatBubbleDelegate roles
-    item->setData(senderId, ChatBubbleSenderIdRole);
-    item->setData(senderName, ChatBubbleSenderNameRole);
-    item->setData(chatAvatarPath(senderId), ChatBubbleAvatarPathRole);
-    item->setData(outgoing, ChatBubbleOutgoingRole);
-    item->setData(system, ChatBubbleSystemRole);
-    item->setData(QDateTime::currentDateTime().toString("hh:mm"), ChatBubbleTimestampRole);
     if (!system) {
         item->setIcon(peerAvatarIcon(senderId, senderName));
     }
@@ -7923,6 +7541,8 @@ void MainWindow::refreshFriendList() {
             }
         }
         QSqlDatabase::removeDatabase(connectionName);
+        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+        ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
     }
 
     bool loadedGroupsFromSqlite = false;
@@ -7970,8 +7590,22 @@ void MainWindow::refreshFriendList() {
         saveLocalGroups();
     }
 
+    const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+    const GroupNoticeUiState groupNoticeState = m_groupManager.noticeUiState(m_localGroupIds.size());
+    ui->friendNoticeBtn->setText(noticeState.text);
+    ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
+    ui->groupNoticeBtn->setText(groupNoticeState.text);
+    ui->groupNoticeBtn->setToolTip(groupNoticeState.toolTip);
     refreshWorkspaceChrome();
-    updateFriendNoticeBadge();
+
+    auto appendSection = [this](const QString& title) {
+        QStandardItem* section = new QStandardItem(title);
+        section->setEditable(false);
+        section->setEnabled(false);
+        section->setForeground(QColor(176, 212, 232));
+        section->setBackground(QColor(22, 46, 64));
+        m_userListModel->appendRow(section);
+    };
 
     int visibleCount = 0;
     int visibleFriends = 0;
@@ -7984,47 +7618,32 @@ void MainWindow::refreshFriendList() {
         return m_friendManager.matchesFilter(id, name, m_contactFilter);
     };
 
-    auto makeSessionItem = [this, &matchesFilter](const QString& itemId,
-                                                  const QString& displayName,
-                                                  const QString& subtitle,
-                                                  bool isGroup,
-                                                  int* visibleCounter,
-                                                  int* categoryCounter) {
-        if (!matchesFilter(itemId, displayName)) return;
-        QStandardItem* item = new QStandardItem(displayName);
-        item->setEditable(false);
-        item->setData(itemId, Qt::UserRole + 1);
-        item->setData(displayName, SessionNameRole);
-        item->setData(subtitle, SessionLastMessageRole);
-        item->setData(QDateTime::currentDateTime().toString("hh:mm"), SessionTimeRole);
-        item->setData(0, SessionUnreadRole);
-        item->setData(false, SessionPinnedRole);
-        item->setData(QString(), SessionSenderNameRole);
-        item->setData(itemId, SessionIdRole);
-        if (isGroup) {
-            item->setData(peerAvatarIcon(QString(), displayName), Qt::DecorationRole);
-        } else {
-            item->setData(chatAvatarPath(itemId), SessionAvatarRole);
-        }
-        m_userListModel->appendRow(item);
-        if (visibleCounter) ++*visibleCounter;
-        if (categoryCounter) ++*categoryCounter;
-    };
-
-    // 我的好友
+    appendSection("我的好友");
     for (const QString& friendId : m_friendIds) {
         if (m_knownUsers.contains(friendId)) continue;
         QString name = m_friendNames.value(friendId, friendId);
-        makeSessionItem(friendId, name, "离线", false, &visibleCount, &visibleFriends);
+        if (!matchesFilter(friendId, name)) continue;
+        QStandardItem* item = new QStandardItem(QString("☆ QQ:%1\n   %2 [离线]").arg(friendId, name));
+        item->setData(friendId, Qt::UserRole + 1);
+        item->setForeground(QColor(180, 215, 235));
+        m_userListModel->appendRow(item);
+        ++visibleCount;
+        ++visibleFriends;
     }
 
-    // 群聊
+    appendSection("群聊");
     for (const QString& groupId : m_localGroupIds) {
         QString groupName = m_localGroupNames.value(groupId, "群聊");
-        makeSessionItem(groupId, groupName, "本地群聊", true, &visibleCount, &visibleGroups);
+        if (!matchesFilter(groupId, groupName)) continue;
+        QStandardItem* item = new QStandardItem(QString("群聊 QQ:%1\n   %2 [本地]").arg(groupId.mid(QString("local_group_").size()), groupName));
+        item->setData(groupId, Qt::UserRole + 1);
+        item->setForeground(QColor(164, 220, 255));
+        m_userListModel->appendRow(item);
+        ++visibleCount;
+        ++visibleGroups;
     }
 
-    // 在线成员
+    appendSection("在线成员");
     for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
         const ChatUser& user = it.value();
         if (user.name == m_currentUserName) continue;
@@ -8036,30 +7655,34 @@ void MainWindow::refreshFriendList() {
         }
         const bool isPending = m_pendingOutgoingFriendRequests.contains(user.id);
         if (isPending && !isFriend) ++visiblePendingOutgoing;
-        makeSessionItem(user.id,
-                        user.name,
-                        isFriend ? QStringLiteral("在线") : (isPending ? QStringLiteral("申请中") : QStringLiteral("在线陌生人")),
-                        false,
-                        &visibleCount,
-                        &visibleOnlineUsers);
+        const QString marker = isFriend ? "★" : "○";
+        const QString stateSuffix = isFriend ? " [在线]" : (isPending ? " [申请中]" : "");
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n   %3%4").arg(marker, user.id, user.name, stateSuffix));
+        item->setData(user.id, Qt::UserRole + 1);
+        item->setForeground(isFriend ? Qt::white : (isPending ? QColor(255, 225, 160) : QColor(220, 240, 255)));
+        m_userListModel->appendRow(item);
+        ++visibleCount;
+        ++visibleOnlineUsers;
         if (!isFriend && !isPending) ++visibleStrangers;
     }
 
+    const QString pendingPart = visiblePendingOutgoing > 0 ? QString(" · 申请中%1").arg(visiblePendingOutgoing) : QString();
+    ui->onlineTitleLabel->setText(m_contactFilter.isEmpty()
+        ? QString("联系人 · 好友%1/%2在线 · 群聊%3%4 · 陌生人%5").arg(onlineFriendCount).arg(m_friendIds.size()).arg(visibleGroups).arg(pendingPart).arg(visibleStrangers)
+        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4%5 · 陌生人%6").arg(visibleCount).arg(visibleFriends + onlineFriendCount).arg(visibleGroups).arg(visibleOnlineUsers).arg(pendingPart).arg(visibleStrangers));
+
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
-        QStandardItem* addItem = new QStandardItem(QString("搜索并发送申请 QQ:%1").arg(m_contactFilter));
+        QStandardItem* addItem = new QStandardItem(QString("搜索并发送申请 QQ:%1\n   回车或双击查找好友").arg(m_contactFilter));
         addItem->setData("search_add:" + m_contactFilter, Qt::UserRole + 1);
-        addItem->setData(QString("搜索 %1").arg(m_contactFilter), SessionNameRole);
-        addItem->setData("回车或双击查找好友", SessionLastMessageRole);
-        addItem->setData(QDateTime::currentDateTime().toString("hh:mm"), SessionTimeRole);
-        addItem->setEditable(false);
+        addItem->setForeground(QColor(255, 255, 255));
+        addItem->setBackground(QColor(18, 183, 245));
         m_userListModel->appendRow(addItem);
-        QStandardItem* groupItem = new QStandardItem(QString("创建群聊:%1").arg(m_contactFilter));
+        QStandardItem* groupItem = new QStandardItem(QString("创建群聊:%1\n   双击立即建群并进入").arg(m_contactFilter));
         groupItem->setData("create_group:" + m_contactFilter, Qt::UserRole + 1);
-        groupItem->setData(QString("创建 %1").arg(m_contactFilter), SessionNameRole);
-        groupItem->setData("双击立即建群并进入", SessionLastMessageRole);
-        groupItem->setData(QDateTime::currentDateTime().toString("hh:mm"), SessionTimeRole);
-        groupItem->setEditable(false);
+        groupItem->setForeground(QColor(255, 255, 255));
+        groupItem->setBackground(QColor(36, 203, 162));
         m_userListModel->appendRow(groupItem);
+        ui->onlineTitleLabel->setText(QString("联系人 · 未匹配 · 可搜索QQ或建群:%1").arg(m_contactFilter));
     }
 }
 
@@ -8103,18 +7726,11 @@ void MainWindow::refreshGroupMemberPanel() {
             }
             const GroupMemberDisplayState display = m_groupManager.memberDisplayState(
                 memberId, m_currentUserId, ownerId, QString(), isFriend, isPending, online, false);
-            QStandardItem* item = new QStandardItem();
-            item->setData(memberId, MemberIdRole);
-            item->setData(name, MemberNameRole);
-            item->setData(display.role, MemberRoleTextRole);
-            item->setData(online, MemberOnlineRole);
-            item->setData(display.isOwner, MemberIsOwnerRole);
-            item->setData(display.isAdmin, MemberIsAdminRole);
-            item->setData(isFriend, MemberIsFriendRole);
-            item->setData(isPending, MemberIsPendingRole);
-            item->setData(peerAvatarIcon(memberId, name).pixmap(34, 34), MemberAvatarRole);
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5")
+                .arg(display.role, memberId, name, display.state, display.actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
+            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(20, 92, 160) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
@@ -8126,7 +7742,7 @@ void MainWindow::refreshGroupMemberPanel() {
             .arg(friendMembers)
             .arg(pendingPart));
         if (visibleMembers == 0 && !filter.isEmpty()) {
-            QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\\n双击自动加入当前群聊").arg(filter));
+            QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\n双击自动加入当前群聊").arg(filter));
             addItem->setData("group_invite:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
@@ -8212,22 +7828,13 @@ void MainWindow::refreshGroupMemberPanel() {
             }
 
             const QString serverRole = m_serverGroupMemberRoles.value("public|" + memberId, "member").toLower();
-            const qint64 mutedUntil = m_serverGroupMemberMutedUntil.value("public|" + memberId, 0);
             const GroupMemberDisplayState display = m_groupManager.memberDisplayState(
                 memberId, m_currentUserId, ownerId, serverRole, isFriend, isPending, online, true);
-            QStandardItem* item = new QStandardItem();
-            item->setData(memberId, MemberIdRole);
-            item->setData(name, MemberNameRole);
-            item->setData(display.role, MemberRoleTextRole);
-            item->setData(online, MemberOnlineRole);
-            item->setData(display.isOwner, MemberIsOwnerRole);
-            item->setData(display.isAdmin, MemberIsAdminRole);
-            item->setData(isFriend, MemberIsFriendRole);
-            item->setData(isPending, MemberIsPendingRole);
-            item->setData(peerAvatarIcon(memberId, name).pixmap(34, 34), MemberAvatarRole);
-            item->setData(mutedUntil, MemberMutedUntilRole);
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5")
+                .arg(display.role, memberId, name, display.state, display.actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
+            item->setForeground(display.isOwner ? QColor(156, 98, 0) : (memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
@@ -8291,18 +7898,10 @@ void MainWindow::refreshGroupMemberPanel() {
         return;
     }
 
-    QStandardItem* selfItem = new QStandardItem();
-    selfItem->setData(m_currentUserId, MemberIdRole);
-    selfItem->setData(m_currentUserName, MemberNameRole);
-    selfItem->setData(QStringLiteral("我"), MemberRoleTextRole);
-    selfItem->setData(true, MemberOnlineRole);
-    selfItem->setData(false, MemberIsOwnerRole);
-    selfItem->setData(false, MemberIsAdminRole);
-    selfItem->setData(false, MemberIsFriendRole);
-    selfItem->setData(false, MemberIsPendingRole);
-    selfItem->setData(peerAvatarIcon(m_currentUserId, m_currentUserName).pixmap(34, 34), MemberAvatarRole);
+    QStandardItem* selfItem = new QStandardItem(QString("我  QQ:%1\n%2 · 在线").arg(m_currentUserId, m_currentUserName));
     selfItem->setData(m_currentUserId, Qt::UserRole + 1);
     selfItem->setEditable(false);
+    selfItem->setForeground(QColor(18, 150, 247));
     if (filter.isEmpty() || m_currentUserId.contains(filter, Qt::CaseInsensitive) || m_currentUserName.contains(filter, Qt::CaseInsensitive)) {
         m_groupMemberModel->appendRow(selfItem);
     } else {
@@ -8329,18 +7928,10 @@ void MainWindow::refreshGroupMemberPanel() {
         if (isFriend) ++friendMembers;
         if (isPending) ++pendingMembers;
         if (online) ++onlineMembers;
-        QStandardItem* item = new QStandardItem();
-        item->setData(user.id, MemberIdRole);
-        item->setData(user.name, MemberNameRole);
-        item->setData(isFriend ? QStringLiteral("好友") : (isPending ? QStringLiteral("申请中") : QStringLiteral("成员")), MemberRoleTextRole);
-        item->setData(online, MemberOnlineRole);
-        item->setData(false, MemberIsOwnerRole);
-        item->setData(false, MemberIsAdminRole);
-        item->setData(isFriend, MemberIsFriendRole);
-        item->setData(isPending, MemberIsPendingRole);
-        item->setData(peerAvatarIcon(user.id, user.name).pixmap(34, 34), MemberAvatarRole);
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(isFriend ? "好友" : (isPending ? "申请中" : "成员"), user.id, user.name, online ? "在线" : "离线", isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请")));
         item->setData(user.id, Qt::UserRole + 1);
         item->setEditable(false);
+        item->setForeground(isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)));
         m_groupMemberModel->appendRow(item);
         ++visibleMembers;
     }

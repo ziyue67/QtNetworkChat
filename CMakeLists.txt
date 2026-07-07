@@ -158,10 +158,9 @@ add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
     src/chatbubbledelegate.cpp
-    src/sessionitemdelegate.cpp
-    src/groupmemberitemdelegate.cpp
     src/iconhelper.cpp
     src/qqnt_redis_service.cpp
+    src/qqnt_backend_service.cpp
     src/transferchatitemrenderer.cpp
     src/notificationpanelmanager.cpp
     src/clientstorage.cpp
@@ -178,10 +177,9 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
     include/chatbubbledelegate.h
-    include/sessionitemdelegate.h
-    include/groupmemberitemdelegate.h
     include/iconhelper.h
     include/qqnt_redis_service.h
+    include/qqnt_backend_service.h
     include/transferchatitemrenderer.h
     include/notificationpanelmanager.h
     include/clientstorage.h
@@ -210,10 +208,6 @@ add_custom_command(TARGET QtNetworkChat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${QTNETWORKCHAT_QSQLITE_PLUGIN}"
         "$<TARGET_FILE_DIR:QtNetworkChat>/sqldrivers/qsqlite.dll"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:QtNetworkChat>/ui"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/ui/style.qss"
-        "$<TARGET_FILE_DIR:QtNetworkChat>/ui/style.qss"
     COMMENT "Deploying Qt SQLite driver for local account/group/avatar persistence"
     VERBATIM
 )
@@ -255,6 +249,7 @@ add_executable(qqnt_engine
     src/qqnt_client_bridge.cpp
     src/qqnt_engine_command_router.cpp
     src/qqnt_redis_service.cpp
+    src/qqnt_backend_service.cpp
     src/client.cpp
     src/redisclient.cpp
     src/server.cpp
@@ -270,6 +265,7 @@ add_executable(qqnt_engine
     include/qqnt_client_bridge.h
     include/qqnt_engine_command_router.h
     include/qqnt_redis_service.h
+    include/qqnt_backend_service.h
     include/client.h
     include/redisclient.h
     include/server.h
@@ -1452,6 +1448,23 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_rollback_live_evidence.cmake
     )
 
+
+    add_executable(qqnt_backend_parity_test
+        tests/qqnt_backend_parity_test.cpp
+        src/qqnt_backend_service.cpp
+        include/qqnt_backend_service.h
+    )
+    qtnetworkchat_target_include_dirs(qqnt_backend_parity_test)
+    target_link_libraries(qqnt_backend_parity_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+
+    add_executable(qqnt_backend_service_test
+        tests/qqnt_backend_service_test.cpp
+        src/qqnt_backend_service.cpp
+        include/qqnt_backend_service.h
+    )
+    qtnetworkchat_target_include_dirs(qqnt_backend_service_test)
+    target_link_libraries(qqnt_backend_service_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+
     add_executable(qqnt_protocol_drift_test
         tests/qqnt_protocol_drift_test.cpp
     )
@@ -1519,6 +1532,22 @@ if(BUILD_TESTING)
     qtnetworkchat_target_include_dirs(qqnt_engine_smoke_test)
     target_link_libraries(qqnt_engine_smoke_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
+
+    add_test(
+        NAME QQNTBackendInvokeParity
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:qqnt_backend_parity_test>
+            "-DTEST_ARGS=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/tauri_invoke_commands.json"
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME QQNTBackendLocalActions
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:qqnt_backend_service_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
     add_test(
         NAME QQNTProtocolDrift
         COMMAND ${CMAKE_COMMAND}

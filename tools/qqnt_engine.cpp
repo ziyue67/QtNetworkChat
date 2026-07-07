@@ -1,6 +1,7 @@
 #include "qqnt_client_bridge.h"
 
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QMetaObject>
 #include <QThread>
 
@@ -61,7 +62,7 @@ private:
 int main(int argc, char* argv[]) {
     qInstallMessageHandler(stderrMessageHandler);
 
-    QCoreApplication app(argc, argv);
+    QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("QQNTEngine"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
