@@ -302,7 +302,7 @@ QString appDataDir() {
 QString accountDatabaseDriver() {
     const QString configured = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_DRIVER")).trimmed().toUpper();
     if (configured.isEmpty()) {
-        return QStringLiteral("QPSQL");
+        return QStringLiteral("QSQLITE");
     }
     if (configured == QLatin1String("QPSQL") || configured == QLatin1String("POSTGRES") || configured == QLatin1String("POSTGRESQL")) {
         return QStringLiteral("QPSQL");
@@ -312,7 +312,7 @@ QString accountDatabaseDriver() {
 
 QString accountDatabaseDriverAlias() {
     const QString configured = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_DRIVER")).trimmed();
-    return configured.isEmpty() ? QStringLiteral("QPSQL") : configured;
+    return configured.isEmpty() ? QStringLiteral("QSQLITE") : configured;
 }
 
 bool accountDatabaseIsPostgres() {
