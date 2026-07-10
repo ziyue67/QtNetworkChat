@@ -559,6 +559,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
         QString styleSheet = textStream.readAll();
         this->setStyleSheet(styleSheet);
     }
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(980, 680);
     setWindowIcon(createChatIcon(userName));
     setupUi();
@@ -8301,4 +8302,5 @@ void MainWindow::onAppNavRouteActivated(const QString& route)
         // mock routes keep current view for now
     }
 }
+
 
