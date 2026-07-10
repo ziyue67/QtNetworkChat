@@ -49,7 +49,9 @@ SOURCES += \
     src/views/messagesview.cpp \
     src/views/contactsview.cpp \
     src/views/favoritesview.cpp \
-    src/views/settingsview.cpp
+    src/views/settingsview.cpp \
+    src/views/profileview.cpp \
+    src/windows/screenshotcapturewindow.cpp
 
 HEADERS += \
     include/mainwindow.h \
@@ -94,7 +96,9 @@ HEADERS += \
     include/views/messagesview.h \
     include/views/contactsview.h \
     include/views/favoritesview.h \
-    include/views/settingsview.h
+    include/views/settingsview.h \
+    include/views/profileview.h \
+    include/windows/screenshotcapturewindow.h
 
 FORMS += \
     ui/mainwindow.ui

@@ -4680,17 +4680,16 @@ void MainWindow::onCaptureScreenshot() {
     hide();
     QApplication::processEvents();
     const QPixmap screenshot = screen->grabWindow(0);
-    show();
-    raise();
-    activateWindow();
     if (screenshot.isNull()) {
+        show();
+        raise();
+        activateWindow();
         QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("无法获取当前屏幕内容。"));
         return;
     }
 
-    ScreenshotCaptureWindow capture(this);
-    const QSize preferredSize = screenshot.size().boundedTo(QSize(1200, 760));
-    capture.resize(preferredSize.width(), preferredSize.height() + 48);
+    ScreenshotCaptureWindow capture;
+    capture.setCaptureScreen(screen);
     capture.setScreenshot(screenshot);
     connect(&capture, &ScreenshotCaptureWindow::saveRequested, this, [this](const QPixmap& cropped) {
         if (cropped.isNull()) return;
@@ -4706,6 +4705,9 @@ void MainWindow::onCaptureScreenshot() {
         onComposerFilesDropped(QStringList{filePath});
     });
     capture.exec();
+    show();
+    raise();
+    activateWindow();
 }
 
 void MainWindow::onShowQuickAddFriend() {

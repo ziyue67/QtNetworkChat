@@ -1,99 +1,56 @@
 #include "windows/screenshotcapturewindow.h"
 
-#include "theme/thememanager.h"
-
-#include <QHBoxLayout>
-#include <QEvent>
-#include <QLabel>
+#include <QGuiApplication>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPushButton>
-#include <QVBoxLayout>
+#include <QScreen>
 
 ScreenshotCaptureWindow::ScreenshotCaptureWindow(QWidget* parent)
     : QDialog(parent)
 {
     setObjectName(QStringLiteral("screenshotCaptureWindow"));
-    setWindowTitle(QStringLiteral("截图"));
-    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    setupUi();
-    updateStyle();
-    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &ScreenshotCaptureWindow::updateStyle);
-}
-
-void ScreenshotCaptureWindow::setupUi()
-{
-    QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
-
-    m_previewLabel = new QLabel(this);
-    m_previewLabel->setObjectName(QStringLiteral("screenshotPreviewLabel"));
-    m_previewLabel->setAlignment(Qt::AlignCenter);
-    m_previewLabel->installEventFilter(this);
-    root->addWidget(m_previewLabel, 1);
-
-    QHBoxLayout* btnLayout = new QHBoxLayout();
-    btnLayout->setContentsMargins(12, 8, 12, 8);
-    btnLayout->setSpacing(8);
-
-    QPushButton* saveBtn = new QPushButton(QStringLiteral("保存"), this);
-    saveBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    connect(saveBtn, &QPushButton::clicked, this, [this]() {
-        if (m_hasSelection) {
-            const QRect sourceRect = selectedSourceRect();
-            emit saveRequested(sourceRect.isEmpty() ? m_screenshot : m_screenshot.copy(sourceRect));
-        } else {
-            emit saveRequested(m_screenshot);
-        }
-        accept();
-    });
-    btnLayout->addWidget(saveBtn);
-
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), this);
-    cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(cancelBtn, &QPushButton::clicked, this, [this]() {
-        emit cancelRequested();
-        reject();
-    });
-    btnLayout->addWidget(cancelBtn);
-
-    btnLayout->addStretch();
-    root->addLayout(btnLayout);
-}
-
-void ScreenshotCaptureWindow::updateStyle()
-{
-    ThemeManager* tm = ThemeManager::instance();
-    setStyleSheet(QStringLiteral(
-        "QDialog#screenshotCaptureWindow { background-color: %1; }"
-        "QLabel#screenshotPreviewLabel { background-color: %1; }"
-        "QPushButton#dialogPrimaryBtn { background-color: %4; color: white; border: none; border-radius: 6px; padding: 6px 14px; }"
-        "QPushButton#dialogPrimaryBtn:hover { background-color: %5; }"
-        "QPushButton#dialogSecondaryBtn { background-color: %2; color: %3; border: 1px solid %6; border-radius: 6px; padding: 6px 14px; }"
-        "QPushButton#dialogSecondaryBtn:hover { background-color: %6; }"
-    ).arg(tm->backgroundColor().name())
-     .arg(tm->backgroundSecondaryColor().name())
-     .arg(tm->textColor().name())
-     .arg(tm->primaryColor().name())
-     .arg(tm->primaryHoverColor().name())
-     .arg(tm->borderColor().name()));
+    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
+    setModal(true);
+    setMouseTracking(true);
+    setCursor(Qt::CrossCursor);
 }
 
 void ScreenshotCaptureWindow::setScreenshot(const QPixmap& pixmap)
 {
     m_screenshot = pixmap;
-    updatePreview();
+    update();
+}
+
+void ScreenshotCaptureWindow::setCaptureScreen(QScreen* screen)
+{
+    m_screen = screen;
+    if (m_screen) {
+        setGeometry(m_screen->geometry());
+    }
 }
 
 void ScreenshotCaptureWindow::mousePressEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::RightButton) {
+        cancelSelection();
+        return;
+    }
     if (event->button() == Qt::LeftButton) {
+        if (m_hasSelection && cancelButtonRect().contains(event->pos())) {
+            cancelSelection();
+            return;
+        }
+        if (m_hasSelection && confirmButtonRect().contains(event->pos())) {
+            confirmSelection();
+            return;
+        }
         m_startPos = event->pos();
+        m_endPos = m_startPos;
         m_selecting = true;
         m_hasSelection = false;
+        update();
     }
-    QDialog::mousePressEvent(event);
 }
 
 void ScreenshotCaptureWindow::mouseMoveEvent(QMouseEvent* event)
@@ -103,7 +60,6 @@ void ScreenshotCaptureWindow::mouseMoveEvent(QMouseEvent* event)
         m_hasSelection = true;
         update();
     }
-    QDialog::mouseMoveEvent(event);
 }
 
 void ScreenshotCaptureWindow::mouseReleaseEvent(QMouseEvent* event)
@@ -111,76 +67,136 @@ void ScreenshotCaptureWindow::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::LeftButton) {
         m_selecting = false;
         m_endPos = event->pos();
+        m_hasSelection = hasUsableSelection();
+        update();
     }
-    QDialog::mouseReleaseEvent(event);
 }
 
 void ScreenshotCaptureWindow::paintEvent(QPaintEvent* event)
 {
-    QDialog::paintEvent(event);
-    if (m_hasSelection) {
-        QPainter painter(this);
-        painter.setPen(QPen(QColor(QStringLiteral("#0099ff")), 2, Qt::DashLine));
-        painter.setBrush(QColor(0, 153, 255, 30));
-        QRect rect(m_previewLabel->mapTo(this, m_startPos),
-                   m_previewLabel->mapTo(this, m_endPos));
-        painter.drawRect(rect.normalized());
-    }
-}
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.drawPixmap(rect(), m_screenshot);
 
-void ScreenshotCaptureWindow::resizeEvent(QResizeEvent* event)
-{
-    QDialog::resizeEvent(event);
-    updatePreview();
-}
-
-bool ScreenshotCaptureWindow::eventFilter(QObject* watched, QEvent* event)
-{
-    if (watched == m_previewLabel) {
-        switch (event->type()) {
-        case QEvent::MouseButtonPress:
-            mousePressEvent(static_cast<QMouseEvent*>(event));
-            return true;
-        case QEvent::MouseMove:
-            mouseMoveEvent(static_cast<QMouseEvent*>(event));
-            return true;
-        case QEvent::MouseButtonRelease:
-            mouseReleaseEvent(static_cast<QMouseEvent*>(event));
-            return true;
-        default:
-            break;
-        }
+    const QRect selection = selectionRect();
+    painter.fillRect(rect(), QColor(0, 0, 0, m_hasSelection ? 108 : 48));
+    if (!m_hasSelection) {
+        painter.setPen(QColor(255, 255, 255, 220));
+        painter.setFont(QFont(QStringLiteral("Microsoft YaHei"), 11));
+        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("拖动鼠标选择截图区域  ·  Esc 取消"));
+        return;
     }
-    return QDialog::eventFilter(watched, event);
+
+    painter.drawPixmap(selection, m_screenshot, selectedSourceRect());
+    painter.fillRect(selection, QColor(18, 183, 255, 25));
+    painter.setPen(QPen(QColor(QStringLiteral("#12b7ff")), 1));
+    painter.drawRect(selection.adjusted(0, 0, -1, -1));
+
+    const QString dimensions = QStringLiteral("%1 × %2").arg(selection.width()).arg(selection.height());
+    QFont labelFont(QStringLiteral("Segoe UI"), 9);
+    labelFont.setBold(true);
+    painter.setFont(labelFont);
+    const QRect labelRect(selection.left(), qMax(0, selection.top() - 28), 100, 24);
+    painter.fillRect(labelRect, QColor(21, 21, 21, 235));
+    painter.setPen(Qt::white);
+    painter.drawText(labelRect, Qt::AlignCenter, dimensions);
+
+    const QRect tools = toolbarRect();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(21, 21, 21, 238));
+    painter.drawRoundedRect(tools, 7, 7);
+    painter.setFont(QFont(QStringLiteral("Microsoft YaHei"), 9));
+
+    const QRect cancel = cancelButtonRect();
+    painter.setPen(QColor(232, 232, 232));
+    painter.drawText(cancel, Qt::AlignCenter, QStringLiteral("取消"));
+
+    const QRect confirm = confirmButtonRect();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(QStringLiteral("#12b7ff")));
+    painter.drawRoundedRect(confirm, 5, 5);
+    painter.setPen(Qt::white);
+    painter.drawText(confirm, Qt::AlignCenter, QStringLiteral("完成"));
 }
 
 QRect ScreenshotCaptureWindow::selectedSourceRect() const
 {
-    const QPixmap preview = m_previewLabel->pixmap();
-    if (m_screenshot.isNull() || preview.isNull()) {
+    const QRect selection = selectionRect();
+    if (m_screenshot.isNull() || selection.isEmpty() || width() <= 0 || height() <= 0) {
         return QRect();
     }
 
-    const QRect displayRect = m_previewLabel->contentsRect();
-    const QSize displayedSize = preview.size();
-    const QPoint displayTopLeft = displayRect.center() - QPoint(displayedSize.width() / 2, displayedSize.height() / 2);
-    const QRect selected = QRect(m_startPos, m_endPos).normalized().intersected(
-        QRect(displayTopLeft, displayedSize));
-    if (selected.isEmpty()) return QRect();
-
-    const qreal scaleX = static_cast<qreal>(m_screenshot.width()) / displayedSize.width();
-    const qreal scaleY = static_cast<qreal>(m_screenshot.height()) / displayedSize.height();
-    return QRect(qRound((selected.left() - displayTopLeft.x()) * scaleX),
-                 qRound((selected.top() - displayTopLeft.y()) * scaleY),
-                 qRound(selected.width() * scaleX),
-                 qRound(selected.height() * scaleY)).intersected(m_screenshot.rect());
+    const qreal scaleX = static_cast<qreal>(m_screenshot.width()) / width();
+    const qreal scaleY = static_cast<qreal>(m_screenshot.height()) / height();
+    return QRect(qRound(selection.x() * scaleX),
+                 qRound(selection.y() * scaleY),
+                 qRound(selection.width() * scaleX),
+                 qRound(selection.height() * scaleY)).intersected(m_screenshot.rect());
 }
 
-void ScreenshotCaptureWindow::updatePreview()
+QRect ScreenshotCaptureWindow::selectionRect() const
 {
-    if (m_screenshot.isNull() || !m_previewLabel || m_previewLabel->size().isEmpty()) return;
-    m_previewLabel->setPixmap(m_screenshot.scaled(m_previewLabel->size(),
-                                                  Qt::KeepAspectRatio,
-                                                  Qt::SmoothTransformation));
+    return QRect(m_startPos, m_endPos).normalized().intersected(rect());
+}
+
+QRect ScreenshotCaptureWindow::toolbarRect() const
+{
+    const QRect selection = selectionRect();
+    if (selection.isEmpty()) return QRect();
+    const QSize toolSize(132, 38);
+    const int x = qBound(8, selection.right() - toolSize.width() + 1, width() - toolSize.width() - 8);
+    int y = selection.bottom() + 10;
+    if (y + toolSize.height() > height() - 8) {
+        y = qMax(8, selection.top() - toolSize.height() - 10);
+    }
+    return QRect(x, y, toolSize.width(), toolSize.height());
+}
+
+QRect ScreenshotCaptureWindow::cancelButtonRect() const
+{
+    const QRect tools = toolbarRect();
+    return QRect(tools.left() + 6, tools.top() + 5, 56, tools.height() - 10);
+}
+
+QRect ScreenshotCaptureWindow::confirmButtonRect() const
+{
+    const QRect tools = toolbarRect();
+    return QRect(tools.right() - 62, tools.top() + 5, 56, tools.height() - 10);
+}
+
+bool ScreenshotCaptureWindow::hasUsableSelection() const
+{
+    const QRect selection = selectionRect();
+    return selection.width() >= 4 && selection.height() >= 4;
+}
+
+void ScreenshotCaptureWindow::confirmSelection()
+{
+    if (!hasUsableSelection()) return;
+    const QRect source = selectedSourceRect();
+    if (!source.isEmpty()) {
+        emit saveRequested(m_screenshot.copy(source));
+    }
+    accept();
+}
+
+void ScreenshotCaptureWindow::cancelSelection()
+{
+    emit cancelRequested();
+    reject();
+}
+
+void ScreenshotCaptureWindow::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Escape) {
+        cancelSelection();
+        return;
+    }
+    if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && hasUsableSelection()) {
+        confirmSelection();
+        return;
+    }
+    QDialog::keyPressEvent(event);
 }
 
