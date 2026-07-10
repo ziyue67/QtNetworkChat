@@ -49,7 +49,7 @@ protected:
             const QByteArray bytes(line.data(), static_cast<int>(line.size()));
             QMetaObject::invokeMethod(m_bridge, [bridge = m_bridge, bytes]() {
                 bridge->handleCommandLine(bytes);
-            }, Qt::QueuedConnection);
+            }, Qt::BlockingQueuedConnection);
         }
         QMetaObject::invokeMethod(QCoreApplication::instance(), &QCoreApplication::quit, Qt::QueuedConnection);
     }

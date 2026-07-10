@@ -246,6 +246,33 @@ bool isEmptyPayloadCommand(const QString& op) {
         || op == QLatin1String("get_group_list");
 }
 
+QJsonObject e2eStatusSummary(const QJsonObject& status) {
+    // The full crypto diagnostic tree is an operator artifact, not a frontend payload.
+    // Keeping the IPC reply bounded prevents a status refresh from filling stdout.
+    QJsonObject summary;
+    const QStringList fields = {
+        QStringLiteral("configured"),
+        QStringLiteral("trusted"),
+        QStringLiteral("pinned"),
+        QStringLiteral("backendId"),
+        QStringLiteral("backendUsable"),
+        QStringLiteral("backendMigrationRequired"),
+        QStringLiteral("blockedReason"),
+        QStringLiteral("publicKeyFingerprintSha256"),
+        QStringLiteral("verificationCode"),
+        QStringLiteral("trustState"),
+        QStringLiteral("rotationRequired"),
+        QStringLiteral("sessionId"),
+        QStringLiteral("peerId")
+    };
+    for (const QString& field : fields) {
+        if (status.contains(field)) {
+            summary.insert(field, status.value(field));
+        }
+    }
+    return summary;
+}
+
 QJsonObject targetFieldsErrorDetails() {
     QJsonArray targetFields;
     targetFields.append(QStringLiteral("receiverId"));
@@ -1175,11 +1202,14 @@ void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& 
     }
     peerId = peerId.trimmed();
     QJsonObject response;
-    response[QStringLiteral("localIdentity")] = m_bridge->client()->e2eLocalIdentityStatus();
+    response[QStringLiteral("localIdentity")] =
+        e2eStatusSummary(m_bridge->client()->e2eLocalIdentityStatus());
     if (!peerId.isEmpty()) {
         response[QStringLiteral("peerId")] = peerId;
-        response[QStringLiteral("session")] = m_bridge->client()->e2eSessionStatus(peerId);
-        response[QStringLiteral("identity")] = m_bridge->client()->e2ePeerIdentityStatus(peerId);
+        response[QStringLiteral("session")] =
+            e2eStatusSummary(m_bridge->client()->e2eSessionStatus(peerId));
+        response[QStringLiteral("identity")] =
+            e2eStatusSummary(m_bridge->client()->e2ePeerIdentityStatus(peerId));
     }
     m_bridge->sendAck(op, reqId, response);
 }
