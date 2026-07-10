@@ -197,6 +197,7 @@ add_executable(QtNetworkChat
     src/windows/screenshotcapturewindow.cpp
     src/windows/noticefilterwindow.cpp
     src/windows/registerwindow.cpp
+    src/windows/loginwindow.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
@@ -241,6 +242,7 @@ add_executable(QtNetworkChat
     include/windows/screenshotcapturewindow.h
     include/windows/noticefilterwindow.h
     include/windows/registerwindow.h
+    include/windows/loginwindow.h
     ui/mainwindow.ui
 )
 
@@ -1630,5 +1632,6 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qqnt_engine_smoke_test.cmake
     )
 endif()
+
 
 
