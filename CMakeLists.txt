@@ -173,6 +173,29 @@ add_executable(QtNetworkChat
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
     src/logincredentialstore.cpp
+    src/theme/thememanager.cpp
+    src/widgets/avatarlabel.cpp
+    src/widgets/titlebar.cpp
+    src/widgets/appnav.cpp
+    src/widgets/composerwidget.cpp
+    src/widgets/composerTextEdit.cpp
+    src/views/messagesview.cpp
+    src/views/contactsview.cpp
+    src/views/favoritesview.cpp
+    src/views/settingsview.cpp
+    src/views/profileview.cpp
+    src/dialogs/addfrienddialog.cpp
+    src/dialogs/creategroupdialog.cpp
+    src/dialogs/globalsearchdialog.cpp
+    src/dialogs/friendmanagerdialog.cpp
+    src/dialogs/mutedurationdialog.cpp
+    src/dialogs/groupnicknamedialog.cpp
+    src/dialogs/memberprofilecard.cpp
+    src/dialogs/essencepanel.cpp
+    src/windows/imagepreviewwindow.cpp
+    src/windows/forwardwindow.cpp
+    src/windows/screenshotcapturewindow.cpp
+    src/windows/noticefilterwindow.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
@@ -193,6 +216,29 @@ add_executable(QtNetworkChat
     include/chatuser.h
     include/heartbeatmonitor.h
     include/logincredentialstore.h
+    include/theme/thememanager.h
+    include/widgets/avatarlabel.h
+    include/widgets/titlebar.h
+    include/widgets/appnav.h
+    include/widgets/composerwidget.h
+    include/widgets/composerTextEdit.h
+    include/views/messagesview.h
+    include/views/contactsview.h
+    include/views/favoritesview.h
+    include/views/settingsview.h
+    include/views/profileview.h
+    include/dialogs/addfrienddialog.h
+    include/dialogs/creategroupdialog.h
+    include/dialogs/globalsearchdialog.h
+    include/dialogs/friendmanagerdialog.h
+    include/dialogs/mutedurationdialog.h
+    include/dialogs/groupnicknamedialog.h
+    include/dialogs/memberprofilecard.h
+    include/dialogs/essencepanel.h
+    include/windows/imagepreviewwindow.h
+    include/windows/forwardwindow.h
+    include/windows/screenshotcapturewindow.h
+    include/windows/noticefilterwindow.h
     ui/mainwindow.ui
 )
 
@@ -1582,3 +1628,4 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qqnt_engine_smoke_test.cmake
     )
 endif()
+

@@ -12,6 +12,15 @@
 #include "qtnetworkchat_version.h"
 #include "transferchatitemrenderer.h"
 #include "windowstatemanager.h"
+#include "views/messagesview.h"
+#include "views/contactsview.h"
+#include "views/favoritesview.h"
+#include "views/settingsview.h"
+#include "views/profileview.h"
+#include "widgets/appnav.h"
+#include "widgets/titlebar.h"
+#include "widgets/composerwidget.h"
+#include "theme/thememanager.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -65,6 +74,7 @@
 #include <QStyledItemDelegate>
 #include <QBuffer>
 #include <QScrollArea>
+#include <QStackedWidget>
 #include <functional>
 
 namespace {
@@ -553,6 +563,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     setWindowIcon(createChatIcon(userName));
     setupUi();
     setupTray();
+    setupQQNT();
 
     if (m_client && !m_client->parent()) {
         m_client->setParent(this);
@@ -8166,4 +8177,128 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 
+
+
+void MainWindow::setupQQNT()
+{
+    m_qqntRoot = new QWidget(this);
+    m_qqntRoot->setObjectName(QStringLiteral("qqntRoot"));
+
+    QWidget* legacyCentralWidget = centralWidget();
+    if (legacyCentralWidget && legacyCentralWidget != m_qqntRoot) {
+        legacyCentralWidget->setParent(m_qqntRoot);
+        legacyCentralWidget->hide();
+    }
+    setCentralWidget(m_qqntRoot);
+
+    QVBoxLayout* rootLayout = new QVBoxLayout(m_qqntRoot);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    m_titleBar = new TitleBar(m_qqntRoot);
+    rootLayout->addWidget(m_titleBar);
+
+    QHBoxLayout* contentLayout = new QHBoxLayout();
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->setSpacing(0);
+
+    m_appNav = new AppNav(m_qqntRoot);
+    contentLayout->addWidget(m_appNav);
+
+    m_viewStack = new QStackedWidget(m_qqntRoot);
+    m_viewStack->setObjectName(QStringLiteral("qqntViewStack"));
+
+    m_messagesView = new MessagesView(m_qqntRoot);
+    m_contactsView = new ContactsView(m_qqntRoot);
+    m_favoritesView = new FavoritesView(m_qqntRoot);
+    m_settingsView = new SettingsView(m_qqntRoot);
+    m_profileView = new ProfileView(m_qqntRoot);
+
+    m_viewStack->addWidget(m_messagesView);
+    m_viewStack->addWidget(m_contactsView);
+    m_viewStack->addWidget(m_favoritesView);
+    m_viewStack->addWidget(m_settingsView);
+    m_viewStack->addWidget(m_profileView);
+
+    contentLayout->addWidget(m_viewStack, 1);
+    rootLayout->addLayout(contentLayout, 1);
+
+    connect(m_titleBar, &TitleBar::minimizeRequested, this, &QMainWindow::showMinimized);
+    connect(m_titleBar, &TitleBar::maximizeRequested, this, [this]() {
+        if (isMaximized()) {
+            showNormal();
+        } else {
+            showMaximized();
+        }
+    });
+    connect(m_titleBar, &TitleBar::closeRequested, this, &QMainWindow::close);
+
+    connect(m_appNav, &AppNav::routeActivated, this, &MainWindow::onAppNavRouteActivated);
+    connect(m_messagesView, &MessagesView::sendRequested, this, &MainWindow::onSendMessage);
+    connect(m_messagesView, &MessagesView::fileRequested, this, &MainWindow::onSendFile);
+    connect(m_messagesView, &MessagesView::imageRequested, this, &MainWindow::onSendImage);
+    connect(m_messagesView, &MessagesView::emojiRequested, this, &MainWindow::onInsertEmoji);
+    connect(m_messagesView, &MessagesView::mentionRequested, this, &MainWindow::onInsertMention);
+    connect(m_messagesView, &MessagesView::clearHistoryRequested, this, &MainWindow::onClearHistory);
+    connect(m_messagesView, &MessagesView::sessionSelected, this, &MainWindow::onPrivateChat);
+    connect(m_contactsView, &ContactsView::friendSelected, this, [this](const QString& userId) {
+        openPrivateSession(userId);
+    });
+    connect(m_contactsView, &ContactsView::groupSelected, this, [this](const QString& groupId) {
+        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
+    });
+    connect(m_settingsView, &SettingsView::themeToggled, this, &MainWindow::onThemeToggled);
+    connect(m_profileView, &ProfileView::logoutRequested, this, &MainWindow::onLogout);
+
+    m_titleBar->setUserName(m_currentUserName);
+    m_titleBar->setUserId(m_currentUserId);
+    m_profileView->setUserInfo(m_currentUserId, m_currentUserName);
+
+    m_appNav->setCurrentIndex(0);
+    m_viewStack->setCurrentIndex(0);
+
+    updateStyleSheet();
+}
+
+void MainWindow::updateStyleSheet()
+{
+    ThemeManager* tm = ThemeManager::instance();
+    QString style = QStringLiteral(
+        "QWidget { font-family: %1; font-size: 13px; color: %2; }"
+        "QMainWindow { background-color: %3; }"
+        "QWidget#qqntRoot { background-color: %3; }"
+        "QStackedWidget#qqntViewStack { background-color: %3; border: none; }"
+        "QScrollBar:vertical { background: transparent; width: 6px; margin: 2px; }"
+        "QScrollBar::handle:vertical { background: %4; border-radius: 3px; min-height: 20px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+    ).arg(tm->font().family())
+     .arg(tm->textColor().name())
+     .arg(tm->backgroundColor().name())
+     .arg(tm->borderColor().name());
+
+    m_qqntRoot->setStyleSheet(style);
+}
+
+void MainWindow::onThemeToggled()
+{
+    ThemeManager::instance()->toggleTheme();
+    updateStyleSheet();
+}
+
+void MainWindow::onAppNavRouteActivated(const QString& route)
+{
+    if (route == QStringLiteral("messages")) {
+        m_viewStack->setCurrentIndex(0);
+    } else if (route == QStringLiteral("contacts")) {
+        m_viewStack->setCurrentIndex(1);
+    } else if (route == QStringLiteral("favorites")) {
+        m_viewStack->setCurrentIndex(2);
+    } else if (route == QStringLiteral("settings")) {
+        m_viewStack->setCurrentIndex(3);
+    } else if (route == QStringLiteral("profile")) {
+        m_viewStack->setCurrentIndex(4);
+    } else {
+        // mock routes keep current view for now
+    }
+}
 

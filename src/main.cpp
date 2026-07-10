@@ -26,7 +26,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTcpSocket>
-#include <QCoreApplication>
 
 namespace {
 bool envEnabled(const char* name) {
@@ -116,43 +115,6 @@ void maybeWriteDatabaseHealthSnapshot(const Server* server) {
     file.write(QJsonDocument(snapshot).toJson(QJsonDocument::Indented));
     file.close();
     qInfo() << "Database health snapshot written:" << outputPath << snapshot.value("status").toString();
-}
-
-QString applicationStyleSheetPath() {
-    const QString overridePath = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_STYLE_PATH")).trimmed();
-    if (!overridePath.isEmpty() && QFileInfo::exists(overridePath)) {
-        return overridePath;
-    }
-
-    const QString appDirPath = QCoreApplication::applicationDirPath();
-    const QStringList candidates = {
-        QDir(appDirPath).filePath(QStringLiteral("ui/style.qss")),
-        QDir(QDir::currentPath()).filePath(QStringLiteral("ui/style.qss")),
-        QDir(appDirPath).filePath(QStringLiteral("../ui/style.qss")),
-        QDir(appDirPath).filePath(QStringLiteral("../../ui/style.qss"))
-    };
-    for (const QString& candidate : candidates) {
-        const QString clean = QDir::cleanPath(candidate);
-        if (QFileInfo::exists(clean)) {
-            return clean;
-        }
-    }
-    return QString();
-}
-
-void applyApplicationStyleSheet(QApplication& app) {
-    const QString path = applicationStyleSheetPath();
-    if (path.isEmpty()) {
-        qWarning() << "QtNetworkChat style.qss not found; using fallback widget style";
-        return;
-    }
-
-    QFile styleFile(path);
-    if (!styleFile.open(QFile::ReadOnly | QFile::Text)) {
-        qWarning() << "Failed to open QtNetworkChat style.qss:" << path << styleFile.errorString();
-        return;
-    }
-    app.setStyleSheet(QString::fromUtf8(styleFile.readAll()));
 }
 }
 
@@ -306,6 +268,107 @@ private:
             m_portSpin->hide();
         }
 
+        setStyleSheet(R"(
+            QDialog#qqLoginDialog {
+                background: #EFF6FA;
+                font-family: "Microsoft YaHei", "Segoe UI";
+                color: #253342;
+            }
+            QFrame#qqHeader {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
+            }
+            QLabel#brandLabel {
+                color: #168BE8;
+                font-size: 28px;
+                font-weight: 900;
+            }
+            QPushButton#windowCloseBtn {
+                background: transparent;
+                color: #243447;
+                border: none;
+                font-size: 20px;
+                font-weight: 300;
+            }
+            QPushButton#windowCloseBtn:hover {
+                background: rgba(255, 255, 255, 120);
+                border-radius: 14px;
+            }
+            QLabel#qqAvatar {
+                background: white;
+                color: #168BE8;
+                border: 3px solid rgba(255, 255, 255, 220);
+                border-radius: 46px;
+                font-size: 42px;
+                font-weight: 900;
+            }
+            QLabel#qqTitle {
+                color: #203144;
+                font-size: 17px;
+                font-weight: 600;
+                padding-top: 14px;
+            }
+            QFrame#qqFormCard {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFFFFF, stop:1 #F0F8FB);
+            }
+            QLineEdit#qqInput {
+                min-height: 38px;
+                border: none;
+                border-bottom: 1px solid rgba(104, 143, 174, 100);
+                padding: 4px 6px;
+                background: transparent;
+                color: #253342;
+                font-size: 14px;
+            }
+            QLineEdit#qqInput:focus {
+                border-bottom: 2px solid #17A8F3;
+            }
+            QCheckBox {
+                color: #718395;
+                font-size: 12px;
+                spacing: 6px;
+            }
+            QCheckBox#agreementCheck {
+                margin-top: 2px;
+            }
+            QLabel#formFeedbackLabel {
+                min-height: 30px;
+                border-radius: 10px;
+                background: rgba(255, 248, 232, 170);
+                color: #A36800;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 5px 9px;
+            }
+            QPushButton#primaryBtn {
+                background: #18A8F2;
+                color: white;
+                border: none;
+                border-radius: 7px;
+                font-size: 16px;
+                font-weight: 600;
+            }
+            QPushButton#primaryBtn:hover {
+                background: #0E95DF;
+            }
+            QPushButton#primaryBtn:pressed {
+                background: #0B7EC6;
+            }
+            QPushButton#primaryBtn:disabled {
+                background: #BFD0DE;
+                color: #F8FBFD;
+            }
+            QPushButton#linkBtn {
+                background: transparent;
+                color: #1679CA;
+                border: none;
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+            QPushButton#linkBtn:hover {
+                color: #0B82E6;
+                text-decoration: underline;
+            }
+        )");
 
         closeBtn->setToolTip("关闭登录窗口");
         connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
@@ -508,7 +571,6 @@ int main(int argc, char *argv[])
     a.setApplicationName("QtNetworkChat");
     a.setApplicationVersion("1.0.0");
     a.setStyle(QStyleFactory::create("Fusion"));
-    applyApplicationStyleSheet(a);
 
     QString userName, host;
     quint16 port = 8888;
@@ -594,6 +656,89 @@ int main(int argc, char *argv[])
     modeCardLayout->addLayout(bottomLinkLayout);
     layout->addWidget(modeCard);
 
+    modeDialog->setStyleSheet(R"(
+        QDialog#modeDialog {
+            background: #EFF6FA;
+            font-family: "Microsoft YaHei", "Segoe UI";
+            color: #253342;
+        }
+        QFrame#modeCard {
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
+        }
+        QPushButton#topIconBtn {
+            background: transparent;
+            color: #243447;
+            border: none;
+            font-size: 17px;
+        }
+        QPushButton#topIconBtn:hover {
+            background: rgba(255, 255, 255, 120);
+            border-radius: 14px;
+        }
+        QLabel#logoLabel {
+            color: #168BE8;
+            font-size: 30px;
+            font-weight: 900;
+        }
+        QLabel#avatarLabel {
+            background: white;
+            color: #168BE8;
+            border: 3px solid rgba(255, 255, 255, 220);
+            border-radius: 46px;
+            font-size: 42px;
+            font-weight: 900;
+        }
+        QLabel#accountNameLabel {
+            color: #203144;
+            font-size: 17px;
+            font-weight: 600;
+            padding-top: 16px;
+            padding-bottom: 8px;
+        }
+        QLabel#serviceBadgeLabel {
+            background: rgba(255, 255, 255, 175);
+            color: #1679CA;
+            border: 1px solid rgba(22, 121, 202, 60);
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 10px;
+        }
+        QLabel#modeStatusLabel {
+            color: #5C7286;
+            font-size: 12px;
+            padding-top: 10px;
+            padding-bottom: 2px;
+        }
+        QPushButton#primaryBtn {
+            background: #18A8F2;
+            color: white;
+            border: none;
+            border-radius: 7px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        QPushButton#primaryBtn:hover {
+            background: #0E95DF;
+        }
+        QPushButton#primaryBtn:pressed {
+            background: #0B7EC6;
+        }
+        QPushButton#linkBtn {
+            background: transparent;
+            color: #1679CA;
+            border: none;
+            padding: 5px 6px;
+            font-size: 13px;
+        }
+        QPushButton#linkBtn:hover {
+            color: #006FCE;
+            text-decoration: underline;
+        }
+        QLabel#splitLabel {
+            color: #8BA6BC;
+        }
+    )");
     QObject::connect(closeBtn, &QPushButton::clicked, modeDialog, &QDialog::reject);
     QObject::connect(accountLoginBtn, &QPushButton::clicked, clientBtn, &QPushButton::click);
 
@@ -709,6 +854,3 @@ int main(int argc, char *argv[])
     modeDialog->show();
     return a.exec();
 }
-
-
-

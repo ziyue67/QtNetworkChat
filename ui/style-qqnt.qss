@@ -1,0 +1,561 @@
+/* ==========================================================================
+   QQNT UI Design System - Qt C++ Version
+   Based on Tauri/React frontend QQNT design system
+   ========================================================================== */
+
+/* ==========================================================================
+   1. GLOBAL RESET & BASE STYLES
+   ========================================================================== */
+* {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 13px;
+    outline: none;
+}
+
+/* ==========================================================================
+   2. MAIN WINDOW
+   ========================================================================== */
+QMainWindow {
+    background-color: #ffffff;
+}
+
+QMainWindow[dark="true"] {
+    background-color: #1e1e1e;
+}
+
+/* ==========================================================================
+   3. TITLE BAR
+   ========================================================================== */
+QFrame#titleBar {
+    background-color: #f5f6f7;
+    border-bottom: 1px solid #e1e3e6;
+    min-height: 40px;
+    max-height: 40px;
+}
+
+QLabel#titleBarLogo {
+    color: white;
+    background-color: #0099ff;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 13px;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+}
+
+QLabel#titleBarTitle {
+    color: #1f2329;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QLabel#titleBarUser {
+    color: #5f6672;
+    font-size: 12px;
+}
+
+QPushButton#windowMinBtn,
+QPushButton#windowMaxBtn {
+    color: #1f2329;
+    border: none;
+    background: transparent;
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 30px;
+    max-height: 30px;
+}
+
+QPushButton#windowMinBtn:hover,
+QPushButton#windowMaxBtn:hover {
+    background-color: #ebedf0;
+}
+
+QPushButton#windowCloseBtn {
+    color: #1f2329;
+    border: none;
+    background: transparent;
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 30px;
+    max-height: 30px;
+}
+
+QPushButton#windowCloseBtn:hover {
+    background-color: #ff4d4f;
+    color: white;
+}
+
+/* ==========================================================================
+   4. APP NAVIGATION
+   ========================================================================== */
+QFrame#appNav {
+    background-color: #f5f6f7;
+    border-right: 1px solid #e1e3e6;
+    min-width: 64px;
+    max-width: 64px;
+}
+
+QFrame#appNavItem {
+    background-color: transparent;
+    border-radius: 10px;
+    min-width: 56px;
+    max-width: 56px;
+}
+
+QFrame#appNavItem:hover {
+    background-color: #ebedf0;
+}
+
+QLabel#appNavIcon {
+    font-size: 18px;
+    color: #8f959e;
+}
+
+QLabel#appNavLabel {
+    font-size: 9px;
+    color: #8f959e;
+}
+
+/* Active nav item */
+QFrame#appNavItem[active="true"] {
+    background-color: #0099ff;
+}
+
+QFrame#appNavItem[active="true"] QLabel#appNavIcon,
+QFrame#appNavItem[active="true"] QLabel#appNavLabel {
+    color: white;
+}
+
+/* Mock nav item */
+QFrame#appNavItem[mock="true"] QLabel#appNavIcon,
+QFrame#appNavItem[mock="true"] QLabel#appNavLabel {
+    color: #c0c4cc;
+}
+
+/* ==========================================================================
+   5. SESSION LIST
+   ========================================================================== */
+QFrame#sessionPanel {
+    background-color: #ffffff;
+    border-right: 1px solid #e1e3e6;
+    min-width: 260px;
+    max-width: 260px;
+}
+
+QLineEdit#sessionSearchEdit {
+    background-color: #f5f6f7;
+    color: #1f2329;
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+QLineEdit#sessionSearchEdit:focus {
+    border: 1px solid #0099ff;
+}
+
+QListView#sessionListView {
+    background-color: transparent;
+    border: none;
+    color: #1f2329;
+    outline: none;
+}
+
+QListView#sessionListView::item {
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin: 2px 4px;
+}
+
+QListView#sessionListView::item:hover {
+    background-color: #f5f6f7;
+}
+
+QListView#sessionListView::item:selected {
+    background-color: #e6f4ff;
+    color: #1f2329;
+}
+
+/* ==========================================================================
+   6. CHAT PANEL
+   ========================================================================== */
+QFrame#chatPanel {
+    background-color: #ffffff;
+}
+
+QFrame#chatHeader {
+    background-color: #ffffff;
+    border-bottom: 1px solid #e1e3e6;
+    min-height: 60px;
+    max-height: 60px;
+}
+
+QLabel#chatTitleLabel {
+    color: #1f2329;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QLabel#chatSubtitleLabel {
+    color: #5f6672;
+    font-size: 12px;
+}
+
+QLabel#chatHintLabel {
+    color: #8f959e;
+    font-size: 11px;
+}
+
+QListView#chatListView {
+    background-color: transparent;
+    border: none;
+    color: #1f2329;
+    outline: none;
+}
+
+/* ==========================================================================
+   7. COMPOSER
+   ========================================================================== */
+QFrame#composerWidget {
+    background-color: #ffffff;
+    border-top: 1px solid #e1e3e6;
+    min-height: 120px;
+}
+
+QTextEdit#composerInput {
+    background-color: #f5f6f7;
+    color: #1f2329;
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+QTextEdit#composerInput:focus {
+    border: 1px solid #0099ff;
+}
+
+QPushButton#composerToolBtn {
+    color: #5f6672;
+    border: none;
+    background: transparent;
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 30px;
+    max-height: 30px;
+    border-radius: 4px;
+}
+
+QPushButton#composerToolBtn:hover {
+    background-color: #ebedf0;
+    color: #0099ff;
+}
+
+QPushButton#composerSendBtn {
+    background-color: #0099ff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-weight: 500;
+}
+
+QPushButton#composerSendBtn:hover {
+    background-color: #007acc;
+}
+
+QPushButton#composerSendBtn:disabled {
+    background-color: #c0c4cc;
+}
+
+/* ==========================================================================
+   8. SCROLLBAR
+   ========================================================================== */
+QScrollBar:vertical {
+    background: transparent;
+    width: 6px;
+    margin: 2px;
+    border-radius: 3px;
+}
+
+QScrollBar::handle:vertical {
+    background: #c0c4cc;
+    border-radius: 3px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #a0a4ac;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+/* ==========================================================================
+   9. MESSAGE BUBBLES (via delegate)
+   ========================================================================== */
+/* Outgoing bubble */
+QFrame#bubbleOutgoing {
+    background-color: #0099ff;
+    color: white;
+    border-radius: 12px;
+    border-bottom-right-radius: 4px;
+    padding: 8px 12px;
+}
+
+/* Incoming bubble */
+QFrame#bubbleIncoming {
+    background-color: #f5f6f7;
+    color: #1f2329;
+    border-radius: 12px;
+    border-bottom-left-radius: 4px;
+    padding: 8px 12px;
+}
+
+/* System message */
+QLabel#systemMessage {
+    color: #8f959e;
+    font-size: 12px;
+    background-color: #f5f6f7;
+    border-radius: 13px;
+    padding: 6px 14px;
+}
+
+/* ==========================================================================
+   10. VIEWS
+   ========================================================================== */
+QWidget#contactsView,
+QWidget#favoritesView,
+QWidget#settingsView,
+QWidget#profileView {
+    background-color: #ffffff;
+}
+
+QLabel#contactsTitleLabel,
+QLabel#favoritesTitleLabel,
+QLabel#settingsTitleLabel,
+QLabel#profileNameLabel {
+    color: #1f2329;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+QTabWidget#contactsTabWidget::pane {
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    background-color: #ffffff;
+}
+
+QTabBar::tab {
+    background-color: #f5f6f7;
+    color: #5f6672;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px 6px 0 0;
+}
+
+QTabBar::tab:selected {
+    background-color: #e6f4ff;
+    color: #0099ff;
+}
+
+/* ==========================================================================
+   11. DIALOGS
+   ========================================================================== */
+QDialog {
+    background-color: #ffffff;
+}
+
+QLabel#dialogTitleLabel {
+    color: #1f2329;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QLabel#dialogHintLabel {
+    color: #8f959e;
+    font-size: 13px;
+}
+
+QLineEdit#dialogInput {
+    background-color: #f5f6f7;
+    color: #1f2329;
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+QLineEdit#dialogInput:focus {
+    border: 1px solid #0099ff;
+}
+
+QPushButton#dialogPrimaryBtn {
+    background-color: #0099ff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 500;
+}
+
+QPushButton#dialogPrimaryBtn:hover {
+    background-color: #007acc;
+}
+
+QPushButton#dialogPrimaryBtn:disabled {
+    background-color: #c0c4cc;
+}
+
+QPushButton#dialogSecondaryBtn {
+    background-color: #f5f6f7;
+    color: #1f2329;
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    padding: 8px 16px;
+}
+
+QPushButton#dialogSecondaryBtn:hover {
+    background-color: #ebedf0;
+}
+
+QPushButton#dialogDangerBtn {
+    background-color: #ff4d4f;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+}
+
+QPushButton#dialogDangerBtn:hover {
+    background-color: #ff7875;
+}
+
+QListView#dialogListView {
+    background-color: #f5f6f7;
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    color: #1f2329;
+    outline: none;
+}
+
+QListView#dialogListView::item {
+    padding: 8px 12px;
+    border-radius: 4px;
+}
+
+QListView#dialogListView::item:hover {
+    background-color: #ebedf0;
+}
+
+QListView#dialogListView::item:selected {
+    background-color: #e6f4ff;
+    color: #1f2329;
+}
+
+QComboBox#dialogCombo {
+    background-color: #f5f6f7;
+    color: #1f2329;
+    border: 1px solid #e1e3e6;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+QComboBox#dialogCombo:focus {
+    border: 1px solid #0099ff;
+}
+
+QComboBox#dialogCombo::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox#dialogCombo QAbstractItemView {
+    background-color: #ffffff;
+    color: #1f2329;
+    border: 1px solid #e1e3e6;
+    selection-background-color: #e6f4ff;
+}
+
+QCheckBox#dialogCheck {
+    color: #1f2329;
+}
+
+QCheckBox#dialogCheck::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid #e1e3e6;
+}
+
+QCheckBox#dialogCheck::indicator:checked {
+    background-color: #0099ff;
+    border: 1px solid #0099ff;
+}
+
+/* ==========================================================================
+   12. DARK MODE OVERRIDES
+   ========================================================================== */
+QMainWindow[dark="true"] QFrame#titleBar {
+    background-color: #252525;
+    border-bottom: 1px solid #3a3a3a;
+}
+
+QMainWindow[dark="true"] QLabel#titleBarTitle {
+    color: #e8e8e8;
+}
+
+QMainWindow[dark="true"] QLabel#titleBarUser {
+    color: #a8a8a8;
+}
+
+QMainWindow[dark="true"] QPushButton#windowMinBtn,
+QMainWindow[dark="true"] QPushButton#windowMaxBtn {
+    color: #e8e8e8;
+}
+
+QMainWindow[dark="true"] QPushButton#windowMinBtn:hover,
+QMainWindow[dark="true"] QPushButton#windowMaxBtn:hover {
+    background-color: #2d2d2d;
+}
+
+QMainWindow[dark="true"] QPushButton#windowCloseBtn {
+    color: #e8e8e8;
+}
+
+QMainWindow[dark="true"] QFrame#appNav {
+    background-color: #252525;
+    border-right: 1px solid #3a3a3a;
+}
+
+QMainWindow[dark="true"] QFrame#sessionPanel {
+    background-color: #1e1e1e;
+    border-right: 1px solid #3a3a3a;
+}
+
+QMainWindow[dark="true"] QFrame#chatPanel,
+QMainWindow[dark="true"] QFrame#chatHeader,
+QMainWindow[dark="true"] QFrame#composerWidget {
+    background-color: #1e1e1e;
+}
+
+QMainWindow[dark="true"] QWidget#contactsView,
+QMainWindow[dark="true"] QWidget#favoritesView,
+QMainWindow[dark="true"] QWidget#settingsView,
+QMainWindow[dark="true"] QWidget#profileView {
+    background-color: #1e1e1e;
+}
+
+QMainWindow[dark="true"] QDialog {
+    background-color: #1e1e1e;
+}
+

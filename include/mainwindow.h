@@ -25,15 +25,24 @@
 #include "message.h"
 #include "transfermanager.h"
 
-QT_BEGIN_NAMESPACE
-namespace Ui { class MainWindow; }
-QT_END_NAMESPACE
+namespace Ui {
+class MainWindow;
+}
 
+class MessagesView;
+class ContactsView;
+class FavoritesView;
+class SettingsView;
+class ProfileView;
+class AppNav;
+class TitleBar;
+class QStackedWidget;
 class QAction;
 class QLabel;
 class QListWidget;
 class QLineEdit;
 class QIcon;
+QT_END_NAMESPACE
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -86,6 +95,8 @@ private slots:
     void onResumeSavedOutgoingTransfer();
     void onClearSavedOutgoingTransfer();
     void onFileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
+    void onAppNavRouteActivated(const QString& route);
+    void onThemeToggled();
 
 signals:
     void logoutRequested();
@@ -109,6 +120,8 @@ private:
 
     void setupUi();
     void setupTray();
+    void setupQQNT();
+    void updateStyleSheet();
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
     void setTransferWorkspaceState(const TransferWorkspaceCardState& state);
@@ -306,7 +319,6 @@ private:
     void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
 
-    Ui::MainWindow* ui;
     Client* m_client;
     ClientStorage m_clientStorage;
     QStandardItemModel* m_userListModel;
@@ -348,8 +360,23 @@ private:
     int m_unreadCount;
     bool m_isQuitting;
 
+    Ui::MainWindow* ui = nullptr;
+
+    // QQNT UI components
+    QWidget* m_qqntRoot = nullptr;
+    TitleBar* m_titleBar = nullptr;
+    AppNav* m_appNav = nullptr;
+    QStackedWidget* m_viewStack = nullptr;
+    MessagesView* m_messagesView = nullptr;
+    ContactsView* m_contactsView = nullptr;
+    FavoritesView* m_favoritesView = nullptr;
+    SettingsView* m_settingsView = nullptr;
+    ProfileView* m_profileView = nullptr;
+
     static constexpr int MAX_HISTORY_LINES = 500;
     static constexpr quint16 DEFAULT_PORT = 8888;
 };
 
 #endif // MAINWINDOW_H
+
+

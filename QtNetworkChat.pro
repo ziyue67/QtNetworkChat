@@ -39,7 +39,17 @@ SOURCES += \
     src/qqnt_redis_service.cpp \
     src/qqnt_backend_service.cpp \
     src/objectstore.cpp \
-    src/message.cpp
+    src/message.cpp \
+    src/theme/thememanager.cpp \
+    src/widgets/avatarlabel.cpp \
+    src/widgets/titlebar.cpp \
+    src/widgets/appnav.cpp \
+    src/widgets/composerwidget.cpp \
+    src/widgets/composerTextEdit.cpp \
+    src/views/messagesview.cpp \
+    src/views/contactsview.cpp \
+    src/views/favoritesview.cpp \
+    src/views/settingsview.cpp
 
 HEADERS += \
     include/mainwindow.h \
@@ -74,7 +84,17 @@ HEADERS += \
     include/message.h \
     include/qtnetworkchat_version.h \
     include/qtnetworkchat_e2e_crypto_config.h \
-    include/qtnetworkchat_e2e_provider_api.h
+    include/qtnetworkchat_e2e_provider_api.h \
+    include/theme/thememanager.h \
+    include/widgets/avatarlabel.h \
+    include/widgets/titlebar.h \
+    include/widgets/appnav.h \
+    include/widgets/composerwidget.h \
+    include/widgets/composerTextEdit.h \
+    include/views/messagesview.h \
+    include/views/contactsview.h \
+    include/views/favoritesview.h \
+    include/views/settingsview.h
 
 FORMS += \
     ui/mainwindow.ui
