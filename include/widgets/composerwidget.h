@@ -18,6 +18,7 @@ public:
     void setText(const QString& text);
     void clear();
     void insertText(const QString& text);
+    void setMentionCompletions(const QStringList& completions);
 
     void setSendEnabled(bool enabled);
     void setFileEnabled(bool enabled);
@@ -34,7 +35,9 @@ signals:
     void imageRequested();
     void emojiRequested();
     void mentionRequested();
+    void screenshotRequested();
     void clearHistoryRequested();
+    void filesDropped(const QStringList& paths);
     void textChanged();
 
 private:
@@ -47,6 +50,7 @@ private:
     QPushButton* m_fileBtn = nullptr;
     QPushButton* m_historyBtn = nullptr;
     QPushButton* m_mentionBtn = nullptr;
+    QPushButton* m_screenshotBtn = nullptr;
     QPushButton* m_sendBtn = nullptr;
     QLabel* m_stateLabel = nullptr;
 };

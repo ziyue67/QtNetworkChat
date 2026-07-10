@@ -3,6 +3,7 @@
 #include "theme/thememanager.h"
 
 #include <QHBoxLayout>
+#include <QEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
@@ -29,6 +30,7 @@ void ScreenshotCaptureWindow::setupUi()
     m_previewLabel = new QLabel(this);
     m_previewLabel->setObjectName(QStringLiteral("screenshotPreviewLabel"));
     m_previewLabel->setAlignment(Qt::AlignCenter);
+    m_previewLabel->installEventFilter(this);
     root->addWidget(m_previewLabel, 1);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
@@ -39,9 +41,8 @@ void ScreenshotCaptureWindow::setupUi()
     saveBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(saveBtn, &QPushButton::clicked, this, [this]() {
         if (m_hasSelection) {
-            QRect rect(m_startPos, m_endPos);
-            rect = rect.normalized();
-            emit saveRequested(m_screenshot.copy(rect));
+            const QRect sourceRect = selectedSourceRect();
+            emit saveRequested(sourceRect.isEmpty() ? m_screenshot : m_screenshot.copy(sourceRect));
         } else {
             emit saveRequested(m_screenshot);
         }
@@ -82,7 +83,7 @@ void ScreenshotCaptureWindow::updateStyle()
 void ScreenshotCaptureWindow::setScreenshot(const QPixmap& pixmap)
 {
     m_screenshot = pixmap;
-    m_previewLabel->setPixmap(pixmap.scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    updatePreview();
 }
 
 void ScreenshotCaptureWindow::mousePressEvent(QMouseEvent* event)
@@ -121,8 +122,65 @@ void ScreenshotCaptureWindow::paintEvent(QPaintEvent* event)
         QPainter painter(this);
         painter.setPen(QPen(QColor(QStringLiteral("#0099ff")), 2, Qt::DashLine));
         painter.setBrush(QColor(0, 153, 255, 30));
-        QRect rect(m_startPos, m_endPos);
+        QRect rect(m_previewLabel->mapTo(this, m_startPos),
+                   m_previewLabel->mapTo(this, m_endPos));
         painter.drawRect(rect.normalized());
     }
+}
+
+void ScreenshotCaptureWindow::resizeEvent(QResizeEvent* event)
+{
+    QDialog::resizeEvent(event);
+    updatePreview();
+}
+
+bool ScreenshotCaptureWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_previewLabel) {
+        switch (event->type()) {
+        case QEvent::MouseButtonPress:
+            mousePressEvent(static_cast<QMouseEvent*>(event));
+            return true;
+        case QEvent::MouseMove:
+            mouseMoveEvent(static_cast<QMouseEvent*>(event));
+            return true;
+        case QEvent::MouseButtonRelease:
+            mouseReleaseEvent(static_cast<QMouseEvent*>(event));
+            return true;
+        default:
+            break;
+        }
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
+QRect ScreenshotCaptureWindow::selectedSourceRect() const
+{
+    const QPixmap preview = m_previewLabel->pixmap();
+    if (m_screenshot.isNull() || preview.isNull()) {
+        return QRect();
+    }
+
+    const QRect displayRect = m_previewLabel->contentsRect();
+    const QSize displayedSize = preview.size();
+    const QPoint displayTopLeft = displayRect.center() - QPoint(displayedSize.width() / 2, displayedSize.height() / 2);
+    const QRect selected = QRect(m_startPos, m_endPos).normalized().intersected(
+        QRect(displayTopLeft, displayedSize));
+    if (selected.isEmpty()) return QRect();
+
+    const qreal scaleX = static_cast<qreal>(m_screenshot.width()) / displayedSize.width();
+    const qreal scaleY = static_cast<qreal>(m_screenshot.height()) / displayedSize.height();
+    return QRect(qRound((selected.left() - displayTopLeft.x()) * scaleX),
+                 qRound((selected.top() - displayTopLeft.y()) * scaleY),
+                 qRound(selected.width() * scaleX),
+                 qRound(selected.height() * scaleY)).intersected(m_screenshot.rect());
+}
+
+void ScreenshotCaptureWindow::updatePreview()
+{
+    if (m_screenshot.isNull() || !m_previewLabel || m_previewLabel->size().isEmpty()) return;
+    m_previewLabel->setPixmap(m_screenshot.scaled(m_previewLabel->size(),
+                                                  Qt::KeepAspectRatio,
+                                                  Qt::SmoothTransformation));
 }
 

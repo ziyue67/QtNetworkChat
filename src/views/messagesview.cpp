@@ -152,6 +152,20 @@ QStandardItemModel* MessagesView::chatModel() const
     return m_chatModel;
 }
 
+void MessagesView::setSessionModel(QStandardItemModel* model)
+{
+    if (!model || model == m_sessionModel) return;
+    m_sessionModel = model;
+    m_sessionListView->setModel(model);
+}
+
+void MessagesView::setChatModel(QStandardItemModel* model)
+{
+    if (!model || model == m_chatModel) return;
+    m_chatModel = model;
+    m_chatListView->setModel(model);
+}
+
 QLineEdit* MessagesView::searchEdit() const
 {
     return m_searchEdit;

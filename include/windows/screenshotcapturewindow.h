@@ -23,10 +23,14 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void setupUi();
     void updateStyle();
+    void updatePreview();
+    QRect selectedSourceRect() const;
 
     QLabel* m_previewLabel = nullptr;
     QPixmap m_screenshot;

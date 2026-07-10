@@ -21,6 +21,7 @@
 #include "widgets/titlebar.h"
 #include "widgets/composerwidget.h"
 #include "theme/thememanager.h"
+#include "windows/screenshotcapturewindow.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -75,6 +76,8 @@
 #include <QBuffer>
 #include <QScrollArea>
 #include <QStackedWidget>
+#include <QScreen>
+#include <QWindow>
 #include <functional>
 
 namespace {
@@ -1688,14 +1691,16 @@ bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
 }
 
 void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
-    ui->messageEdit->setPlainText(text);
-    ui->messageEdit->setFocus();
+    QTextEdit* input = m_messagesView ? m_messagesView->composer()->inputEdit() : ui->messageEdit;
+    input->setPlainText(text);
+    input->setFocus();
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
 void MainWindow::insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
-    ui->messageEdit->insertPlainText(text);
-    ui->messageEdit->setFocus();
+    QTextEdit* input = m_messagesView ? m_messagesView->composer()->inputEdit() : ui->messageEdit;
+    input->insertPlainText(text);
+    input->setFocus();
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
@@ -2770,7 +2775,8 @@ void MainWindow::setupUi() {
 }
 
 void MainWindow::refreshComposerState() {
-    const QString draftText = ui->messageEdit->toPlainText().trimmed();
+    QTextEdit* input = m_messagesView ? m_messagesView->composer()->inputEdit() : ui->messageEdit;
+    const QString draftText = input->toPlainText().trimmed();
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
     ComposerContext context;
@@ -2795,6 +2801,25 @@ void MainWindow::refreshComposerState() {
     ui->fileBtn->setToolTip(state.fileToolTip);
     ui->imageBtn->setEnabled(state.sendImageEnabled);
     ui->imageBtn->setToolTip(state.imageToolTip);
+
+    if (m_messagesView) {
+        ComposerWidget* composer = m_messagesView->composer();
+        composer->setSendEnabled(state.canSend);
+        composer->setFileEnabled(state.sendFileEnabled);
+        composer->setImageEnabled(state.sendImageEnabled);
+        composer->setPlaceholderText(state.messagePlaceholder);
+        composer->inputEdit()->setToolTip(state.messageToolTip);
+        composer->setStateText(state.draftSummary);
+
+        QStringList mentions{QStringLiteral("@全体成员")};
+        const QStringList memberIds = currentSessionMemberIds();
+        for (const QString& memberId : memberIds) {
+            if (memberId != m_currentUserId) {
+                mentions.append(QStringLiteral("@%1").arg(contactDisplayName(memberId)));
+            }
+        }
+        composer->setMentionCompletions(mentions);
+    }
 
     QString composerStateText = state.canSend
         ? QString("发送目标：%1 · 输入区已就绪").arg(targetName)
@@ -2827,6 +2852,11 @@ void MainWindow::refreshWorkspaceChrome() {
     ui->sideSummaryStateLabel->setText(connected
         ? QString("当前会话：%1 · 服务端在线视图已同步").arg(sessionName)
         : QString("当前会话：%1 · 连接中断时只保留本地视图与草稿").arg(sessionName));
+    if (m_messagesView) {
+        m_messagesView->setChatTitle(ui->chatTitleLabel->text(),
+                                     ui->chatSubtitleLabel->text(),
+                                     ui->chatHintLabel->text());
+    }
 }
 
 void MainWindow::refreshSessionSummary() {
@@ -2992,9 +3022,10 @@ void MainWindow::setupTray() {
 }
 
 void MainWindow::onSendMessage() {
-    QString text = ui->messageEdit->toPlainText().trimmed();
+    QTextEdit* input = m_messagesView ? m_messagesView->composer()->inputEdit() : ui->messageEdit;
+    QString text = input->toPlainText().trimmed();
     if (text.isEmpty()) {
-        ui->messageEdit->setFocus();
+        input->setFocus();
         ui->statusbar->showMessage("请输入消息内容后再发送", 1800);
         return;
     }
@@ -3049,7 +3080,7 @@ void MainWindow::onSendMessage() {
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
-        ui->messageEdit->clear();
+        input->clear();
         ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(groupName).arg(text.size()), 1800);
         ui->chatListView->scrollToBottom();
@@ -3057,7 +3088,7 @@ void MainWindow::onSendMessage() {
     }
 
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
-        ui->messageEdit->setFocus();
+        input->setFocus();
         ui->chatHintLabel->setText("发送暂停 · 当前账号已不在公共群，等待重新邀请");
         ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送公共群消息", 3000);
         refreshComposerState();
@@ -3065,7 +3096,7 @@ void MainWindow::onSendMessage() {
     }
 
     if (!m_client || !m_client->isConnected()) {
-        ui->messageEdit->setFocus();
+        input->setFocus();
         ui->chatHintLabel->setText(QString("发送暂停 · %1 已断开，消息已保留在输入框").arg(targetName));
         ui->statusbar->showMessage(QString("已断开连接，暂不能发送到 %1").arg(targetName), 3000);
         refreshComposerState();
@@ -3125,7 +3156,7 @@ void MainWindow::onSendMessage() {
                  sentEncrypted ? QStringLiteral(" · 端到端加密") : QString()));
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字%3").arg(targetName).arg(text.size()).arg(sentEncrypted ? QStringLiteral(" · 端到端加密") : QString()), 1800);
 
-        ui->messageEdit->clear();
+        input->clear();
     } else {
         ui->chatHintLabel->setText(QString("发送失败 · 目标 %1 · 消息已保留在输入框").arg(targetName));
         ui->statusbar->showMessage(QString("发送失败，请检查连接 · %1").arg(targetName), 3000);
@@ -3146,19 +3177,43 @@ void MainWindow::onSendFile() {
         return;
     }
 
+    sendSelectedTransfer(selectedFile, false);
+}
+
+void MainWindow::sendSelectedTransfer(const SelectedTransferFile& selectedFile, bool media) {
+    const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    const TransferSelectionPlan selectionPlan = media
+        ? m_transferManager.mediaSelectionPlan()
+        : m_transferManager.fileSelectionPlan();
+    const QString kind = media
+        ? m_transferManager.mediaSelection(selectedFile.info).mediaType
+        : selectionPlan.preparingKind;
+    const bool isVideo = media && m_transferManager.mediaSelection(selectedFile.info).isVideo;
+
     const TransferSendUiState preparingState =
-        m_transferManager.preparingSendState(selectionPlan.preparingKind,
+        m_transferManager.preparingSendState(kind,
                                              selectedFile.info.fileName(),
                                              selectedFile.fileSize,
                                              targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
-    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        appendLocalGroupFileTransferCompletion(selectionPlan,
-                                               selectedFile.info,
-                                               selectedFile.fileSize,
-                                               targetName,
-                                               completedAt);
+    if (isLocalGroup) {
+        if (media) {
+            appendLocalGroupMediaTransferCompletion(selectedFile.filePath,
+                                                    selectedFile.info,
+                                                    selectedFile.fileSize,
+                                                    kind,
+                                                    isVideo,
+                                                    targetName,
+                                                    completedAt);
+        } else {
+            appendLocalGroupFileTransferCompletion(selectionPlan,
+                                                   selectedFile.info,
+                                                   selectedFile.fileSize,
+                                                   targetName,
+                                                   completedAt);
+        }
         return;
     }
 
@@ -3167,8 +3222,8 @@ void MainWindow::onSendFile() {
     bool ok = sendTransferWithProgress(selectedFile.filePath,
                                        m_privateChatTarget,
                                        targetName,
-                                       "文件",
-                                       false,
+                                       kind,
+                                       media && !isVideo,
                                        &transferSummary,
                                        &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
@@ -3178,10 +3233,10 @@ void MainWindow::onSendFile() {
                                selectedFile.info,
                                selectedFile.fileSize,
                                targetName,
-                               selectionPlan.preparingKind,
-                               false,
-                               false,
-                               transferSummary);
+                                kind,
+                                media,
+                                isVideo,
+                                transferSummary);
 }
 
 void MainWindow::onSendImage() {
@@ -3196,48 +3251,7 @@ void MainWindow::onSendImage() {
     if (!selectTransferFileContext(selectionPlan, &selectedFile)) {
         return;
     }
-
-    const TransferMediaSelection mediaSelection = m_transferManager.mediaSelection(selectedFile.info);
-    const bool isVideo = mediaSelection.isVideo;
-    const QString mediaType = mediaSelection.mediaType;
-    const TransferSendUiState preparingState =
-        m_transferManager.preparingSendState(mediaType,
-                                             selectedFile.info.fileName(),
-                                             selectedFile.fileSize,
-                                             targetName);
-    applyTransferSendState(preparingState);
-    const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
-    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        appendLocalGroupMediaTransferCompletion(selectedFile.filePath,
-                                                selectedFile.info,
-                                                selectedFile.fileSize,
-                                                mediaType,
-                                                isVideo,
-                                                targetName,
-                                                completedAt);
-        return;
-    }
-
-    QString transferSummary;
-    bool transferCanceled = false;
-    bool ok = sendTransferWithProgress(selectedFile.filePath,
-                                       m_privateChatTarget,
-                                       targetName,
-                                       mediaType,
-                                       !isVideo,
-                                       &transferSummary,
-                                       &transferCanceled);
-    updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
-    handleRemoteTransferResult(ok,
-                               transferCanceled,
-                               selectedFile.filePath,
-                               selectedFile.info,
-                               selectedFile.fileSize,
-                               targetName,
-                               mediaType,
-                               true,
-                               isVideo,
-                               transferSummary);
+    sendSelectedTransfer(selectedFile, true);
 }
 
 void MainWindow::onNewMessage(const Message& msg) {
@@ -4565,9 +4579,7 @@ void MainWindow::onInsertEmoji() {
     for (const QString& emoji : emojis) {
         QAction* action = menu.addAction(emoji);
         connect(action, &QAction::triggered, this, [this, emoji]() {
-            ui->messageEdit->insertPlainText(emoji);
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage(QString("已插入表情 %1").arg(emoji), 1400);
+            insertChatDraftText(emoji, QString("已插入表情 %1").arg(emoji), 1400);
         });
     }
     menu.addSeparator();
@@ -4592,7 +4604,10 @@ void MainWindow::onInsertEmoji() {
             });
         }
     }
-    menu.exec(ui->emojiBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
+    const QPoint position = m_messagesView
+        ? m_messagesView->composer()->mapToGlobal(QPoint(0, -menu.sizeHint().height()))
+        : ui->emojiBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height()));
+    menu.exec(position);
 }
 
 void MainWindow::onInsertMention() {
@@ -4626,7 +4641,71 @@ void MainWindow::onInsertMention() {
             insertChatDraftText(actionPlan.insertText, actionPlan.statusMessage, 1400);
         });
     }
-    menu.exec(ui->mentionBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
+    const QPoint position = m_messagesView
+        ? m_messagesView->composer()->mapToGlobal(QPoint(36, -menu.sizeHint().height()))
+        : ui->mentionBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height()));
+    menu.exec(position);
+}
+
+void MainWindow::onComposerFilesDropped(const QStringList& paths) {
+    if (paths.isEmpty()) return;
+
+    const QString path = paths.first();
+    const QFileInfo info(path);
+    if (!info.isFile()) return;
+
+    const TransferMediaSelection mediaSelection = m_transferManager.mediaSelection(info);
+    const bool media = mediaSelection.mediaType == QStringLiteral("图片")
+        || mediaSelection.mediaType == QStringLiteral("视频");
+    const QString targetName = m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    if (!ensureTransferTargetReady(media ? mediaSelection.mediaType : QStringLiteral("文件"), targetName, isLocalGroup)) {
+        return;
+    }
+
+    SelectedTransferFile selected;
+    selected.filePath = path;
+    selected.info = info;
+    selected.fileSize = LocalFileManager::humanFileSize(info.size());
+    sendSelectedTransfer(selected, media);
+}
+
+void MainWindow::onCaptureScreenshot() {
+    QScreen* screen = windowHandle() ? windowHandle()->screen() : QGuiApplication::primaryScreen();
+    if (!screen) {
+        QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("未找到可用显示器。"));
+        return;
+    }
+
+    hide();
+    QApplication::processEvents();
+    const QPixmap screenshot = screen->grabWindow(0);
+    show();
+    raise();
+    activateWindow();
+    if (screenshot.isNull()) {
+        QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("无法获取当前屏幕内容。"));
+        return;
+    }
+
+    ScreenshotCaptureWindow capture(this);
+    const QSize preferredSize = screenshot.size().boundedTo(QSize(1200, 760));
+    capture.resize(preferredSize.width(), preferredSize.height() + 48);
+    capture.setScreenshot(screenshot);
+    connect(&capture, &ScreenshotCaptureWindow::saveRequested, this, [this](const QPixmap& cropped) {
+        if (cropped.isNull()) return;
+        const QString directory = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(QStringLiteral("QtNetworkChat/screenshots"));
+        QDir().mkpath(directory);
+        const QString filePath = QDir(directory).filePath(
+            QStringLiteral("screenshot-%1.png").arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-hhmmss-zzz"))));
+        if (!cropped.save(filePath, "PNG")) {
+            QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("无法保存截图文件。"));
+            return;
+        }
+        onComposerFilesDropped(QStringList{filePath});
+    });
+    capture.exec();
 }
 
 void MainWindow::onShowQuickAddFriend() {
@@ -8190,7 +8269,11 @@ void MainWindow::setupQQNT()
         legacyCentralWidget->setParent(m_qqntRoot);
         legacyCentralWidget->hide();
     }
-    setCentralWidget(m_qqntRoot);
+        setCentralWidget(m_qqntRoot);
+
+    // Hide legacy menu bar and status bar for QQNT style
+    if (QMenuBar* mb = menuBar()) { mb->hide(); }
+    if (QStatusBar* sb = statusBar()) { sb->hide(); }
 
     QVBoxLayout* rootLayout = new QVBoxLayout(m_qqntRoot);
     rootLayout->setContentsMargins(0, 0, 0, 0);
@@ -8210,6 +8293,8 @@ void MainWindow::setupQQNT()
     m_viewStack->setObjectName(QStringLiteral("qqntViewStack"));
 
     m_messagesView = new MessagesView(m_qqntRoot);
+    m_messagesView->setSessionModel(m_userListModel);
+    m_messagesView->setChatModel(m_chatModel);
     m_contactsView = new ContactsView(m_qqntRoot);
     m_favoritesView = new FavoritesView(m_qqntRoot);
     m_settingsView = new SettingsView(m_qqntRoot);
@@ -8240,6 +8325,9 @@ void MainWindow::setupQQNT()
     connect(m_messagesView, &MessagesView::imageRequested, this, &MainWindow::onSendImage);
     connect(m_messagesView, &MessagesView::emojiRequested, this, &MainWindow::onInsertEmoji);
     connect(m_messagesView, &MessagesView::mentionRequested, this, &MainWindow::onInsertMention);
+    connect(m_messagesView->composer(), &ComposerWidget::screenshotRequested, this, &MainWindow::onCaptureScreenshot);
+    connect(m_messagesView->composer(), &ComposerWidget::filesDropped, this, &MainWindow::onComposerFilesDropped);
+    connect(m_messagesView->composer(), &ComposerWidget::textChanged, this, &MainWindow::refreshComposerState);
     connect(m_messagesView, &MessagesView::clearHistoryRequested, this, &MainWindow::onClearHistory);
     connect(m_messagesView, &MessagesView::sessionSelected, this, &MainWindow::onPrivateChat);
     connect(m_contactsView, &ContactsView::friendSelected, this, [this](const QString& userId) {
@@ -8257,6 +8345,10 @@ void MainWindow::setupQQNT()
 
     m_appNav->setCurrentIndex(0);
     m_viewStack->setCurrentIndex(0);
+
+    m_messagesView->setChatTitle(ui->chatTitleLabel->text(),
+                                 ui->chatSubtitleLabel->text(),
+                                 ui->chatHintLabel->text());
 
     updateStyleSheet();
 }
@@ -8302,5 +8394,6 @@ void MainWindow::onAppNavRouteActivated(const QString& route)
         // mock routes keep current view for now
     }
 }
+
 
 

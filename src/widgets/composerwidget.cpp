@@ -44,11 +44,13 @@ void ComposerWidget::setupUi()
     m_fileBtn = createToolButton(QStringLiteral("📎"), QStringLiteral("文件"), QStringLiteral("composerToolBtn"));
     m_historyBtn = createToolButton(QStringLiteral("🗑️"), QStringLiteral("清空历史"), QStringLiteral("composerToolBtn"));
     m_mentionBtn = createToolButton(QStringLiteral("@"), QStringLiteral("@提及"), QStringLiteral("composerToolBtn"));
+    m_screenshotBtn = createToolButton(QStringLiteral("✂"), QStringLiteral("截图"), QStringLiteral("composerToolBtn"));
     toolbar->addWidget(m_emojiBtn);
     toolbar->addWidget(m_imageBtn);
     toolbar->addWidget(m_fileBtn);
     toolbar->addWidget(m_historyBtn);
     toolbar->addWidget(m_mentionBtn);
+    toolbar->addWidget(m_screenshotBtn);
     toolbar->addStretch();
     root->addLayout(toolbar);
 
@@ -74,6 +76,7 @@ void ComposerWidget::setupUi()
     root->addLayout(sendRow);
 
     connect(input, &ComposerTextEdit::sendRequested, this, &ComposerWidget::sendRequested);
+    connect(input, &ComposerTextEdit::filesDropped, this, &ComposerWidget::filesDropped);
     connect(m_input, &QTextEdit::textChanged, this, [this]() {
         m_sendBtn->setEnabled(!m_input->toPlainText().trimmed().isEmpty());
         emit textChanged();
@@ -83,6 +86,7 @@ void ComposerWidget::setupUi()
     connect(m_fileBtn, &QPushButton::clicked, this, &ComposerWidget::fileRequested);
     connect(m_historyBtn, &QPushButton::clicked, this, &ComposerWidget::clearHistoryRequested);
     connect(m_mentionBtn, &QPushButton::clicked, this, &ComposerWidget::mentionRequested);
+    connect(m_screenshotBtn, &QPushButton::clicked, this, &ComposerWidget::screenshotRequested);
     connect(m_sendBtn, &QPushButton::clicked, this, &ComposerWidget::sendRequested);
 }
 
@@ -169,5 +173,12 @@ void ComposerWidget::insertText(const QString& text)
 {
     if (m_input) {
         m_input->insertPlainText(text);
+    }
+}
+
+void ComposerWidget::setMentionCompletions(const QStringList& completions)
+{
+    if (ComposerTextEdit* input = qobject_cast<ComposerTextEdit*>(m_input)) {
+        input->setMentionCompletions(completions);
     }
 }

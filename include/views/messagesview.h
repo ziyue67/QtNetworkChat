@@ -22,6 +22,8 @@ public:
 
     QStandardItemModel* sessionModel() const;
     QStandardItemModel* chatModel() const;
+    void setSessionModel(QStandardItemModel* model);
+    void setChatModel(QStandardItemModel* model);
     QLineEdit* searchEdit() const;
     QListView* sessionListView() const;
     QListView* chatListView() const;

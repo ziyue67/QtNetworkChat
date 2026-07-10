@@ -92,6 +92,8 @@ private slots:
     void onEditGroupAnnouncement();
     void onInsertEmoji();
     void onInsertMention();
+    void onCaptureScreenshot();
+    void onComposerFilesDropped(const QStringList& paths);
     void onResumeSavedOutgoingTransfer();
     void onClearSavedOutgoingTransfer();
     void onFileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
@@ -133,6 +135,7 @@ private:
                             QString* fileSize = nullptr);
     bool selectTransferFileContext(const TransferSelectionPlan& selectionPlan,
                                    SelectedTransferFile* selectedFile);
+    void sendSelectedTransfer(const SelectedTransferFile& selectedFile, bool media);
     bool handleTransferSelectionUiState(TransferSelectionUiState* selectionState);
     void appendTransferCompletionState(const TransferSendUiState& state,
                                        bool includeSystemMessage,
