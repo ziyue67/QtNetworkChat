@@ -105,6 +105,17 @@ private slots:
     void onFileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     void onAppNavRouteActivated(const QString& route);
     void onThemeToggled();
+    void onSettingsThemeModeChanged(int mode);
+    void onSettingsNotificationsToggled(bool enabled);
+    void onSettingsSoundToggled(bool enabled);
+    void onSettingsDesktopNotificationsToggled(bool enabled);
+    void onSettingsMuteInSessionToggled(bool enabled);
+    void onSettingsE2EEnabledToggled(bool enabled);
+    void onSettingsAutoAcceptFilesToggled(bool enabled);
+    void onSettingsOpenFolderAfterDownloadToggled(bool enabled);
+    void onSettingsHideWindowBeforeScreenshotToggled(bool enabled);
+    void onSettingsDownloadPathChangeRequested();
+    void onSettingsScreenshotShortcutChangeRequested();
 
 signals:
     void logoutRequested();
@@ -225,6 +236,7 @@ private:
     bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr, bool* canceled = nullptr);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
+    void refreshContactsAndProfile();
     void refreshGroupMemberPanel();
     void refreshComposerState();
     void refreshWorkspaceChrome();

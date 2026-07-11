@@ -75,6 +75,7 @@ void qqntLog(const QString& tag, const QString& msg)
 #include <QPolygonF>
 #include <QRegularExpression>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QLineEdit>
 #include <QClipboard>
 #include <QApplication>
@@ -8333,7 +8334,99 @@ void MainWindow::refreshFriendList() {
         m_userListModel->appendRow(groupItem);
         ui->onlineTitleLabel->setText(QString("联系人 · 未匹配 · 可搜索QQ或建群:%1").arg(m_contactFilter));
     }
+
+    refreshContactsAndProfile();
 }
+
+void MainWindow::refreshContactsAndProfile() {
+    // Populate the QQNT ContactsView friend/group models with real local data,
+    // independent of the legacy left session list (m_userListModel).
+    if (m_contactsView) {
+        QStandardItemModel* friendModel = m_contactsView->friendModel();
+        QStandardItemModel* groupModel = m_contactsView->groupModel();
+        const QString filter = m_contactsView->searchEdit()
+            ? m_contactsView->searchEdit()->text().trimmed()
+            : QString();
+
+        auto matches = [&filter](const QString& id, const QString& name) {
+            if (filter.isEmpty()) {
+                return true;
+            }
+            return id.contains(filter, Qt::CaseInsensitive)
+                || name.contains(filter, Qt::CaseInsensitive);
+        };
+
+        if (friendModel) {
+            friendModel->clear();
+            int friendRows = 0;
+            for (const QString& friendId : m_friendIds) {
+                const QString name = m_friendNames.value(friendId, friendId);
+                if (!matches(friendId, name)) {
+                    continue;
+                }
+                const bool online = m_knownUsers.contains(friendId);
+                QStandardItem* item = new QStandardItem(
+                    online ? QStringLiteral("%1（在线）").arg(name) : name);
+                item->setEditable(false);
+                item->setData(friendId, Qt::UserRole);
+                item->setToolTip(QStringLiteral("QQ: %1").arg(friendId));
+                friendModel->appendRow(item);
+                ++friendRows;
+            }
+            if (friendRows == 0) {
+                QStandardItem* empty = new QStandardItem(
+                    filter.isEmpty() ? QStringLiteral("暂无好友")
+                                     : QStringLiteral("未找到匹配的好友"));
+                empty->setEditable(false);
+                empty->setEnabled(false);
+                empty->setData(QString(), Qt::UserRole);
+                friendModel->appendRow(empty);
+            }
+        }
+
+        if (groupModel) {
+            groupModel->clear();
+            int groupRows = 0;
+            for (const QString& groupId : m_localGroupIds) {
+                const QString name = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+                if (!matches(groupId, name)) {
+                    continue;
+                }
+                const int memberCount = m_localGroupMembers.value(groupId).size();
+                QStandardItem* item = new QStandardItem(
+                    memberCount > 0 ? QStringLiteral("%1（%2人）").arg(name).arg(memberCount) : name);
+                item->setEditable(false);
+                item->setData(groupId, Qt::UserRole);
+                item->setToolTip(QStringLiteral("群号: %1").arg(groupId));
+                groupModel->appendRow(item);
+                ++groupRows;
+            }
+            if (groupRows == 0) {
+                QStandardItem* empty = new QStandardItem(
+                    filter.isEmpty() ? QStringLiteral("暂无群聊")
+                                     : QStringLiteral("未找到匹配的群聊"));
+                empty->setEditable(false);
+                empty->setEnabled(false);
+                empty->setData(QString(), Qt::UserRole);
+                groupModel->appendRow(empty);
+            }
+        }
+    }
+
+    // Feed real statistics into the ProfileView.
+    if (m_profileView) {
+        m_profileView->setUserInfo(m_currentUserId, m_currentUserName);
+        m_profileView->setStats(m_friendIds.size(),
+                                m_localGroupIds.size(),
+                                m_chatModel ? m_chatModel->rowCount() : 0);
+    }
+
+    // Keep the settings account info in sync with the current login.
+    if (m_settingsView) {
+        m_settingsView->setAccountInfo(m_currentUserName, m_currentUserId);
+    }
+}
+
 
 void MainWindow::onContactSearchChanged(const QString& text) {
     m_contactFilter = text.trimmed();
@@ -8909,11 +9002,34 @@ void MainWindow::setupQQNT()
         switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
     });
     connect(m_settingsView, &SettingsView::themeToggled, this, &MainWindow::onThemeToggled);
+    connect(m_settingsView, &SettingsView::themeModeChanged, this, &MainWindow::onSettingsThemeModeChanged);
+    connect(m_settingsView, &SettingsView::notificationsToggled, this, &MainWindow::onSettingsNotificationsToggled);
+    connect(m_settingsView, &SettingsView::soundToggled, this, &MainWindow::onSettingsSoundToggled);
+    connect(m_settingsView, &SettingsView::desktopNotificationsToggled, this, &MainWindow::onSettingsDesktopNotificationsToggled);
+    connect(m_settingsView, &SettingsView::muteInSessionToggled, this, &MainWindow::onSettingsMuteInSessionToggled);
+    connect(m_settingsView, &SettingsView::e2eEnabledToggled, this, &MainWindow::onSettingsE2EEnabledToggled);
+    connect(m_settingsView, &SettingsView::autoAcceptFilesToggled, this, &MainWindow::onSettingsAutoAcceptFilesToggled);
+    connect(m_settingsView, &SettingsView::openFolderAfterDownloadToggled, this, &MainWindow::onSettingsOpenFolderAfterDownloadToggled);
+    connect(m_settingsView, &SettingsView::hideWindowBeforeScreenshotToggled, this, &MainWindow::onSettingsHideWindowBeforeScreenshotToggled);
+    connect(m_settingsView, &SettingsView::downloadPathChangeRequested, this, &MainWindow::onSettingsDownloadPathChangeRequested);
+    connect(m_settingsView, &SettingsView::screenshotShortcutChangeRequested, this, &MainWindow::onSettingsScreenshotShortcutChangeRequested);
+    connect(m_settingsView, &SettingsView::logoutRequested, this, &MainWindow::onLogout);
     connect(m_profileView, &ProfileView::logoutRequested, this, &MainWindow::onLogout);
 
     m_titleBar->setUserName(m_currentUserName);
     m_titleBar->setUserId(m_currentUserId);
     m_profileView->setUserInfo(m_currentUserId, m_currentUserName);
+
+    // Restore persisted settings state into the SettingsView so its controls
+    // reflect the values applied elsewhere (theme, notifications, files, screenshot).
+    {
+        QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+        const int themeMode = settings.value(QStringLiteral("appearance/themeMode"),
+                                              ThemeManager::instance()->isDark() ? 1 : 0).toInt();
+        m_settingsView->setThemeMode(themeMode);
+        m_settingsView->setAccountInfo(m_currentUserName, m_currentUserId);
+        m_settingsView->setSyncStatus(QStringLiteral("已保存到本地"));
+    }
 
     m_appNav->setCurrentIndex(0);
     m_viewStack->setCurrentIndex(0);
@@ -8968,6 +9084,152 @@ void MainWindow::onThemeToggled()
     ThemeManager::instance()->toggleTheme();
     loadStyleSheet();
     updateStyleSheet();
+    if (m_settingsView) {
+        m_settingsView->setThemeMode(ThemeManager::instance()->isDark() ? 1 : 0);
+    }
+}
+
+void MainWindow::onSettingsThemeModeChanged(int mode)
+{
+    // 0=light, 1=dark, 2=system. Persist choice and apply light/dark now.
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("appearance/themeMode"), mode);
+
+    ThemeManager::Theme target = ThemeManager::Theme::Light;
+    if (mode == 1) {
+        target = ThemeManager::Theme::Dark;
+    } else if (mode == 2) {
+        // Follow system: use palette lightness heuristic.
+        const QColor windowColor = palette().color(QPalette::Window);
+        target = windowColor.lightness() < 128 ? ThemeManager::Theme::Dark : ThemeManager::Theme::Light;
+    }
+    ThemeManager::instance()->setTheme(target);
+    loadStyleSheet();
+    updateStyleSheet();
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(QStringLiteral("已保存到本地"));
+    }
+}
+
+void MainWindow::onSettingsNotificationsToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("notifications/enabled"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("消息通知已开启") : QStringLiteral("消息通知已关闭"));
+    }
+    ui->statusbar->showMessage(enabled ? QStringLiteral("已开启消息通知") : QStringLiteral("已关闭消息通知"), 1800);
+}
+
+void MainWindow::onSettingsSoundToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("notifications/sound"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("提示音已开启") : QStringLiteral("提示音已关闭"));
+    }
+}
+
+void MainWindow::onSettingsDesktopNotificationsToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("notifications/desktop"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("桌面通知已开启") : QStringLiteral("桌面通知已关闭"));
+    }
+}
+
+void MainWindow::onSettingsMuteInSessionToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("notifications/muteInSession"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("会话内已免打扰") : QStringLiteral("会话内通知已恢复"));
+    }
+}
+
+void MainWindow::onSettingsE2EEnabledToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("security/e2eEnabled"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("端到端加密已开启") : QStringLiteral("端到端加密已关闭"));
+    }
+    ui->statusbar->showMessage(enabled ? QStringLiteral("端到端加密已开启（重连后生效）")
+                                       : QStringLiteral("端到端加密已关闭（重连后生效）"), 2200);
+}
+
+void MainWindow::onSettingsAutoAcceptFilesToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("files/autoAccept"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("已开启自动接收文件") : QStringLiteral("已关闭自动接收文件"));
+    }
+}
+
+void MainWindow::onSettingsOpenFolderAfterDownloadToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("files/openFolderAfterDownload"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("下载后将自动打开文件夹") : QStringLiteral("下载后不再打开文件夹"));
+    }
+}
+
+void MainWindow::onSettingsHideWindowBeforeScreenshotToggled(bool enabled)
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    settings.setValue(QStringLiteral("screenshot/hideWindow"), enabled);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(enabled ? QStringLiteral("截图时将隐藏当前窗口") : QStringLiteral("截图时保留当前窗口"));
+    }
+}
+
+void MainWindow::onSettingsDownloadPathChangeRequested()
+{
+    const QString current = LocalFileManager::receivedDownloadRootDirectory();
+    const QString picked = QFileDialog::getExistingDirectory(this,
+                                                             QStringLiteral("选择默认下载目录"),
+                                                             current);
+    if (picked.trimmed().isEmpty()) {
+        return;
+    }
+    LocalFileManager::setReceivedDownloadRootDirectory(picked);
+    const QString saved = LocalFileManager::receivedDownloadRootDirectory();
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(QStringLiteral("下载目录已更新"));
+    }
+    ui->statusbar->showMessage(QStringLiteral("默认下载目录：%1").arg(saved), 2600);
+}
+
+void MainWindow::onSettingsScreenshotShortcutChangeRequested()
+{
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+    const QString current = settings.value(QStringLiteral("screenshot/shortcut"),
+                                            QStringLiteral("Ctrl+Alt+A")).toString();
+    bool ok = false;
+    const QString entered = QInputDialog::getText(this,
+                                                  QStringLiteral("修改截图快捷键"),
+                                                  QStringLiteral("请输入快捷键（例如 Ctrl+Alt+A）："),
+                                                  QLineEdit::Normal,
+                                                  current,
+                                                  &ok);
+    if (!ok) {
+        return;
+    }
+    const QKeySequence seq(entered.trimmed());
+    if (seq.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("无效快捷键"),
+                             QStringLiteral("无法识别输入的快捷键，请重试。"));
+        return;
+    }
+    const QString normalized = seq.toString(QKeySequence::NativeText);
+    settings.setValue(QStringLiteral("screenshot/shortcut"), normalized);
+    ui->statusbar->showMessage(QStringLiteral("截图快捷键已更新为 %1（重启后生效）").arg(normalized), 2600);
+    if (m_settingsView) {
+        m_settingsView->setSyncStatus(QStringLiteral("截图快捷键已更新"));
+    }
 }
 
 void MainWindow::onAppNavRouteActivated(const QString& route)
