@@ -2,6 +2,11 @@ QT += network widgets sql multimedia
 
 CONFIG += c++17
 
+QMAKE_CXXFLAGS += /utf-8
+QMAKE_CXXFLAGS += -D_ALLOW_ITERATOR_DEBUG_LEVEL=0
+QMAKE_CXXFLAGS += -D_ITERATOR_DEBUG_LEVEL=0
+QMAKE_CXXFLAGS += /FI $$PWD/include/msvc_compat.h
+
 INCLUDEPATH += $$PWD/include
 
 TARGET = QtNetworkChat
@@ -43,6 +48,7 @@ SOURCES += \
     src/theme/thememanager.cpp \
     src/widgets/avatarlabel.cpp \
     src/widgets/titlebar.cpp \
+    src/widgets/dialogtitlebar.cpp \
     src/widgets/appnav.cpp \
     src/widgets/composerwidget.cpp \
     src/widgets/composerTextEdit.cpp \
@@ -51,7 +57,21 @@ SOURCES += \
     src/views/favoritesview.cpp \
     src/views/settingsview.cpp \
     src/views/profileview.cpp \
-    src/windows/screenshotcapturewindow.cpp
+    src/windows/screenshotcapturewindow.cpp \
+    src/windows/imagepreviewwindow.cpp \
+    src/windows/forwardwindow.cpp \
+    src/windows/noticefilterwindow.cpp \
+    src/windows/registerwindow.cpp \
+    src/windows/loginwindow.cpp \
+    src/dialogs/addfrienddialog.cpp \
+    src/dialogs/creategroupdialog.cpp \
+    src/dialogs/globalsearchdialog.cpp \
+    src/dialogs/friendmanagerdialog.cpp \
+    src/dialogs/essencepanel.cpp \
+    src/dialogs/groupnicknamedialog.cpp \
+    src/dialogs/memberprofilecard.cpp \
+    src/dialogs/mutedurationdialog.cpp \
+    src/sessionitemdelegate.cpp
 
 HEADERS += \
     include/mainwindow.h \
@@ -90,6 +110,7 @@ HEADERS += \
     include/theme/thememanager.h \
     include/widgets/avatarlabel.h \
     include/widgets/titlebar.h \
+    include/widgets/dialogtitlebar.h \
     include/widgets/appnav.h \
     include/widgets/composerwidget.h \
     include/widgets/composerTextEdit.h \
@@ -98,7 +119,21 @@ HEADERS += \
     include/views/favoritesview.h \
     include/views/settingsview.h \
     include/views/profileview.h \
-    include/windows/screenshotcapturewindow.h
+    include/windows/screenshotcapturewindow.h \
+    include/windows/imagepreviewwindow.h \
+    include/windows/forwardwindow.h \
+    include/windows/noticefilterwindow.h \
+    include/windows/registerwindow.h \
+    include/windows/loginwindow.h \
+    include/dialogs/addfrienddialog.h \
+    include/dialogs/creategroupdialog.h \
+    include/dialogs/globalsearchdialog.h \
+    include/dialogs/friendmanagerdialog.h \
+    include/dialogs/essencepanel.h \
+    include/dialogs/groupnicknamedialog.h \
+    include/dialogs/memberprofilecard.h \
+    include/dialogs/mutedurationdialog.h \
+    include/sessionitemdelegate.h
 
 FORMS += \
     ui/mainwindow.ui
@@ -110,6 +145,12 @@ RCC_DIR = $$PWD/build/rcc
 UI_DIR = $$PWD/build/ui
 
 win32 {
+    QSS_SOURCE_DIR = $$PWD/ui
+    QSS_TARGET_DIR = $$DESTDIR/ui
+    QMAKE_POST_LINK += if not exist \"$$shell_path($$QSS_TARGET_DIR)\" $$QMAKE_MKDIR \"$$shell_path($$QSS_TARGET_DIR)\" $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$QMAKE_COPY \"$$shell_path($$QSS_SOURCE_DIR/style-qqnt.qss)\" \"$$shell_path($$QSS_TARGET_DIR/style-qqnt.qss)\" $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$QMAKE_COPY \"$$shell_path($$QSS_SOURCE_DIR/style-qqnt-dark.qss)\" \"$$shell_path($$QSS_TARGET_DIR/style-qqnt-dark.qss)\" $$escape_expand(\\n\\t)
+
     QSQLITE_SOURCE = $$[QT_INSTALL_PLUGINS]/sqldrivers/qsqlite.dll
     QSQLITE_TARGET = $$DESTDIR/sqldrivers/qsqlite.dll
     QMAKE_POST_LINK += if not exist \"$$shell_path($$DESTDIR/sqldrivers)\" $$QMAKE_MKDIR \"$$shell_path($$DESTDIR/sqldrivers)\" $$escape_expand(\\n\\t)

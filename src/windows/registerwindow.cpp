@@ -2,6 +2,7 @@
 
 #include "theme/thememanager.h"
 #include "widgets/avatarlabel.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -29,38 +30,28 @@ void RegisterWindow::setupUi()
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("注册 QQ"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    mainLayout->addWidget(titleBar);
+
     // Header with gradient
     QFrame* header = new QFrame(this);
     header->setObjectName(QStringLiteral("registerHeader"));
     header->setFixedHeight(180);
     QVBoxLayout* headerLayout = new QVBoxLayout(header);
-    headerLayout->setContentsMargins(22, 8, 22, 16);
+    headerLayout->setContentsMargins(22, 16, 22, 16);
     headerLayout->setSpacing(0);
-
-    // Title bar with close button
-    QHBoxLayout* titleBarLayout = new QHBoxLayout();
-    QLabel* brandLabel = new QLabel(QStringLiteral("QQ"), header);
-    brandLabel->setObjectName(QStringLiteral("brandLabel"));
-    titleBarLayout->addWidget(brandLabel);
-    titleBarLayout->addStretch();
-
-    QPushButton* closeBtn = new QPushButton(QStringLiteral("×"), header);
-    closeBtn->setObjectName(QStringLiteral("windowCloseBtn"));
-    closeBtn->setFixedSize(28, 28);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-    titleBarLayout->addWidget(closeBtn);
-    headerLayout->addLayout(titleBarLayout);
 
     // Avatar
     m_avatar = new AvatarLabel(header, 72);
     m_avatar->setTextAvatar(QStringLiteral("注"), QColor(QStringLiteral("#0099ff")));
-    headerLayout->addSpacing(16);
     headerLayout->addWidget(m_avatar, 0, Qt::AlignCenter);
 
     // Title
     m_titleLabel = new QLabel(QStringLiteral("欢迎注册 QQ"), header);
     m_titleLabel->setObjectName(QStringLiteral("registerTitleLabel"));
     m_titleLabel->setAlignment(Qt::AlignCenter);
+    headerLayout->addSpacing(8);
     headerLayout->addWidget(m_titleLabel);
     mainLayout->addWidget(header);
 
@@ -157,7 +148,6 @@ void RegisterWindow::updateStyle()
     setStyleSheet(QStringLiteral(
         "QDialog#registerWindow { background-color: %1; }"
         "QFrame#registerHeader { background-color: %4; border-bottom: 1px solid %5; }"
-        "QLabel#brandLabel { color: white; font-size: 20px; font-weight: 700; }"
         "QLabel#registerTitleLabel { color: white; font-size: 16px; font-weight: 500; }"
         "QFrame#registerFormCard { background-color: %1; }"
         "QLineEdit#registerInput { background-color: %2; color: %6; border: 1px solid %5; border-radius: 6px; padding: 10px 14px; font-size: 14px; }"
@@ -171,8 +161,6 @@ void RegisterWindow::updateStyle()
         "QPushButton#registerPrimaryBtn:disabled { background-color: %5; color: %7; }"
         "QPushButton#registerLinkBtn { color: %4; border: none; background: transparent; font-size: 13px; }"
         "QPushButton#registerLinkBtn:hover { color: %8; text-decoration: underline; }"
-        "QPushButton#windowCloseBtn { color: white; border: none; background: transparent; font-size: 16px; }"
-        "QPushButton#windowCloseBtn:hover { background-color: #ff4d4f; border-radius: 4px; }"
     ).arg(tm->backgroundColor().name())
      .arg(tm->backgroundSecondaryColor().name())
      .arg(tm->textColor().name())

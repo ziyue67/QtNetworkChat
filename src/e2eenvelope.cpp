@@ -2149,10 +2149,10 @@ bool productionProviderRuntimeReady(QString* reason = nullptr) {
     const QByteArray transcript =
         QByteArrayLiteral("qnc-provider-runtime-ready-agreement-transcript-v1");
     const QByteArray sessionPrimary =
-        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain)
+        QByteArray(ProductionSessionDerivePrimaryDomain)
         + QByteArrayLiteral("qnc-provider-runtime-ready-session-primary-v1");
     const QByteArray sessionSecondary =
-        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain)
+        QByteArray(ProductionSessionDeriveSecondaryDomain)
         + QByteArrayLiteral("qnc-provider-runtime-ready-session-secondary-v1");
     const QByteArray sessionContext =
         QByteArrayLiteral("qnc-provider-runtime-ready-session-context-v1");
@@ -2576,9 +2576,9 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
     static const QByteArray primaryFixture(32, '\x42');
     static const QByteArray secondaryFixture(32, '\x24');
     static const QByteArray sessionDerivePrimaryFixture =
-        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain) + QByteArray(32, '\x42');
+        QByteArray(ProductionSessionDerivePrimaryDomain) + QByteArray(32, '\x42');
     static const QByteArray sessionDeriveSecondaryFixture =
-        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain) + QByteArray(32, '\x24');
+        QByteArray(ProductionSessionDeriveSecondaryDomain) + QByteArray(32, '\x24');
     static const QByteArray aadFixture("qnc-provider-probe-aad", 22);
     QByteArray verifyPublicFixture;
     QByteArray verifySignatureFixture;
@@ -3404,10 +3404,10 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
     const QByteArray transcript =
         QByteArrayLiteral("qnc-provider-roundtrip-agreement-transcript-v1");
     const QByteArray sessionPrimary =
-        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain)
+        QByteArray(ProductionSessionDerivePrimaryDomain)
         + QByteArrayLiteral("qnc-provider-roundtrip-session-primary-v1");
     const QByteArray sessionSecondary =
-        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain)
+        QByteArray(ProductionSessionDeriveSecondaryDomain)
         + QByteArrayLiteral("qnc-provider-roundtrip-session-secondary-v1");
     const QByteArray sessionAad =
         QByteArrayLiteral("qnc-provider-roundtrip-session-context-v1");
@@ -9041,10 +9041,10 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
     const QByteArray agreementTranscript =
         QByteArrayLiteral("qnc-public-primitive-agreement-transcript-v1");
     const QByteArray sessionPrimary =
-        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain)
+        QByteArray(ProductionSessionDerivePrimaryDomain)
         + QByteArrayLiteral("qnc-public-primitive-session-primary-v1");
     const QByteArray sessionSecondary =
-        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain)
+        QByteArray(ProductionSessionDeriveSecondaryDomain)
         + QByteArrayLiteral("qnc-public-primitive-session-secondary-v1");
     const QByteArray sessionContext =
         QByteArrayLiteral("qnc-public-primitive-session-context-v1");
@@ -11407,7 +11407,7 @@ QByteArray randomBytes(qsizetype size) {
     QByteArray value;
     value.resize(size);
     for (qsizetype i = 0; i < size; ++i) {
-        value[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
+        value[static_cast<int>(i)] = static_cast<char>(QRandomGenerator::global()->bounded(256));
     }
     return value;
 }
@@ -11475,7 +11475,7 @@ QByteArray streamXor(const QByteArray& sessionKey,
         seed.append(static_cast<char>(counter & 0xff));
         const QByteArray block = QCryptographicHash::hash(seed, QCryptographicHash::Sha256);
         for (qsizetype i = 0; i < block.size() && offset < input.size(); ++i, ++offset) {
-            output[offset] = static_cast<char>(input[offset] ^ block[i]);
+            output[static_cast<int>(offset)] = static_cast<char>(input[static_cast<int>(offset)] ^ block[static_cast<int>(i)]);
         }
         ++counter;
     }
@@ -11569,7 +11569,7 @@ QByteArray productionSessionDerivePrimary(const E2EKeyAgreement& left,
     if (transcript.startsWith(draftDomain)) {
         transcript.remove(0, draftDomain.size());
     }
-    return QByteArrayLiteral(ProductionSessionDerivePrimaryDomain) + transcript;
+    return QByteArray(ProductionSessionDerivePrimaryDomain) + transcript;
 }
 
 QByteArray productionSessionDeriveSecondary(const E2EKeyAgreement& left,

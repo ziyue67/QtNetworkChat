@@ -1,8 +1,32 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "sessionitemdelegate.h"
+#include "chatbubbledelegate.h"
+#include "qqnt_backend_service.h"
 #include <QFile>
 #include <QTextStream>
 #include <QApplication>
+#include <QDateTime>
+#include <QDebug>
+
+namespace {
+void qqntLog(const QString& tag, const QString& msg)
+{
+    const QString line = QString("[%1][%2] %3")
+                             .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss.zzz")))
+                             .arg(tag)
+                             .arg(msg);
+    qDebug().noquote() << line;
+    QFile f(QStringLiteral("qqnt-debug.log"));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        QTextStream s(&f);
+        s << line << "\n";
+        s.flush();
+        f.close();
+    }
+}
+}
+
 #include "chatsessionmanager.h"
 #include "chatcontextmanager.h"
 #include "composermanager.h"
@@ -22,6 +46,8 @@
 #include "widgets/composerwidget.h"
 #include "theme/thememanager.h"
 #include "windows/screenshotcapturewindow.h"
+#include "windows/imagepreviewwindow.h"
+#include "windows/forwardwindow.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -79,6 +105,7 @@
 #include <QScreen>
 #include <QWindow>
 #include <functional>
+#include <algorithm>
 
 namespace {
 enum ChatVisualRole {
@@ -89,7 +116,8 @@ enum ChatVisualRole {
     ChatSystemRole,
     ChatMediaKindRole,
     ChatMediaPreviewRole,
-    ChatMediaOpenPathRole
+    ChatMediaOpenPathRole,
+    ChatMessageIdRole
 };
 
 QPixmap roundAvatarPixmap(const QPixmap& source, int side);
@@ -529,7 +557,9 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_unreadCount(0)
     , m_isQuitting(false)
 {
-        ui->setupUi(this);
+    qqntLog("MainWindow", "constructor start");
+    ui->setupUi(this);
+    qqntLog("MainWindow", "ui setup done");
 
     // Fade-in Window Animation Effect
     this->setWindowOpacity(0.0);
@@ -554,20 +584,24 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     addShadow(ui->announcementCard);
     addShadow(ui->groupOverviewCard);
     addShadow(ui->transferOverviewCard);
+    qqntLog("MainWindow", "shadow effects applied");
 
-    // Load modern stylesheet
-    QFile styleFile("ui/style.qss");
-    if(styleFile.open(QFile::ReadOnly)) {
-        QTextStream textStream(&styleFile);
-        QString styleSheet = textStream.readAll();
-        this->setStyleSheet(styleSheet);
-    }
+    // Load theme-aware stylesheet
+    loadStyleSheet();
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &MainWindow::loadStyleSheet);
+    qqntLog("MainWindow", "stylesheet loaded");
+
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    setMinimumSize(980, 680);
+    resize(1100, 740);
+    setMinimumSize(860, 540);
     setWindowIcon(createChatIcon(userName));
     setupUi();
+    qqntLog("MainWindow", "setupUi done");
     setupTray();
+    qqntLog("MainWindow", "setupTray done");
     setupQQNT();
+    qqntLog("MainWindow", "setupQQNT done");
 
     if (m_client && !m_client->parent()) {
         m_client->setParent(this);
@@ -631,7 +665,9 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     ui->profileIdLabel->setToolTip(QString("当前昵称：%1").arg(m_currentUserName));
     ui->profileCard->setToolTip("右键可复制名片、在线状态，或打开好友管理");
     ui->copyAccountBtn->setToolTip(QString("复制 QQ 号 %1 到剪贴板").arg(m_currentUserId));
+    qqntLog("MainWindow", "before saveProfileToSqlite");
     saveProfileToSqlite();
+    qqntLog("MainWindow", "after saveProfileToSqlite");
     ui->addFriendBtn->hide();
     ui->uploadAvatarBtn->setText("换头像");
     if (m_client->hasServerGroupSnapshot()) {
@@ -643,9 +679,15 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     } else {
         ui->statusbar->showMessage("已连接 - 用户ID: " + m_currentUserId);
     }
+    qqntLog("MainWindow", "before refreshWorkspaceChrome");
     refreshWorkspaceChrome();
+    qqntLog("MainWindow", "after refreshWorkspaceChrome");
+    qqntLog("MainWindow", "before loadHistory");
     loadHistory("group");
+    qqntLog("MainWindow", "after loadHistory");
+    qqntLog("MainWindow", "before updateSavedOutgoingTransferRecoveryUi");
     updateSavedOutgoingTransferRecoveryUi(true);
+    qqntLog("MainWindow", "constructor end");
 }
 
 MainWindow::~MainWindow() {
@@ -875,66 +917,27 @@ bool MainWindow::openMediaPreviewFromState(const LocalSavedFileState& savedFileS
         return false;
     }
 
-    const QPixmap pixmap(savedFileState.fileInfo.absoluteFilePath());
-    if (pixmap.isNull()) {
-        return false;
-    }
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("图片预览 - %1").arg(savedFileState.fileInfo.fileName()));
-    dialog.resize(860, 640);
-
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    QLabel* imageLabel = new QLabel(&dialog);
-    imageLabel->setAlignment(Qt::AlignCenter);
-    imageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-
-    QScrollArea* scrollArea = new QScrollArea(&dialog);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setAlignment(Qt::AlignCenter);
-    scrollArea->setWidget(imageLabel);
-    layout->addWidget(scrollArea, 1);
-
-    const QSize targetSize(780, 500);
-    QPixmap scaled = pixmap.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    if (scaled.isNull()) {
-        scaled = pixmap;
-    }
-    imageLabel->setPixmap(scaled);
-    imageLabel->resize(scaled.size());
-
-    QLabel* infoLabel = new QLabel(QStringLiteral("%1 · %2 x %3 · %4")
-                                       .arg(savedFileState.fileInfo.fileName())
-                                       .arg(pixmap.width())
-                                       .arg(pixmap.height())
-                                       .arg(LocalFileManager::humanFileSize(savedFileState.fileInfo.size())),
-                                   &dialog);
-    infoLabel->setAlignment(Qt::AlignCenter);
-    // infoLabel: color and padding inherited from style.qss
-    layout->addWidget(infoLabel);
-
-    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
-    QPushButton* openFileButton = buttons->addButton(QStringLiteral("系统打开"), QDialogButtonBox::ActionRole);
-    QPushButton* openFolderButton = buttons->addButton(QStringLiteral("打开目录"), QDialogButtonBox::ActionRole);
-    layout->addWidget(buttons);
-
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(openFileButton, &QPushButton::clicked, this, [this, savedFileState]() {
-        const ChatContextSavedFileCommand command =
-            ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
-                                                 chatContextSavedFileState(savedFileState),
-                                                 savedFileState.savePath);
-        openSavedFileFromState(savedFileState, command);
+    ImagePreviewWindow preview(this);
+    preview.setWindowTitle(QStringLiteral("图片预览 - %1").arg(savedFileState.fileInfo.fileName()));
+    preview.setImagePath(savedFileState.fileInfo.absoluteFilePath());
+    connect(&preview, &ImagePreviewWindow::saveRequested, this,
+            [this, &savedFileState](const QString& destinationPath) {
+        if (destinationPath.isEmpty()) return;
+        const QFileInfo destinationInfo(destinationPath);
+        QJsonObject payload;
+        payload[QStringLiteral("sourcePath")] = savedFileState.fileInfo.absoluteFilePath();
+        payload[QStringLiteral("directoryPath")] = destinationInfo.absolutePath();
+        payload[QStringLiteral("fileName")] = destinationInfo.fileName();
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        if (QQNTBackendService::handle(QStringLiteral("save_file_to_directory"), payload, &response, &errorCode, &errorMessage)) {
+            ui->statusbar->showMessage(QStringLiteral("图片已保存到: %1").arg(response.value(QStringLiteral("filePath")).toString()), 2200);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("保存图片失败: %1").arg(errorMessage), 3000);
+        }
     });
-    connect(openFolderButton, &QPushButton::clicked, this, [this, savedFileState]() {
-        const ChatContextSavedFileCommand command =
-            ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
-                                                 chatContextSavedFileState(savedFileState),
-                                                 savedFileState.savePath);
-        openSavedFolderFromState(savedFileState, command);
-    });
-
-    dialog.exec();
+    preview.exec();
     ui->statusbar->showMessage(QStringLiteral("已打开图片预览"), 1800);
     return true;
 }
@@ -1311,6 +1314,7 @@ void MainWindow::openPrivateSession(const QString& userId) {
     m_chatModel->clear();
     m_chatModel->setHorizontalHeaderLabels({QStringLiteral("聊天记录")});
     loadHistory(userId);
+    readLocalChatActions(userId);
     const PrivateChatUiState privateState = ChatSessionManager::privateChatState(
         userId,
         userName,
@@ -1756,7 +1760,8 @@ QAction* MainWindow::addChatContextAction(QMenu& menu,
 
 bool MainWindow::handleChatContextCommand(const QString& commandId,
                                           const QString& chatText,
-                                          const LocalSavedFileState& savedFileState) {
+                                          const LocalSavedFileState& savedFileState,
+                                          const QModelIndex& index) {
     const ChatContextCommandRoute route = ChatContextManager::commandRoute(commandId);
     if (!route.handled) {
         return false;
@@ -1804,7 +1809,97 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
         return true;
     }
 
+    if (route.kind == ChatContextCommandRoute::Kind::Backend) {
+        return handleBackendContextCommand(commandId, chatText, index);
+    }
+
     return false;
+}
+
+bool MainWindow::handleBackendContextCommand(const QString& commandId,
+                                             const QString& chatText,
+                                             const QModelIndex& index) {
+    if (!index.isValid()) return false;
+
+    const QString sessionId = m_privateChatTarget.isEmpty()
+        ? QStringLiteral("public")
+        : m_privateChatTarget;
+    const QString senderId = index.data(ChatSenderIdRole).toString();
+    const QString senderName = index.data(ChatSenderNameRole).toString();
+    const QString messageId = QStringLiteral("msg-%1-%2").arg(index.row()).arg(
+        QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz")));
+
+    QJsonObject messageObject;
+    messageObject[QStringLiteral("id")] = messageId;
+    messageObject[QStringLiteral("messageId")] = messageId;
+    messageObject[QStringLiteral("senderId")] = senderId;
+    messageObject[QStringLiteral("senderName")] = senderName;
+    messageObject[QStringLiteral("content")] = chatText;
+    messageObject[QStringLiteral("sessionId")] = sessionId;
+    messageObject[QStringLiteral("timestamp")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    ChatContextBackendCommand command = ChatContextManager::backendCommand(
+        commandId,
+        messageObject,
+        m_currentUserId,
+        m_currentUserName,
+        sessionId,
+        senderId,
+        senderName);
+
+    if (commandId == QLatin1String("set-group-nickname")) {
+        bool accepted = false;
+        const QString nickname = promptTextValue(
+            QStringLiteral("修改群昵称"),
+            QStringLiteral("请输入 %1 在本群的昵称:").arg(senderName),
+            QString(),
+            &accepted,
+            this);
+        if (!accepted) return false;
+        command.payload[QStringLiteral("nickname")] = nickname;
+    }
+
+    if (command.needsConfirmation) {
+        const QMessageBox::StandardButton choice = QMessageBox::question(
+            this,
+            command.confirmTitle,
+            command.confirmMessage,
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (choice != QMessageBox::Yes) {
+            ui->statusbar->showMessage(QStringLiteral("操作已取消"), 1600);
+            return false;
+        }
+    }
+
+    QJsonObject response;
+    QString errorCode;
+    QString errorMessage;
+    if (!QQNTBackendService::handle(command.op, command.payload, &response, &errorCode, &errorMessage)) {
+        ui->statusbar->showMessage(command.failureStatusMessage + QStringLiteral(" (%1)").arg(errorMessage), 3000);
+        return false;
+    }
+
+    ui->statusbar->showMessage(command.successStatusMessage, 2200);
+
+    if (commandId == QLatin1String("delete")) {
+        m_chatModel->removeRow(index.row());
+    } else if (commandId == QLatin1String("recall")) {
+        QStandardItem* item = m_chatModel->item(index.row());
+        if (item) {
+            item->setText(item->text() + QStringLiteral(" [已撤回]"));
+            item->setData(true, ChatBubbleSystemRole);
+        }
+    } else if (commandId == QLatin1String("essence") || commandId == QLatin1String("unessence")) {
+        QStandardItem* item = m_chatModel->item(index.row());
+        if (item) {
+            const bool isEssence = (commandId == QLatin1String("essence"));
+            item->setData(isEssence, ChatBubbleForwardedRole);
+            item->setToolTip(isEssence ? QStringLiteral("精华消息") : QStringLiteral("已取消精华"));
+        }
+    }
+
+    return true;
 }
 
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
@@ -2301,7 +2396,7 @@ void MainWindow::setupUi() {
         }
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
-        handleChatContextCommand(selected->data().toString(), text, savedFileState);
+        handleChatContextCommand(selected->data().toString(), text, savedFileState, index);
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
     ui->contactSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -4513,6 +4608,35 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     refreshGroupMemberPanel();
     refreshComposerState();
     refreshSessionSummary();
+    readLocalChatActions(groupId);
+}
+
+void MainWindow::readLocalChatActions(const QString& sessionId) {
+    if (!QQNTBackendService::isCommand(QStringLiteral("get_local_chat_actions"))) {
+        return;
+    }
+    QJsonObject payload;
+    payload[QStringLiteral("sessionId")] = sessionId;
+    QJsonObject response;
+    QString errorCode;
+    QString errorMessage;
+    if (!QQNTBackendService::handle(QStringLiteral("get_local_chat_actions"), payload, &response, &errorCode, &errorMessage)) {
+        qDebug() << "get_local_chat_actions failed:" << errorCode << errorMessage;
+        return;
+    }
+    // Backend currently returns historical records (deletedMessages, favoriteMessages, etc.)
+    // rather than a simple action visibility map. If a future backend provides an 'actions'
+    // array, use it to drive the context menu state directly.
+    const QJsonArray actions = response.value(QStringLiteral("actions")).toArray();
+    for (const QJsonValue& value : actions) {
+        const QJsonObject action = value.toObject();
+        const QString actionId = action.value(QStringLiteral("id")).toString();
+        const bool enabled = action.value(QStringLiteral("enabled")).toBool(true);
+        const bool visible = action.value(QStringLiteral("visible")).toBool(true);
+        if (m_messagesView) {
+            m_messagesView->setLocalActionState(actionId, visible, enabled);
+        }
+    }
 }
 
 void MainWindow::onEditGroupAnnouncement() {
@@ -4670,26 +4794,444 @@ void MainWindow::onComposerFilesDropped(const QStringList& paths) {
     sendSelectedTransfer(selected, media);
 }
 
+void MainWindow::onMessageActionRequested(const QModelIndex& index, const QString& action) {
+    if (!index.isValid()) return;
+
+    const QString text = index.data(Qt::DisplayRole).toString();
+    const QString senderName = index.data(ChatBubbleSenderNameRole).toString();
+
+    if (action == QStringLiteral("copy")) {
+        QClipboard* clipboard = QGuiApplication::clipboard();
+        if (clipboard) clipboard->setText(text);
+    } else if (action == QStringLiteral("quote")) {
+        if (m_messagesView) {
+            m_messagesView->composer()->insertText(
+                QStringLiteral("[%1]: %2\n").arg(senderName, text));
+            m_messagesView->composer()->inputEdit()->setFocus();
+        }
+    } else if (action == QStringLiteral("multiSelect")) {
+        if (m_messagesView) {
+            m_messagesView->setMultiSelectMode(true);
+        }
+        const QString sessionId = m_privateChatTarget.isEmpty() ? QStringLiteral("public") : m_privateChatTarget;
+        const QString senderId = index.data(ChatSenderIdRole).toString();
+        const QString senderName = index.data(ChatSenderNameRole).toString();
+        const QString msgId = QStringLiteral("msg-%1-%2").arg(index.row()).arg(
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz")));
+        QJsonObject messageObject;
+        messageObject[QStringLiteral("id")] = msgId;
+        messageObject[QStringLiteral("messageId")] = msgId;
+        messageObject[QStringLiteral("senderId")] = senderId;
+        messageObject[QStringLiteral("senderName")] = senderName;
+        messageObject[QStringLiteral("content")] = text;
+        messageObject[QStringLiteral("sessionId")] = sessionId;
+        messageObject[QStringLiteral("timestamp")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+        messageObject[QStringLiteral("selected")] = true;
+        QJsonObject payload;
+        payload[QStringLiteral("message")] = messageObject;
+        payload[QStringLiteral("selected")] = true;
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        QQNTBackendService::handle(QStringLiteral("toggle_multi_select_local_message"), payload, &response, &errorCode, &errorMessage);
+    } else if (action == QStringLiteral("delete") ||
+               action == QStringLiteral("favorite") || action == QStringLiteral("essence") ||
+               action == QStringLiteral("recall")) {
+        handleBackendContextCommand(action, text, index);
+    } else if (action == QStringLiteral("forward")) {
+        runForwardForMessage(index, text);
+    } else {
+        qDebug() << "Unhandled message action:" << action;
+    }
+}
+
+void MainWindow::onAvatarActionRequested(const QModelIndex& index, const QString& action) {
+    if (!index.isValid()) return;
+
+    const QString senderName = index.data(ChatBubbleSenderNameRole).toString();
+    const QString senderId = index.data(ChatBubbleSenderIdRole).toString();
+
+    if (action == QStringLiteral("at")) {
+        if (m_messagesView) {
+            m_messagesView->composer()->insertText(QStringLiteral("@%1 ").arg(senderName));
+            m_messagesView->composer()->inputEdit()->setFocus();
+        }
+    } else if (action == QStringLiteral("sendMessage")) {
+        if (!senderId.isEmpty() && senderId != m_currentUserId) {
+            openPrivateSession(senderId);
+            ui->statusbar->showMessage(QStringLiteral("已切换到与 %1 的私聊").arg(senderName), 2000);
+        }
+    } else if (action == QStringLiteral("viewProfile") || action == QStringLiteral("addFriend") ||
+               action == QStringLiteral("setGroupNickname") || action == QStringLiteral("block") ||
+               action == QStringLiteral("report")) {
+        const QString commandId = camelToKebabCase(action);
+        handleBackendContextCommand(commandId, QString(), index);
+    } else if (action == QStringLiteral("mute") || action == QStringLiteral("setAdmin")) {
+        ui->statusbar->showMessage(QStringLiteral("成员权限操作将由服务端管理"), 2000);
+    } else {
+        qDebug() << "Unhandled avatar action:" << action;
+    }
+}
+
+void MainWindow::onMediaActivated(const QModelIndex& index) {
+    if (!index.isValid()) return;
+
+    const QString mediaKind = index.data(ChatMediaKindRole).toString();
+    const QString openPath = index.data(ChatMediaOpenPathRole).toString().trimmed();
+
+    if (mediaKind == QLatin1String("image")) {
+        ImagePreviewWindow preview(this);
+        preview.setWindowTitle(QStringLiteral("图片预览"));
+        const QVariant previewData = index.data(ChatMediaPreviewRole);
+        if (previewData.canConvert<QPixmap>() && !previewData.value<QPixmap>().isNull()) {
+            preview.setImage(previewData.value<QPixmap>());
+        } else if (!openPath.isEmpty() && QFile::exists(openPath)) {
+            preview.setImagePath(openPath);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("无法预览图片"), 2000);
+            return;
+        }
+        connect(&preview, &ImagePreviewWindow::saveRequested, this, [this, openPath](const QString& destinationPath) {
+            if (destinationPath.isEmpty()) return;
+            const QFileInfo destinationInfo(destinationPath);
+            QJsonObject payload;
+            payload[QStringLiteral("sourcePath")] = openPath;
+            payload[QStringLiteral("directoryPath")] = destinationInfo.absolutePath();
+            payload[QStringLiteral("fileName")] = destinationInfo.fileName();
+            QJsonObject response;
+            QString errorCode;
+            QString errorMessage;
+            if (QQNTBackendService::handle(QStringLiteral("save_file_to_directory"), payload, &response, &errorCode, &errorMessage)) {
+                ui->statusbar->showMessage(QStringLiteral("图片已保存到: %1").arg(response.value(QStringLiteral("filePath")).toString()), 2200);
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("保存图片失败: %1").arg(errorMessage), 3000);
+            }
+        });
+        connect(&preview, &ImagePreviewWindow::openFolderRequested, this, [this, openPath]() {
+            if (openPath.isEmpty() || !QFile::exists(openPath)) {
+                ui->statusbar->showMessage(QStringLiteral("图片路径无效"), 2000);
+                return;
+            }
+            const QFileInfo info(openPath);
+            QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+            ui->statusbar->showMessage(QStringLiteral("已打开图片所在文件夹"), 1800);
+        });
+        connect(&preview, &ImagePreviewWindow::copyBase64Requested, this, [this, openPath]() {
+            if (openPath.isEmpty() || !QFile::exists(openPath)) {
+                ui->statusbar->showMessage(QStringLiteral("图片路径无效"), 2000);
+                return;
+            }
+            QJsonObject payload;
+            payload[QStringLiteral("filePath")] = openPath;
+            QJsonObject response;
+            QString errorCode;
+            QString errorMessage;
+            if (QQNTBackendService::handle(QStringLiteral("read_image_base64"), payload, &response, &errorCode, &errorMessage)) {
+                const QString b64 = response.value(QStringLiteral("base64")).toString();
+                if (!b64.isEmpty()) {
+                    QClipboard* clipboard = QGuiApplication::clipboard();
+                    if (clipboard) clipboard->setText(b64);
+                    ui->statusbar->showMessage(QStringLiteral("图片 Base64 已复制到剪贴板"), 1800);
+                } else {
+                    ui->statusbar->showMessage(QStringLiteral("无法读取图片 Base64"), 2000);
+                }
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("读取 Base64 失败: %1").arg(errorMessage), 3000);
+            }
+        });
+        connect(&preview, &ImagePreviewWindow::forwardRequested, this, [this, index]() {
+            runForwardForMessage(index, index.data(Qt::DisplayRole).toString());
+        });
+        preview.exec();
+    } else if (mediaKind == QLatin1String("video")) {
+        if (!openPath.isEmpty()) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(openPath));
+            ui->statusbar->showMessage(QStringLiteral("正在打开视频..."), 1800);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("视频路径无效"), 2000);
+        }
+    } else if (!openPath.isEmpty()) {
+        const QFileInfo info(openPath);
+        if (info.isFile()) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(openPath));
+        } else if (info.isDir()) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("无法打开文件"), 2000);
+        }
+    } else {
+        ui->statusbar->showMessage(QStringLiteral("无法识别的媒体内容"), 1600);
+    }
+}
+
+QString MainWindow::camelToKebabCase(const QString& camel) const {
+    QString result;
+    for (int i = 0; i < camel.size(); ++i) {
+        const QChar ch = camel.at(i);
+        if (i > 0 && ch.isUpper()) {
+            result.append(QLatin1Char('-'));
+        }
+        result.append(ch.toLower());
+    }
+    return result;
+}
+
+void MainWindow::runForwardForMessage(const QModelIndex& index, const QString& text) {
+    if (!m_messagesView) return;
+
+    ForwardWindow dialog(this);
+    QMap<QString, QString> contactNames;
+    for (const QString& id : m_friendIds) {
+        contactNames[id] = contactDisplayName(id);
+    }
+    QMap<QString, QString> groupNames;
+    for (const QString& id : m_localGroupIds) {
+        groupNames[id] = m_localGroupNames.value(id, id);
+    }
+    dialog.setContacts(m_friendIds, contactNames);
+    dialog.setGroups(m_localGroupIds, groupNames);
+
+    connect(&dialog, &ForwardWindow::forwardToContactRequested, this, [this, index, text](const QString& userId) {
+        forwardMessageToTarget(index, text, userId, QString());
+    });
+    connect(&dialog, &ForwardWindow::forwardToGroupRequested, this, [this, index, text](const QString& groupId) {
+        forwardMessageToTarget(index, text, QString(), groupId);
+    });
+    dialog.exec();
+}
+
+void MainWindow::forwardMessageToTarget(const QModelIndex& index,
+                                        const QString& text,
+                                        const QString& userId,
+                                        const QString& groupId) {
+    const QString senderId = index.data(ChatBubbleSenderIdRole).toString();
+    const QString senderName = index.data(ChatBubbleSenderNameRole).toString();
+    const QString sessionId = m_privateChatTarget.isEmpty() ? QStringLiteral("public") : m_privateChatTarget;
+    const QString messageId = QStringLiteral("msg-%1-%2").arg(index.row()).arg(
+        QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz")));
+    const QString targetId = userId.isEmpty() ? groupId : userId;
+    if (targetId.isEmpty()) return;
+
+    QJsonObject messageObject;
+    messageObject[QStringLiteral("id")] = messageId;
+    messageObject[QStringLiteral("messageId")] = messageId;
+    messageObject[QStringLiteral("senderId")] = senderId;
+    messageObject[QStringLiteral("senderName")] = senderName;
+    messageObject[QStringLiteral("content")] = text;
+    messageObject[QStringLiteral("sessionId")] = sessionId;
+    messageObject[QStringLiteral("timestamp")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    QJsonObject target;
+    target[QStringLiteral("id")] = targetId;
+    if (!userId.isEmpty()) {
+        target[QStringLiteral("type")] = QStringLiteral("contact");
+    } else {
+        target[QStringLiteral("type")] = QStringLiteral("group");
+    }
+
+    QJsonObject payload;
+    payload[QStringLiteral("message")] = messageObject;
+    payload[QStringLiteral("target")] = target;
+
+    QJsonObject response;
+    QString errorCode;
+    QString errorMessage;
+    if (!QQNTBackendService::handle(QStringLiteral("forward_local_message"), payload, &response, &errorCode, &errorMessage)) {
+        ui->statusbar->showMessage(QStringLiteral("转发失败 (%1)").arg(errorMessage), 3000);
+        return;
+    }
+    ui->statusbar->showMessage(QStringLiteral("已转发到 %1").arg(contactDisplayName(targetId)), 2200);
+}
+
+void MainWindow::persistMultiSelectMessages(const QModelIndexList& selected) {
+    const QString sessionId = m_privateChatTarget.isEmpty() ? QStringLiteral("public") : m_privateChatTarget;
+    for (const QModelIndex& index : selected) {
+        const QString text = index.data(Qt::DisplayRole).toString();
+        const QString senderId = index.data(ChatSenderIdRole).toString();
+        const QString senderName = index.data(ChatSenderNameRole).toString();
+        const QString msgId = QStringLiteral("msg-%1-%2").arg(index.row()).arg(
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz")));
+        QJsonObject messageObject;
+        messageObject[QStringLiteral("id")] = msgId;
+        messageObject[QStringLiteral("messageId")] = msgId;
+        messageObject[QStringLiteral("senderId")] = senderId;
+        messageObject[QStringLiteral("senderName")] = senderName;
+        messageObject[QStringLiteral("content")] = text;
+        messageObject[QStringLiteral("sessionId")] = sessionId;
+        messageObject[QStringLiteral("timestamp")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+        messageObject[QStringLiteral("selected")] = true;
+        QJsonObject payload;
+        payload[QStringLiteral("message")] = messageObject;
+        payload[QStringLiteral("selected")] = true;
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        QQNTBackendService::handle(QStringLiteral("toggle_multi_select_local_message"), payload, &response, &errorCode, &errorMessage);
+    }
+}
+
+void MainWindow::onMultiSelectForwardRequested() {
+    if (!m_messagesView) return;
+
+    const QModelIndexList selected = m_messagesView->chatListView()->selectionModel()->selectedIndexes();
+    if (selected.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("请先选择要转发的消息"), 2000);
+        return;
+    }
+
+    ForwardWindow dialog(this);
+    QMap<QString, QString> contactNames;
+    for (const QString& id : m_friendIds) {
+        contactNames[id] = contactDisplayName(id);
+    }
+    QMap<QString, QString> groupNames;
+    for (const QString& id : m_localGroupIds) {
+        groupNames[id] = m_localGroupNames.value(id, id);
+    }
+    dialog.setContacts(m_friendIds, contactNames);
+    dialog.setGroups(m_localGroupIds, groupNames);
+
+    connect(&dialog, &ForwardWindow::forwardToContactRequested, this, [this, selected](const QString& userId) {
+        persistMultiSelectMessages(selected);
+        for (const QModelIndex& index : selected) {
+            const QString text = index.data(Qt::DisplayRole).toString();
+            forwardMessageToTarget(index, text, userId, QString());
+        }
+    });
+    connect(&dialog, &ForwardWindow::forwardToGroupRequested, this, [this, selected](const QString& groupId) {
+        persistMultiSelectMessages(selected);
+        for (const QModelIndex& index : selected) {
+            const QString text = index.data(Qt::DisplayRole).toString();
+            forwardMessageToTarget(index, text, QString(), groupId);
+        }
+    });
+    dialog.exec();
+}
+
+void MainWindow::onMultiSelectDeleteRequested() {
+    if (!m_messagesView) return;
+
+    QModelIndexList selected = m_messagesView->chatListView()->selectionModel()->selectedIndexes();
+    if (selected.isEmpty()) return;
+
+    std::sort(selected.begin(), selected.end(), [](const QModelIndex& a, const QModelIndex& b) {
+        return a.row() > b.row();
+    });
+
+    const QString sessionId = m_privateChatTarget.isEmpty() ? QStringLiteral("public") : m_privateChatTarget;
+    QStandardItemModel* model = m_messagesView->chatModel();
+    int deletedCount = 0;
+    for (const QModelIndex& index : selected) {
+        const QString msgId = QStringLiteral("msg-%1-%2").arg(index.row()).arg(
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz")));
+        QJsonObject payload;
+        payload[QStringLiteral("sessionId")] = sessionId;
+        payload[QStringLiteral("messageId")] = msgId;
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        if (QQNTBackendService::handle(QStringLiteral("delete_local_message"), payload, &response, &errorCode, &errorMessage)) {
+            ++deletedCount;
+        }
+        if (model) {
+            model->removeRow(index.row());
+        }
+    }
+    ui->statusbar->showMessage(QStringLiteral("已删除 %1 条消息").arg(deletedCount), 2200);
+    m_messagesView->setMultiSelectMode(false);
+}
+
+void MainWindow::onMultiSelectFavoriteRequested() {
+    if (!m_messagesView) return;
+
+    const QModelIndexList selected = m_messagesView->chatListView()->selectionModel()->selectedIndexes();
+    if (selected.isEmpty()) return;
+
+    const QString sessionId = m_privateChatTarget.isEmpty() ? QStringLiteral("public") : m_privateChatTarget;
+    int favoriteCount = 0;
+    for (const QModelIndex& index : selected) {
+        const QString text = index.data(Qt::DisplayRole).toString();
+        const QString senderId = index.data(ChatSenderIdRole).toString();
+        const QString senderName = index.data(ChatSenderNameRole).toString();
+        const QString msgId = QStringLiteral("msg-%1-%2").arg(index.row()).arg(
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz")));
+        QJsonObject messageObject;
+        messageObject[QStringLiteral("id")] = msgId;
+        messageObject[QStringLiteral("messageId")] = msgId;
+        messageObject[QStringLiteral("senderId")] = senderId;
+        messageObject[QStringLiteral("senderName")] = senderName;
+        messageObject[QStringLiteral("content")] = text;
+        messageObject[QStringLiteral("sessionId")] = sessionId;
+        messageObject[QStringLiteral("timestamp")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+        QJsonObject payload;
+        payload[QStringLiteral("message")] = messageObject;
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        if (QQNTBackendService::handle(QStringLiteral("favorite_local_message"), payload, &response, &errorCode, &errorMessage)) {
+            ++favoriteCount;
+        }
+    }
+    ui->statusbar->showMessage(QStringLiteral("已收藏 %1 条消息").arg(favoriteCount), 2200);
+    m_messagesView->setMultiSelectMode(false);
+}
+
 void MainWindow::onCaptureScreenshot() {
-    QScreen* screen = windowHandle() ? windowHandle()->screen() : QGuiApplication::primaryScreen();
-    if (!screen) {
+    // 1. Hide the main window before capturing so it is not included in the screenshot.
+    {
+        QJsonObject payload;
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        QQNTBackendService::handle(QStringLiteral("hide_main_window"), payload, &response, &errorCode, &errorMessage);
+    }
+    hide();
+    QApplication::processEvents();
+
+    // 2. Compute the virtual desktop geometry across all monitors.
+    const QList<QScreen*> screens = QGuiApplication::screens();
+    QRect virtualRect;
+    for (QScreen* screen : screens) {
+        virtualRect = virtualRect.united(screen->geometry());
+    }
+    if (virtualRect.isEmpty()) {
+        show();
+        raise();
+        activateWindow();
+        {
+            QJsonObject payload;
+            QJsonObject response;
+            QString errorCode;
+            QString errorMessage;
+            QQNTBackendService::handle(QStringLiteral("restore_main_window"), payload, &response, &errorCode, &errorMessage);
+        }
         QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("未找到可用显示器。"));
         return;
     }
 
-    hide();
-    QApplication::processEvents();
-    const QPixmap screenshot = screen->grabWindow(0);
+    // 3. Capture the full desktop into a memory QPixmap (no shared buffer).
+    QScreen* primary = QGuiApplication::primaryScreen();
+    QPixmap screenshot = primary ? primary->grabWindow(0) : QPixmap();
     if (screenshot.isNull()) {
         show();
         raise();
         activateWindow();
+        {
+            QJsonObject payload;
+            QJsonObject response;
+            QString errorCode;
+            QString errorMessage;
+            QQNTBackendService::handle(QStringLiteral("restore_main_window"), payload, &response, &errorCode, &errorMessage);
+        }
         QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("无法获取当前屏幕内容。"));
         return;
     }
 
+    // 4. Show a full-desktop selection overlay. The overlay is a top-level tool window
+    //    and the main window is already hidden, so the screenshot excludes itself.
     ScreenshotCaptureWindow capture;
-    capture.setCaptureScreen(screen);
+    capture.setCaptureGeometry(virtualRect);
     capture.setScreenshot(screenshot);
     connect(&capture, &ScreenshotCaptureWindow::saveRequested, this, [this](const QPixmap& cropped) {
         if (cropped.isNull()) return;
@@ -4702,12 +5244,20 @@ void MainWindow::onCaptureScreenshot() {
             QMessageBox::warning(this, QStringLiteral("截图失败"), QStringLiteral("无法保存截图文件。"));
             return;
         }
+        // Paste the screenshot into the composer as a file drop (sends as image/file).
         onComposerFilesDropped(QStringList{filePath});
     });
     capture.exec();
     show();
     raise();
     activateWindow();
+    {
+        QJsonObject payload;
+        QJsonObject response;
+        QString errorCode;
+        QString errorMessage;
+        QQNTBackendService::handle(QStringLiteral("restore_main_window"), payload, &response, &errorCode, &errorMessage);
+    }
 }
 
 void MainWindow::onShowQuickAddFriend() {
@@ -7691,12 +8241,28 @@ void MainWindow::refreshFriendList() {
     ui->groupNoticeBtn->setToolTip(groupNoticeState.toolTip);
     refreshWorkspaceChrome();
 
+    auto appendSessionItem = [this](const QString& id, const QString& name, const QString& lastMessage,
+                                    bool isGroup, bool online, bool pinned, int unreadCount, bool atMention) {
+        QStandardItem* item = new QStandardItem(name);
+        item->setEditable(false);
+        item->setData(id, SessionItemDelegate::SessionIdRole);
+        item->setData(name, SessionItemDelegate::SessionNameRole);
+        item->setData(lastMessage, SessionItemDelegate::SessionLastMessageRole);
+        item->setData(QDateTime::currentDateTime(), SessionItemDelegate::SessionLastMessageTimestampRole);
+        item->setData(unreadCount, SessionItemDelegate::SessionUnreadRole);
+        item->setData(pinned, SessionItemDelegate::SessionPinnedRole);
+        item->setData(atMention, SessionItemDelegate::SessionAtMentionRole);
+        item->setData(online, SessionItemDelegate::SessionOnlineRole);
+        item->setData(isGroup, SessionItemDelegate::SessionGroupRole);
+        item->setData(id, Qt::UserRole + 1);
+        m_userListModel->appendRow(item);
+    };
+
     auto appendSection = [this](const QString& title) {
         QStandardItem* section = new QStandardItem(title);
         section->setEditable(false);
         section->setEnabled(false);
-        section->setForeground(QColor(176, 212, 232));
-        section->setBackground(QColor(22, 46, 64));
+        section->setData(QStringLiteral("__section__"), SessionItemDelegate::SessionIdRole);
         m_userListModel->appendRow(section);
     };
 
@@ -7716,10 +8282,7 @@ void MainWindow::refreshFriendList() {
         if (m_knownUsers.contains(friendId)) continue;
         QString name = m_friendNames.value(friendId, friendId);
         if (!matchesFilter(friendId, name)) continue;
-        QStandardItem* item = new QStandardItem(QString("☆ QQ:%1\n   %2 [离线]").arg(friendId, name));
-        item->setData(friendId, Qt::UserRole + 1);
-        item->setForeground(QColor(180, 215, 235));
-        m_userListModel->appendRow(item);
+        appendSessionItem(friendId, name, QStringLiteral("[离线] 暂无消息"), false, false, false, 0, false);
         ++visibleCount;
         ++visibleFriends;
     }
@@ -7728,10 +8291,7 @@ void MainWindow::refreshFriendList() {
     for (const QString& groupId : m_localGroupIds) {
         QString groupName = m_localGroupNames.value(groupId, "群聊");
         if (!matchesFilter(groupId, groupName)) continue;
-        QStandardItem* item = new QStandardItem(QString("群聊 QQ:%1\n   %2 [本地]").arg(groupId.mid(QString("local_group_").size()), groupName));
-        item->setData(groupId, Qt::UserRole + 1);
-        item->setForeground(QColor(164, 220, 255));
-        m_userListModel->appendRow(item);
+        appendSessionItem(groupId, groupName, m_localGroupAnnouncements.value(groupId, QStringLiteral("[本地群聊]")), true, false, false, 0, false);
         ++visibleCount;
         ++visibleGroups;
     }
@@ -7748,12 +8308,8 @@ void MainWindow::refreshFriendList() {
         }
         const bool isPending = m_pendingOutgoingFriendRequests.contains(user.id);
         if (isPending && !isFriend) ++visiblePendingOutgoing;
-        const QString marker = isFriend ? "★" : "○";
-        const QString stateSuffix = isFriend ? " [在线]" : (isPending ? " [申请中]" : "");
-        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n   %3%4").arg(marker, user.id, user.name, stateSuffix));
-        item->setData(user.id, Qt::UserRole + 1);
-        item->setForeground(isFriend ? Qt::white : (isPending ? QColor(255, 225, 160) : QColor(220, 240, 255)));
-        m_userListModel->appendRow(item);
+        const QString lastMessage = isPending ? QStringLiteral("[申请中]") : QStringLiteral("[在线] 暂无消息");
+        appendSessionItem(user.id, user.name, lastMessage, false, true, false, 0, false);
         ++visibleCount;
         ++visibleOnlineUsers;
         if (!isFriend && !isPending) ++visibleStrangers;
@@ -8263,15 +8819,17 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::setupQQNT()
 {
+    qqntLog("MainWindow", "setupQQNT start");
     m_qqntRoot = new QWidget(this);
     m_qqntRoot->setObjectName(QStringLiteral("qqntRoot"));
 
-    QWidget* legacyCentralWidget = centralWidget();
+    QWidget* legacyCentralWidget = takeCentralWidget();
     if (legacyCentralWidget && legacyCentralWidget != m_qqntRoot) {
         legacyCentralWidget->setParent(m_qqntRoot);
         legacyCentralWidget->hide();
     }
-        setCentralWidget(m_qqntRoot);
+    setCentralWidget(m_qqntRoot);
+    qqntLog("MainWindow", "centralWidget replaced");
 
     // Hide legacy menu bar and status bar for QQNT style
     if (QMenuBar* mb = menuBar()) { mb->hide(); }
@@ -8283,6 +8841,7 @@ void MainWindow::setupQQNT()
 
     m_titleBar = new TitleBar(m_qqntRoot);
     rootLayout->addWidget(m_titleBar);
+    qqntLog("MainWindow", "titleBar created");
 
     QHBoxLayout* contentLayout = new QHBoxLayout();
     contentLayout->setContentsMargins(0, 0, 0, 0);
@@ -8290,13 +8849,17 @@ void MainWindow::setupQQNT()
 
     m_appNav = new AppNav(m_qqntRoot);
     contentLayout->addWidget(m_appNav);
+    qqntLog("MainWindow", "appNav created");
 
     m_viewStack = new QStackedWidget(m_qqntRoot);
     m_viewStack->setObjectName(QStringLiteral("qqntViewStack"));
+    qqntLog("MainWindow", "viewStack created");
 
     m_messagesView = new MessagesView(m_qqntRoot);
+    qqntLog("MainWindow", "messagesView created");
     m_messagesView->setSessionModel(m_userListModel);
     m_messagesView->setChatModel(m_chatModel);
+    qqntLog("MainWindow", "messagesView models set");
     m_contactsView = new ContactsView(m_qqntRoot);
     m_favoritesView = new FavoritesView(m_qqntRoot);
     m_settingsView = new SettingsView(m_qqntRoot);
@@ -8332,6 +8895,13 @@ void MainWindow::setupQQNT()
     connect(m_messagesView->composer(), &ComposerWidget::textChanged, this, &MainWindow::refreshComposerState);
     connect(m_messagesView, &MessagesView::clearHistoryRequested, this, &MainWindow::onClearHistory);
     connect(m_messagesView, &MessagesView::sessionSelected, this, &MainWindow::onPrivateChat);
+    connect(m_messagesView, &MessagesView::filesDropped, this, &MainWindow::onComposerFilesDropped);
+    connect(m_messagesView, &MessagesView::messageActionRequested, this, &MainWindow::onMessageActionRequested);
+    connect(m_messagesView, &MessagesView::avatarActionRequested, this, &MainWindow::onAvatarActionRequested);
+    connect(m_messagesView, &MessagesView::mediaActivated, this, &MainWindow::onMediaActivated);
+    connect(m_messagesView, &MessagesView::multiSelectForwardRequested, this, &MainWindow::onMultiSelectForwardRequested);
+    connect(m_messagesView, &MessagesView::multiSelectDeleteRequested, this, &MainWindow::onMultiSelectDeleteRequested);
+    connect(m_messagesView, &MessagesView::multiSelectFavoriteRequested, this, &MainWindow::onMultiSelectFavoriteRequested);
     connect(m_contactsView, &ContactsView::friendSelected, this, [this](const QString& userId) {
         openPrivateSession(userId);
     });
@@ -8374,9 +8944,24 @@ void MainWindow::updateStyleSheet()
     m_qqntRoot->setStyleSheet(style);
 }
 
+void MainWindow::loadStyleSheet()
+{
+    ThemeManager* tm = ThemeManager::instance();
+    const QString fileName = tm->isDark()
+        ? QStringLiteral("ui/style-qqnt-dark.qss")
+        : QStringLiteral("ui/style-qqnt.qss");
+    QFile styleFile(fileName);
+    if (styleFile.open(QFile::ReadOnly)) {
+        QTextStream textStream(&styleFile);
+        setStyleSheet(textStream.readAll());
+        styleFile.close();
+    }
+}
+
 void MainWindow::onThemeToggled()
 {
     ThemeManager::instance()->toggleTheme();
+    loadStyleSheet();
     updateStyleSheet();
 }
 

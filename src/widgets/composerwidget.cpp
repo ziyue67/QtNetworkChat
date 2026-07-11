@@ -14,10 +14,10 @@ QPushButton* createToolButton(const QString& icon, const QString& tip, const QSt
 {
     QPushButton* btn = new QPushButton(icon);
     btn->setObjectName(objName);
-    btn->setFixedSize(30, 30);
+    btn->setFixedSize(28, 28);
     btn->setToolTip(tip);
     btn->setFlat(true);
-    btn->setFont(QFont(QStringLiteral("Segoe UI Symbol"), 14));
+    btn->setFont(QFont(QStringLiteral("Segoe UI Symbol"), 12));
     return btn;
 }
 }
@@ -39,12 +39,12 @@ void ComposerWidget::setupUi()
 
     QHBoxLayout* toolbar = new QHBoxLayout();
     toolbar->setSpacing(4);
-    m_emojiBtn = createToolButton(QStringLiteral("😊"), QStringLiteral("表情"), QStringLiteral("composerToolBtn"));
-    m_imageBtn = createToolButton(QStringLiteral("🖼️"), QStringLiteral("图片/视频"), QStringLiteral("composerToolBtn"));
-    m_fileBtn = createToolButton(QStringLiteral("📎"), QStringLiteral("文件"), QStringLiteral("composerToolBtn"));
-    m_historyBtn = createToolButton(QStringLiteral("🗑️"), QStringLiteral("清空历史"), QStringLiteral("composerToolBtn"));
+    m_emojiBtn = createToolButton(QStringLiteral("表情"), QStringLiteral("表情"), QStringLiteral("composerToolBtn"));
+    m_imageBtn = createToolButton(QStringLiteral("图片"), QStringLiteral("图片/视频"), QStringLiteral("composerToolBtn"));
+    m_fileBtn = createToolButton(QStringLiteral("文件"), QStringLiteral("文件"), QStringLiteral("composerToolBtn"));
+    m_historyBtn = createToolButton(QStringLiteral("清空"), QStringLiteral("清空历史"), QStringLiteral("composerToolBtn"));
     m_mentionBtn = createToolButton(QStringLiteral("@"), QStringLiteral("@提及"), QStringLiteral("composerToolBtn"));
-    m_screenshotBtn = createToolButton(QStringLiteral("✂"), QStringLiteral("截图"), QStringLiteral("composerToolBtn"));
+    m_screenshotBtn = createToolButton(QStringLiteral("截图"), QStringLiteral("截图"), QStringLiteral("composerToolBtn"));
     toolbar->addWidget(m_emojiBtn);
     toolbar->addWidget(m_imageBtn);
     toolbar->addWidget(m_fileBtn);
@@ -58,12 +58,12 @@ void ComposerWidget::setupUi()
     m_input = input;
     m_input->setObjectName(QStringLiteral("composerInput"));
     m_input->setMaximumHeight(120);
-    m_input->setPlaceholderText(QStringLiteral("输入消息... (Enter 发送，Shift/Ctrl+Enter 换行)"));
+    refreshHints();
     root->addWidget(m_input, 1);
 
     m_stateLabel = new QLabel(this);
     m_stateLabel->setObjectName(QStringLiteral("composerStateLabel"));
-    m_stateLabel->setText(QStringLiteral("Enter 发送，Shift/Ctrl+Enter 换行"));
+    m_stateLabel->setText(placeholderText());
     root->addWidget(m_stateLabel);
 
     QHBoxLayout* sendRow = new QHBoxLayout();
@@ -98,7 +98,7 @@ void ComposerWidget::updateStyle()
         "QTextEdit#composerInput { background-color: %3; color: %4; border: 1px solid %2; border-radius: 6px; padding: 6px; }"
         "QTextEdit#composerInput:focus { border: 1px solid %5; }"
         "QPushButton#composerToolBtn { color: %6; border: none; background: transparent; border-radius: 6px; }"
-        "QPushButton#composerToolBtn:hover { background-color: %7; color: %4; }"
+        "QPushButton#composerToolBtn:hover { background-color: %7; color: %5; }"
         "QPushButton#composerSendBtn { background-color: %5; color: white; border: none; border-radius: 6px; font-weight: 600; }"
         "QPushButton#composerSendBtn:hover { background-color: %8; }"
         "QPushButton#composerSendBtn:disabled { background-color: %7; color: %6; }"
@@ -157,6 +157,30 @@ void ComposerWidget::setPlaceholderText(const QString& text)
 void ComposerWidget::setStateText(const QString& text)
 {
     if (m_stateLabel) m_stateLabel->setText(text);
+}
+
+void ComposerWidget::setSessionName(const QString& sessionName)
+{
+    m_sessionName = sessionName;
+    refreshHints();
+}
+
+QString ComposerWidget::placeholderText() const
+{
+    const QString name = m_sessionName.trimmed().isEmpty()
+        ? QStringLiteral("好友")
+        : m_sessionName;
+    return QStringLiteral("发给 %1…（Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿）").arg(name);
+}
+
+void ComposerWidget::refreshHints()
+{
+    if (m_input) {
+        m_input->setPlaceholderText(placeholderText());
+    }
+    if (m_stateLabel) {
+        m_stateLabel->setText(QStringLiteral("Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿"));
+    }
 }
 
 QTextEdit* ComposerWidget::inputEdit() const

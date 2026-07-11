@@ -30,6 +30,11 @@ void ScreenshotCaptureWindow::setCaptureScreen(QScreen* screen)
     }
 }
 
+void ScreenshotCaptureWindow::setCaptureGeometry(const QRect& geometry)
+{
+    setGeometry(geometry);
+}
+
 void ScreenshotCaptureWindow::mousePressEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::RightButton) {

@@ -27,7 +27,37 @@
 #include <QJsonObject>
 #include <QTcpSocket>
 
+#ifdef Q_OS_WIN
+#include <Windows.h>
+#endif
+
 namespace {
+
+#ifdef Q_OS_WIN
+LONG WINAPI qqntUnhandledExceptionFilter(EXCEPTION_POINTERS* ep)
+{
+    HANDLE hFile = CreateFileW(L"qqnt-debug.log", FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        char buf[1024];
+        DWORD written = 0;
+        snprintf(buf, sizeof(buf), "[CRASH] Exception code: 0x%08X\n", (unsigned int)ep->ExceptionRecord->ExceptionCode);
+        WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+        snprintf(buf, sizeof(buf), "[CRASH] Exception address: 0x%p\n", (void*)ep->ExceptionRecord->ExceptionAddress);
+        WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+
+        void* stack[64];
+        WORD frames = CaptureStackBackTrace(0, 64, stack, NULL);
+        WriteFile(hFile, "[CRASH] Stack trace (return addresses):\n", 40, &written, NULL);
+        for (WORD i = 0; i < frames; ++i) {
+            snprintf(buf, sizeof(buf), "  %02u: 0x%p\n", i, stack[i]);
+            WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+        }
+        CloseHandle(hFile);
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
@@ -566,11 +596,39 @@ private:
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    SetUnhandledExceptionFilter(qqntUnhandledExceptionFilter);
+#endif
+
     QApplication a(argc, argv);
     ensureDesktopRedisEnvironment();
     a.setApplicationName("QtNetworkChat");
     a.setApplicationVersion("1.0.0");
     a.setStyle(QStyleFactory::create("Fusion"));
+
+    // Debug auto-login: bypass mode/login dialogs to reproduce post-login crashes
+    if (qEnvironmentVariableIsSet("QTNETWORKCHAT_DEBUG_AUTO_LOGIN")) {
+        Server* server = new Server(&a);
+        if (!server->start(8888)) {
+            delete server;
+            server = nullptr;
+        }
+        maybeWriteDatabaseHealthSnapshot(server);
+
+        Client* client = new Client;
+        client->setUserInfo("", "DebugUser");
+        client->setAccountInfo("debug123", "123456", true);
+        client->connectToServer("127.0.0.1", 8888);
+        if (!client->isConnected() || !client->waitForLoginResult()) {
+            qDebug() << "Debug auto-login failed:" << client->lastLoginError();
+            delete client;
+            return 1;
+        }
+        MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        w->show();
+        return a.exec();
+    }
 
     QString userName, host;
     quint16 port = 8888;

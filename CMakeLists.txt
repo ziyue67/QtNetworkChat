@@ -9,6 +9,11 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 
+if(MSVC)
+    add_compile_options(/utf-8 /D_ITERATOR_DEBUG_LEVEL=0 /FI "${CMAKE_CURRENT_SOURCE_DIR}/include/msvc_compat.h")
+    add_compile_definitions(_ALLOW_ITERATOR_DEBUG_LEVEL=0)
+endif()
+
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/include/qtnetworkchat_version.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/generated/qtnetworkchat_version.h
@@ -158,6 +163,7 @@ add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
     src/chatbubbledelegate.cpp
+    src/sessionitemdelegate.cpp
     src/iconhelper.cpp
     src/qqnt_redis_service.cpp
     src/qqnt_backend_service.cpp
@@ -176,6 +182,7 @@ add_executable(QtNetworkChat
     src/theme/thememanager.cpp
     src/widgets/avatarlabel.cpp
     src/widgets/titlebar.cpp
+    src/widgets/dialogtitlebar.cpp
     src/widgets/appnav.cpp
     src/widgets/composerwidget.cpp
     src/widgets/composerTextEdit.cpp
@@ -202,6 +209,7 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
     include/chatbubbledelegate.h
+    include/sessionitemdelegate.h
     include/iconhelper.h
     include/qqnt_redis_service.h
     include/qqnt_backend_service.h
@@ -221,6 +229,7 @@ add_executable(QtNetworkChat
     include/theme/thememanager.h
     include/widgets/avatarlabel.h
     include/widgets/titlebar.h
+    include/widgets/dialogtitlebar.h
     include/widgets/appnav.h
     include/widgets/composerwidget.h
     include/widgets/composerTextEdit.h
@@ -258,7 +267,14 @@ add_custom_command(TARGET QtNetworkChat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${QTNETWORKCHAT_QSQLITE_PLUGIN}"
         "$<TARGET_FILE_DIR:QtNetworkChat>/sqldrivers/qsqlite.dll"
-    COMMENT "Deploying Qt SQLite driver for local account/group/avatar persistence"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:QtNetworkChat>/ui"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/ui/style-qqnt.qss"
+        "$<TARGET_FILE_DIR:QtNetworkChat>/ui/style-qqnt.qss"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/ui/style-qqnt-dark.qss"
+        "$<TARGET_FILE_DIR:QtNetworkChat>/ui/style-qqnt-dark.qss"
+    COMMENT "Deploying Qt SQLite driver and QQNT QSS files"
     VERBATIM
 )
 

@@ -24,11 +24,13 @@ signals:
 private:
     void setupUi();
     void updateStyle();
+    QPixmap generateQrCode(const QString& data) const;
 
     AvatarLabel* m_avatar = nullptr;
     QLabel* m_nameLabel = nullptr;
     QLabel* m_idLabel = nullptr;
     QLabel* m_signatureLabel = nullptr;
+    QLabel* m_qrCodeLabel = nullptr;
     QLabel* m_friendCountLabel = nullptr;
     QLabel* m_groupCountLabel = nullptr;
     QLabel* m_messageCountLabel = nullptr;

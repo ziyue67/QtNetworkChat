@@ -1,4 +1,5 @@
 #include "chatbubbledelegate.h"
+#include "theme/thememanager.h"
 #include <QFontMetrics>
 #include <QIcon>
 #include <QPainterPath>
@@ -59,7 +60,7 @@ QIcon generatedAvatarIcon(const QString& displayName, const QString& seedId, int
     return QIcon(pixmap);
 }
 
-// Color scheme for dark theme bubbles
+// Color scheme derived from ThemeManager tokens so light/dark themes stay consistent.
 struct BubbleColors {
     QColor bg;
     QColor text;
@@ -68,36 +69,37 @@ struct BubbleColors {
     QColor link;
 
     static BubbleColors sent() {
-        // Gradient-like accent purple bubbles (matches: --accent-primary: #5E5CE6)
-        return { QColor(94, 92, 230),       // bg - accent purple
-                 QColor(255, 255, 255),      // text - white
-                 QColor(200, 200, 255, 180),  // timestamp - light purple
-                 QColor(180, 230, 255),      // readStatus - cyan tint
-                 QColor(220, 220, 255) };    // link
+        ThemeManager* tm = ThemeManager::instance();
+        return { tm->color(QStringLiteral("bubble-outgoing")),      // bg
+                 tm->color(QStringLiteral("bubble-outgoing-text")), // text
+                 QColor(255, 255, 255, 180),                        // timestamp
+                 QColor(255, 255, 255),                             // readStatus (white ticks)
+                 QColor(220, 240, 255) };                           // link
     }
 
     static BubbleColors received() {
-        return { QColor(30, 30, 38),         // bg - dark surface (--bg-tertiary: #1C1C22)
-                 QColor(245, 245, 247),       // text - primary
-                 QColor(140, 140, 150, 180),  // timestamp - muted
-                 QColor(140, 140, 150),       // readStatus - muted (unused for received)
-                 QColor(94, 92, 230) };       // link - accent
+        ThemeManager* tm = ThemeManager::instance();
+        return { tm->color(QStringLiteral("bubble-incoming")),      // bg
+                 tm->color(QStringLiteral("bubble-incoming-text")), // text
+                 tm->color(QStringLiteral("text-tertiary")),        // timestamp
+                 tm->color(QStringLiteral("text-tertiary")),        // readStatus (unused for received)
+                 tm->color(QStringLiteral("primary")) };            // link
     }
 
     static QColor systemBg() {
-        return QColor(30, 30, 38);
+        return ThemeManager::instance()->color(QStringLiteral("bg-tertiary"));
     }
     static QColor systemText() {
-        return QColor(110, 110, 115);
+        return ThemeManager::instance()->color(QStringLiteral("text-tertiary"));
     }
     static QColor quoteBar() {
-        return QColor(94, 92, 230, 120);
+        return ThemeManager::instance()->color(QStringLiteral("primary"));
     }
     static QColor quoteText() {
-        return QColor(160, 160, 170);
+        return ThemeManager::instance()->color(QStringLiteral("text-secondary"));
     }
     static QColor forwardLabel() {
-        return QColor(94, 92, 230, 200);
+        return ThemeManager::instance()->color(QStringLiteral("primary"));
     }
 };
 

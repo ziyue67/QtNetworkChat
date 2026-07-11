@@ -1,6 +1,7 @@
 #include "dialogs/globalsearchdialog.h"
 
 #include "theme/thememanager.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -16,6 +17,7 @@ GlobalSearchDialog::GlobalSearchDialog(QWidget* parent)
 {
     setObjectName(QStringLiteral("globalSearchDialog"));
     setWindowTitle(QStringLiteral("全局搜索"));
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(500, 400);
     setupUi();
     updateStyle();
@@ -25,55 +27,62 @@ GlobalSearchDialog::GlobalSearchDialog(QWidget* parent)
 void GlobalSearchDialog::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QLabel* title = new QLabel(QStringLiteral("全局搜索"), this);
-    title->setObjectName(QStringLiteral("dialogTitleLabel"));
-    root->addWidget(title);
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("全局搜索"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(titleBar);
+
+    QWidget* body = new QWidget(this);
+    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setSpacing(12);
 
     QHBoxLayout* searchLayout = new QHBoxLayout();
-    m_searchEdit = new QLineEdit(this);
+    m_searchEdit = new QLineEdit(body);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索消息、联系人、群聊..."));
     searchLayout->addWidget(m_searchEdit, 1);
 
-    m_searchBtn = new QPushButton(QStringLiteral("搜索"), this);
+    m_searchBtn = new QPushButton(QStringLiteral("搜索"), body);
     m_searchBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(m_searchBtn, &QPushButton::clicked, this, [this]() {
         clearResults();
         emit searchRequested(m_searchEdit->text());
     });
     searchLayout->addWidget(m_searchBtn);
-    root->addLayout(searchLayout);
+    bodyLayout->addLayout(searchLayout);
 
-    m_tabWidget = new QTabWidget(this);
+    m_tabWidget = new QTabWidget(body);
     m_tabWidget->setObjectName(QStringLiteral("dialogTabWidget"));
 
     m_messagesModel = new QStandardItemModel(this);
-    m_messagesList = new QListView(this);
+    m_messagesList = new QListView(body);
     m_messagesList->setObjectName(QStringLiteral("dialogListView"));
     m_messagesList->setModel(m_messagesModel);
     m_tabWidget->addTab(m_messagesList, QStringLiteral("消息"));
 
     m_contactsModel = new QStandardItemModel(this);
-    m_contactsList = new QListView(this);
+    m_contactsList = new QListView(body);
     m_contactsList->setObjectName(QStringLiteral("dialogListView"));
     m_contactsList->setModel(m_contactsModel);
     m_tabWidget->addTab(m_contactsList, QStringLiteral("联系人"));
 
     m_groupsModel = new QStandardItemModel(this);
-    m_groupsList = new QListView(this);
+    m_groupsList = new QListView(body);
     m_groupsList->setObjectName(QStringLiteral("dialogListView"));
     m_groupsList->setModel(m_groupsModel);
     m_tabWidget->addTab(m_groupsList, QStringLiteral("群聊"));
 
-    root->addWidget(m_tabWidget, 1);
+    bodyLayout->addWidget(m_tabWidget, 1);
 
-    QPushButton* closeBtn = new QPushButton(QStringLiteral("关闭"), this);
+    QPushButton* closeBtn = new QPushButton(QStringLiteral("关闭"), body);
     closeBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-    root->addWidget(closeBtn);
+    bodyLayout->addWidget(closeBtn);
+
+    root->addWidget(body, 1);
 }
 
 void GlobalSearchDialog::updateStyle()
@@ -81,7 +90,6 @@ void GlobalSearchDialog::updateStyle()
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
         "QDialog#globalSearchDialog { background-color: %1; }"
-        "QLabel#dialogTitleLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
         "QLineEdit#dialogInput:focus { border: 1px solid %6; }"
         "QPushButton#dialogPrimaryBtn { background-color: %6; color: white; border: none; border-radius: 6px; padding: 8px 16px; }"

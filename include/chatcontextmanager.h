@@ -4,6 +4,8 @@
 #include <QList>
 #include <QString>
 
+#include <QJsonObject>
+
 struct ChatContextCopyResult {
     bool handled = false;
     QString clipboardText;
@@ -112,11 +114,22 @@ struct ChatContextCommandRoute {
         None,
         Copy,
         SavedFile,
-        Draft
+        Draft,
+        Backend
     };
 
     bool handled = false;
     Kind kind = Kind::None;
+};
+
+struct ChatContextBackendCommand {
+    QString op;
+    QJsonObject payload;
+    QString successStatusMessage;
+    QString failureStatusMessage;
+    bool needsConfirmation = false;
+    QString confirmTitle;
+    QString confirmMessage;
 };
 
 class ChatContextManager {
@@ -165,6 +178,13 @@ public:
                                  const QString& targetDisplayName,
                                  const QString& currentUserId,
                                  const QString& currentUserName);
+    static ChatContextBackendCommand backendCommand(const QString& commandId,
+                                                    const QJsonObject& messageObject,
+                                                    const QString& currentUserId,
+                                                    const QString& currentUserName,
+                                                    const QString& sessionId = QString(),
+                                                    const QString& memberId = QString(),
+                                                    const QString& memberName = QString());
 };
 
 #endif // CHATCONTEXTMANAGER_H

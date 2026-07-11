@@ -1,6 +1,7 @@
 #include "dialogs/friendmanagerdialog.h"
 
 #include "theme/thememanager.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,6 +16,7 @@ FriendManagerDialog::FriendManagerDialog(QWidget* parent)
 {
     setObjectName(QStringLiteral("friendManagerDialog"));
     setWindowTitle(QStringLiteral("好友管理"));
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(400, 400);
     setupUi();
     updateStyle();
@@ -24,31 +26,36 @@ FriendManagerDialog::FriendManagerDialog(QWidget* parent)
 void FriendManagerDialog::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QLabel* title = new QLabel(QStringLiteral("好友管理"), this);
-    title->setObjectName(QStringLiteral("dialogTitleLabel"));
-    root->addWidget(title);
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("好友管理"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(titleBar);
 
-    m_searchEdit = new QLineEdit(this);
+    QWidget* body = new QWidget(this);
+    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setSpacing(12);
+
+    m_searchEdit = new QLineEdit(body);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索好友..."));
-    root->addWidget(m_searchEdit);
+    bodyLayout->addWidget(m_searchEdit);
 
     m_model = new QStandardItemModel(this);
-    m_listView = new QListView(this);
+    m_listView = new QListView(body);
     m_listView->setObjectName(QStringLiteral("dialogListView"));
     m_listView->setModel(m_model);
-    root->addWidget(m_listView, 1);
+    bodyLayout->addWidget(m_listView, 1);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_addBtn = new QPushButton(QStringLiteral("添加好友"), this);
+    m_addBtn = new QPushButton(QStringLiteral("添加好友"), body);
     m_addBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(m_addBtn, &QPushButton::clicked, this, &FriendManagerDialog::addFriendRequested);
     btnLayout->addWidget(m_addBtn);
 
-    m_deleteBtn = new QPushButton(QStringLiteral("删除选中"), this);
+    m_deleteBtn = new QPushButton(QStringLiteral("删除选中"), body);
     m_deleteBtn->setObjectName(QStringLiteral("dialogDangerBtn"));
     connect(m_deleteBtn, &QPushButton::clicked, this, [this]() {
         QModelIndex idx = m_listView->currentIndex();
@@ -59,11 +66,13 @@ void FriendManagerDialog::setupUi()
     });
     btnLayout->addWidget(m_deleteBtn);
 
-    QPushButton* closeBtn = new QPushButton(QStringLiteral("关闭"), this);
+    QPushButton* closeBtn = new QPushButton(QStringLiteral("关闭"), body);
     closeBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
     btnLayout->addWidget(closeBtn);
-    root->addLayout(btnLayout);
+    bodyLayout->addLayout(btnLayout);
+
+    root->addWidget(body, 1);
 }
 
 void FriendManagerDialog::updateStyle()
@@ -71,7 +80,6 @@ void FriendManagerDialog::updateStyle()
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
         "QDialog#friendManagerDialog { background-color: %1; }"
-        "QLabel#dialogTitleLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
         "QLineEdit#dialogInput:focus { border: 1px solid %6; }"
         "QPushButton#dialogPrimaryBtn { background-color: %6; color: white; border: none; border-radius: 6px; padding: 8px 16px; }"

@@ -94,6 +94,12 @@ private slots:
     void onInsertMention();
     void onCaptureScreenshot();
     void onComposerFilesDropped(const QStringList& paths);
+    void onMessageActionRequested(const QModelIndex& index, const QString& action);
+    void onAvatarActionRequested(const QModelIndex& index, const QString& action);
+    void onMediaActivated(const QModelIndex& index);
+    void onMultiSelectForwardRequested();
+    void onMultiSelectDeleteRequested();
+    void onMultiSelectFavoriteRequested();
     void onResumeSavedOutgoingTransfer();
     void onClearSavedOutgoingTransfer();
     void onFileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
@@ -123,6 +129,7 @@ private:
     void setupUi();
     void setupTray();
     void setupQQNT();
+    void loadStyleSheet();
     void updateStyleSheet();
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
@@ -205,6 +212,15 @@ private:
                      const QString& e2eKeyFingerprint = QString());
     bool ensureClientDatabase() const;
     QString clientDbPath() const;
+    QString camelToKebabCase(const QString& camel) const;
+    void runForwardForMessage(const QModelIndex& index, const QString& text);
+    void forwardMessageToTarget(const QModelIndex& index,
+                                  const QString& text,
+                                  const QString& userId,
+                                  const QString& groupId);
+    void persistMultiSelectMessages(const QModelIndexList& selected);
+    void readLocalChatActions(const QString& sessionId);
+
     bool saveProfileToSqlite() const;
     bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr, bool* canceled = nullptr);
     QStandardItem* findUserItem(const QString& userId);
@@ -297,7 +313,11 @@ private:
                                   bool enabled = true);
     bool handleChatContextCommand(const QString& commandId,
                                   const QString& chatText,
-                                  const LocalSavedFileState& savedFileState);
+                                  const LocalSavedFileState& savedFileState,
+                                  const QModelIndex& index = QModelIndex());
+    bool handleBackendContextCommand(const QString& commandId,
+                                      const QString& chatText,
+                                      const QModelIndex& index);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);

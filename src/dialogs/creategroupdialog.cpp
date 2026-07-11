@@ -1,6 +1,7 @@
 #include "dialogs/creategroupdialog.h"
 
 #include "theme/thememanager.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,6 +16,7 @@ CreateGroupDialog::CreateGroupDialog(QWidget* parent)
 {
     setObjectName(QStringLiteral("createGroupDialog"));
     setWindowTitle(QStringLiteral("创建群聊"));
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(400, 350);
     setupUi();
     updateStyle();
@@ -24,31 +26,36 @@ CreateGroupDialog::CreateGroupDialog(QWidget* parent)
 void CreateGroupDialog::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QLabel* title = new QLabel(QStringLiteral("创建群聊"), this);
-    title->setObjectName(QStringLiteral("dialogTitleLabel"));
-    root->addWidget(title);
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("创建群聊"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(titleBar);
 
-    m_nameEdit = new QLineEdit(this);
+    QWidget* body = new QWidget(this);
+    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setSpacing(12);
+
+    m_nameEdit = new QLineEdit(body);
     m_nameEdit->setObjectName(QStringLiteral("dialogInput"));
     m_nameEdit->setPlaceholderText(QStringLiteral("群聊名称"));
-    root->addWidget(m_nameEdit);
+    bodyLayout->addWidget(m_nameEdit);
 
-    m_hintLabel = new QLabel(QStringLiteral("选择群成员:"), this);
+    m_hintLabel = new QLabel(QStringLiteral("选择群成员:"), body);
     m_hintLabel->setObjectName(QStringLiteral("dialogHintLabel"));
-    root->addWidget(m_hintLabel);
+    bodyLayout->addWidget(m_hintLabel);
 
     m_memberModel = new QStandardItemModel(this);
-    m_memberList = new QListView(this);
+    m_memberList = new QListView(body);
     m_memberList->setObjectName(QStringLiteral("dialogListView"));
     m_memberList->setModel(m_memberModel);
     m_memberList->setSelectionMode(QAbstractItemView::MultiSelection);
-    root->addWidget(m_memberList, 1);
+    bodyLayout->addWidget(m_memberList, 1);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_createBtn = new QPushButton(QStringLiteral("创建"), this);
+    m_createBtn = new QPushButton(QStringLiteral("创建"), body);
     m_createBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(m_createBtn, &QPushButton::clicked, this, [this]() {
         if (!m_nameEdit->text().isEmpty()) {
@@ -58,11 +65,13 @@ void CreateGroupDialog::setupUi()
     });
     btnLayout->addWidget(m_createBtn);
 
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), this);
+    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), body);
     cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     btnLayout->addWidget(cancelBtn);
-    root->addLayout(btnLayout);
+    bodyLayout->addLayout(btnLayout);
+
+    root->addWidget(body, 1);
 }
 
 void CreateGroupDialog::updateStyle()
@@ -70,7 +79,6 @@ void CreateGroupDialog::updateStyle()
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
         "QDialog#createGroupDialog { background-color: %1; }"
-        "QLabel#dialogTitleLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLabel#dialogHintLabel { color: %3; font-size: 13px; }"
         "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
         "QLineEdit#dialogInput:focus { border: 1px solid %6; }"

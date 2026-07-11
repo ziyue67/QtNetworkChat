@@ -40,6 +40,8 @@ public:
     int sessionListWidth() const;
     int cornerRadius() const;
 
+    void applyPalette() const;
+
 signals:
     void themeChanged();
 

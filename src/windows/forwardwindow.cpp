@@ -1,6 +1,7 @@
 #include "windows/forwardwindow.h"
 
 #include "theme/thememanager.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -16,6 +17,7 @@ ForwardWindow::ForwardWindow(QWidget* parent)
 {
     setObjectName(QStringLiteral("forwardWindow"));
     setWindowTitle(QStringLiteral("转发"));
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(400, 450);
     setupUi();
     updateStyle();
@@ -25,37 +27,42 @@ ForwardWindow::ForwardWindow(QWidget* parent)
 void ForwardWindow::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QLabel* title = new QLabel(QStringLiteral("转发到"), this);
-    title->setObjectName(QStringLiteral("dialogTitleLabel"));
-    root->addWidget(title);
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("转发到"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(titleBar);
 
-    m_searchEdit = new QLineEdit(this);
+    QWidget* body = new QWidget(this);
+    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setSpacing(12);
+
+    m_searchEdit = new QLineEdit(body);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索..."));
-    root->addWidget(m_searchEdit);
+    bodyLayout->addWidget(m_searchEdit);
 
-    m_tabWidget = new QTabWidget(this);
+    m_tabWidget = new QTabWidget(body);
     m_tabWidget->setObjectName(QStringLiteral("dialogTabWidget"));
 
     m_contactModel = new QStandardItemModel(this);
-    m_contactList = new QListView(this);
+    m_contactList = new QListView(body);
     m_contactList->setObjectName(QStringLiteral("dialogListView"));
     m_contactList->setModel(m_contactModel);
     m_tabWidget->addTab(m_contactList, QStringLiteral("联系人"));
 
     m_groupModel = new QStandardItemModel(this);
-    m_groupList = new QListView(this);
+    m_groupList = new QListView(body);
     m_groupList->setObjectName(QStringLiteral("dialogListView"));
     m_groupList->setModel(m_groupModel);
     m_tabWidget->addTab(m_groupList, QStringLiteral("群聊"));
 
-    root->addWidget(m_tabWidget, 1);
+    bodyLayout->addWidget(m_tabWidget, 1);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_forwardBtn = new QPushButton(QStringLiteral("转发"), this);
+    m_forwardBtn = new QPushButton(QStringLiteral("转发"), body);
     m_forwardBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(m_forwardBtn, &QPushButton::clicked, this, [this]() {
         int currentTab = m_tabWidget->currentIndex();
@@ -75,11 +82,13 @@ void ForwardWindow::setupUi()
     });
     btnLayout->addWidget(m_forwardBtn);
 
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), this);
+    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), body);
     cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     btnLayout->addWidget(cancelBtn);
-    root->addLayout(btnLayout);
+    bodyLayout->addLayout(btnLayout);
+
+    root->addWidget(body, 1);
 }
 
 void ForwardWindow::updateStyle()
@@ -87,7 +96,6 @@ void ForwardWindow::updateStyle()
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
         "QDialog#forwardWindow { background-color: %1; }"
-        "QLabel#dialogTitleLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
         "QLineEdit#dialogInput:focus { border: 1px solid %6; }"
         "QPushButton#dialogPrimaryBtn { background-color: %6; color: white; border: none; border-radius: 6px; padding: 8px 16px; }"

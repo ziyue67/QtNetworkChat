@@ -3,9 +3,12 @@
 #include "theme/thememanager.h"
 #include "widgets/avatarlabel.h"
 
+#include <QCryptographicHash>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPainter>
 #include <QPushButton>
+#include <QRandomGenerator>
 #include <QVBoxLayout>
 
 ProfileView::ProfileView(QWidget* parent)
@@ -69,6 +72,14 @@ void ProfileView::setupUi()
     statsLayout->addStretch();
     root->addLayout(statsLayout);
 
+    // QR code section
+    m_qrCodeLabel = new QLabel(this);
+    m_qrCodeLabel->setObjectName(QStringLiteral("profileQrCodeLabel"));
+    m_qrCodeLabel->setFixedSize(120, 120);
+    m_qrCodeLabel->setPixmap(generateQrCode(QStringLiteral("QQ:000000")));
+    m_qrCodeLabel->setAlignment(Qt::AlignCenter);
+    root->addWidget(m_qrCodeLabel, 0, Qt::AlignCenter);
+
     // Actions
     QHBoxLayout* actionLayout = new QHBoxLayout();
     actionLayout->setSpacing(8);
@@ -121,6 +132,7 @@ void ProfileView::setUserInfo(const QString& userId, const QString& userName, co
     m_nameLabel->setText(userName);
     m_idLabel->setText(QStringLiteral("QQ: %1").arg(userId));
     m_avatar->setTextAvatar(userName.left(1).toUpper(), QColor(QStringLiteral("#0099ff")));
+    m_qrCodeLabel->setPixmap(generateQrCode(userId));
     if (!signature.isEmpty()) {
         m_signatureLabel->setText(signature);
     }
@@ -131,5 +143,49 @@ void ProfileView::setStats(int friendCount, int groupCount, int messageCount)
     m_friendCountLabel->setText(QStringLiteral("好友: %1").arg(friendCount));
     m_groupCountLabel->setText(QStringLiteral("群聊: %1").arg(groupCount));
     m_messageCountLabel->setText(QStringLiteral("消息: %1").arg(messageCount));
+}
+
+QPixmap ProfileView::generateQrCode(const QString& data) const
+{
+    const int size = 120;
+    const int moduleCount = 25;
+    const int moduleSize = size / moduleCount;
+    const int border = (size - moduleCount * moduleSize) / 2;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::white);
+
+    const QByteArray hash = QCryptographicHash::hash(data.toUtf8(), QCryptographicHash::Sha256);
+    const quint64 seed = *reinterpret_cast<const quint64*>(hash.constData());
+
+    QPainter painter(&pixmap);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(QStringLiteral("#1f2329")));
+    // Draw three fixed-position detection patterns.
+    auto drawDetection = [&](int x, int y) {
+        painter.drawRect(x * moduleSize + border, y * moduleSize + border, 7 * moduleSize, 7 * moduleSize);
+        painter.setBrush(Qt::white);
+        painter.drawRect((x + 1) * moduleSize + border, (y + 1) * moduleSize + border, 5 * moduleSize, 5 * moduleSize);
+        painter.setBrush(QColor(QStringLiteral("#1f2329")));
+        painter.drawRect((x + 2) * moduleSize + border, (y + 2) * moduleSize + border, 3 * moduleSize, 3 * moduleSize);
+    };
+    drawDetection(0, 0);
+    drawDetection(moduleCount - 7, 0);
+    drawDetection(0, moduleCount - 7);
+
+    // Fill the remaining modules pseudo-randomly based on the data hash.
+    QRandomGenerator rng(seed);
+    for (int y = 0; y < moduleCount; ++y) {
+        for (int x = 0; x < moduleCount; ++x) {
+            // Skip detection areas.
+            if ((x < 8 && y < 8) || (x >= moduleCount - 8 && y < 8) || (x < 8 && y >= moduleCount - 8)) {
+                continue;
+            }
+            if (rng.bounded(0, 2) == 1) {
+                painter.drawRect(x * moduleSize + border, y * moduleSize + border, moduleSize, moduleSize);
+            }
+        }
+    }
+    painter.end();
+    return pixmap;
 }
 

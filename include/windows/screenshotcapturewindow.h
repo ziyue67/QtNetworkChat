@@ -13,6 +13,7 @@ public:
 
     void setScreenshot(const QPixmap& pixmap);
     void setCaptureScreen(QScreen* screen);
+    void setCaptureGeometry(const QRect& geometry);
 
 signals:
     void saveRequested(const QPixmap& pixmap);

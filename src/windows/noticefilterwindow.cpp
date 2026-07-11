@@ -1,6 +1,7 @@
 #include "windows/noticefilterwindow.h"
 
 #include "theme/thememanager.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -14,6 +15,7 @@ NoticeFilterWindow::NoticeFilterWindow(QWidget* parent)
 {
     setObjectName(QStringLiteral("noticeFilterWindow"));
     setWindowTitle(QStringLiteral("通知筛选"));
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(300, 250);
     setupUi();
     updateStyle();
@@ -23,41 +25,46 @@ NoticeFilterWindow::NoticeFilterWindow(QWidget* parent)
 void NoticeFilterWindow::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QLabel* title = new QLabel(QStringLiteral("通知筛选设置"), this);
-    title->setObjectName(QStringLiteral("dialogTitleLabel"));
-    root->addWidget(title);
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("通知筛选设置"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(titleBar);
 
-    m_friendCheck = new QCheckBox(QStringLiteral("好友消息通知"), this);
+    QWidget* body = new QWidget(this);
+    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setSpacing(12);
+
+    m_friendCheck = new QCheckBox(QStringLiteral("好友消息通知"), body);
     m_friendCheck->setObjectName(QStringLiteral("dialogCheck"));
     m_friendCheck->setChecked(true);
-    root->addWidget(m_friendCheck);
+    bodyLayout->addWidget(m_friendCheck);
 
-    m_groupCheck = new QCheckBox(QStringLiteral("群消息通知"), this);
+    m_groupCheck = new QCheckBox(QStringLiteral("群消息通知"), body);
     m_groupCheck->setObjectName(QStringLiteral("dialogCheck"));
     m_groupCheck->setChecked(true);
-    root->addWidget(m_groupCheck);
+    bodyLayout->addWidget(m_groupCheck);
 
-    m_mentionCheck = new QCheckBox(QStringLiteral("@提及通知"), this);
+    m_mentionCheck = new QCheckBox(QStringLiteral("@提及通知"), body);
     m_mentionCheck->setObjectName(QStringLiteral("dialogCheck"));
     m_mentionCheck->setChecked(true);
-    root->addWidget(m_mentionCheck);
+    bodyLayout->addWidget(m_mentionCheck);
 
-    QLabel* priorityLabel = new QLabel(QStringLiteral("优先级筛选:"), this);
+    QLabel* priorityLabel = new QLabel(QStringLiteral("优先级筛选:"), body);
     priorityLabel->setObjectName(QStringLiteral("dialogHintLabel"));
-    root->addWidget(priorityLabel);
+    bodyLayout->addWidget(priorityLabel);
 
-    m_priorityCombo = new QComboBox(this);
+    m_priorityCombo = new QComboBox(body);
     m_priorityCombo->setObjectName(QStringLiteral("dialogCombo"));
     m_priorityCombo->addItem(QStringLiteral("全部"), 0);
     m_priorityCombo->addItem(QStringLiteral("高优先级"), 1);
     m_priorityCombo->addItem(QStringLiteral("普通"), 2);
-    root->addWidget(m_priorityCombo);
+    bodyLayout->addWidget(m_priorityCombo);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    QPushButton* confirmBtn = new QPushButton(QStringLiteral("确认"), this);
+    QPushButton* confirmBtn = new QPushButton(QStringLiteral("确认"), body);
     confirmBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(confirmBtn, &QPushButton::clicked, this, [this]() {
         emit filterChanged();
@@ -65,11 +72,13 @@ void NoticeFilterWindow::setupUi()
     });
     btnLayout->addWidget(confirmBtn);
 
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), this);
+    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), body);
     cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     btnLayout->addWidget(cancelBtn);
-    root->addLayout(btnLayout);
+    bodyLayout->addLayout(btnLayout);
+
+    root->addWidget(body, 1);
 
     connect(m_friendCheck, &QCheckBox::toggled, this, &NoticeFilterWindow::filterChanged);
     connect(m_groupCheck, &QCheckBox::toggled, this, &NoticeFilterWindow::filterChanged);
@@ -82,7 +91,6 @@ void NoticeFilterWindow::updateStyle()
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
         "QDialog#noticeFilterWindow { background-color: %1; }"
-        "QLabel#dialogTitleLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLabel#dialogHintLabel { color: %3; font-size: 13px; }"
         "QCheckBox#dialogCheck { color: %2; }"
         "QCheckBox#dialogCheck::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid %5; }"

@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QFontDatabase>
+#include <QPalette>
 
 namespace {
 struct ColorToken {
@@ -40,7 +41,8 @@ const ColorToken TOKENS[TOKEN_COUNT] = {
 };
 
 QStringList preferredFonts() {
-    QStringList families = QFontDatabase::families();
+    QFontDatabase fontDatabase;
+    QStringList families = fontDatabase.families();
     const QStringList candidates = {
         QStringLiteral("PingFang SC"),
         QStringLiteral("Microsoft YaHei"),
@@ -81,6 +83,7 @@ void ThemeManager::setTheme(Theme theme)
         return;
     }
     m_theme = theme;
+    applyPalette();
     emit themeChanged();
 }
 
@@ -193,5 +196,35 @@ int ThemeManager::sessionListWidth() const
 int ThemeManager::cornerRadius() const
 {
     return 6;
+}
+
+void ThemeManager::applyPalette() const
+{
+    QPalette palette;
+    const QColor bg = backgroundColor();
+    const QColor bgSecondary = backgroundSecondaryColor();
+    const QColor text = textColor();
+    const QColor textSecondary = textSecondaryColor();
+    const QColor primary = primaryColor();
+    const QColor border = borderColor();
+
+    palette.setColor(QPalette::Window, bg);
+    palette.setColor(QPalette::WindowText, text);
+    palette.setColor(QPalette::Base, bgSecondary);
+    palette.setColor(QPalette::AlternateBase, bgSecondary);
+    palette.setColor(QPalette::Text, text);
+    palette.setColor(QPalette::Button, bgSecondary);
+    palette.setColor(QPalette::ButtonText, text);
+    palette.setColor(QPalette::Highlight, primary);
+    palette.setColor(QPalette::HighlightedText, Qt::white);
+    palette.setColor(QPalette::Light, border);
+    palette.setColor(QPalette::Mid, border);
+    palette.setColor(QPalette::Dark, border);
+    palette.setColor(QPalette::Shadow, QColor(0, 0, 0, 40));
+    palette.setColor(QPalette::PlaceholderText, textSecondary);
+
+    if (qApp) {
+        qApp->setPalette(palette);
+    }
 }
 

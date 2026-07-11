@@ -25,6 +25,7 @@ public:
     void setImageEnabled(bool enabled);
     void setPlaceholderText(const QString& text);
     void setStateText(const QString& text);
+    void setSessionName(const QString& sessionName);
 
     QTextEdit* inputEdit() const;
     QPushButton* sendButton() const;
@@ -43,6 +44,8 @@ signals:
 private:
     void setupUi();
     void updateStyle();
+    void refreshHints();
+    QString placeholderText() const;
 
     QTextEdit* m_input = nullptr;
     QPushButton* m_emojiBtn = nullptr;
@@ -53,6 +56,7 @@ private:
     QPushButton* m_screenshotBtn = nullptr;
     QPushButton* m_sendBtn = nullptr;
     QLabel* m_stateLabel = nullptr;
+    QString m_sessionName;
 };
 
 #endif // COMPOSERWIDGET_H

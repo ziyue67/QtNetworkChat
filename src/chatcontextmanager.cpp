@@ -1,6 +1,8 @@
 #include "chatcontextmanager.h"
 
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QStringList>
 
 namespace {
@@ -59,7 +61,21 @@ QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMedi
         { QStringLiteral("打开文件"), openSavedFileToolTip(savedFileState), QStringLiteral("open-saved-file"), savedFileState.canOpenFile, false },
         { QStringLiteral("打开保存目录"), openSavedFolderToolTip(savedFileState), QStringLiteral("open-save-folder"), savedFileState.canOpenFolder, false },
         { QStringLiteral("复制媒体流程"), QStringLiteral("复制媒体发送、保存和回执的操作流程"), QStringLiteral("copy-media-flow"), isMediaMessage, false },
-        { QStringLiteral("@对方回复"), QStringLiteral("把发送者作为 @ 回复对象插入输入框"), QStringLiteral("mention-reply"), true, true }
+        { QStringLiteral("@对方回复"), QStringLiteral("把发送者作为 @ 回复对象插入输入框"), QStringLiteral("mention-reply"), true, true },
+        { QStringLiteral("多选"), QStringLiteral("进入多选模式，可批量转发、删除或收藏"), QStringLiteral("multiselect"), true, true },
+        { QStringLiteral("收藏"), QStringLiteral("收藏这条消息"), QStringLiteral("favorite"), true, false },
+        { QStringLiteral("取消收藏"), QStringLiteral("取消收藏这条消息"), QStringLiteral("unfavorite"), true, false },
+        { QStringLiteral("表情回应"), QStringLiteral("给这条消息添加表情回应"), QStringLiteral("emoji"), true, false },
+        { QStringLiteral("置顶备注"), QStringLiteral("给这条消息添加置顶备注"), QStringLiteral("pin-remark"), true, false },
+        { QStringLiteral("精华"), QStringLiteral("将消息设为群精华"), QStringLiteral("essence"), true, false },
+        { QStringLiteral("取消精华"), QStringLiteral("取消这条消息的精华状态"), QStringLiteral("unessence"), true, false },
+        { QStringLiteral("撤回"), QStringLiteral("撤回这条消息"), QStringLiteral("recall"), true, false },
+        { QStringLiteral("删除"), QStringLiteral("从本地删除这条消息"), QStringLiteral("delete"), true, true },
+        { QStringLiteral("查看资料"), QStringLiteral("查看发送者资料"), QStringLiteral("view-profile"), true, false },
+        { QStringLiteral("加好友"), QStringLiteral("向发送者发送好友申请"), QStringLiteral("add-friend"), true, false },
+        { QStringLiteral("举报"), QStringLiteral("举报该用户或消息"), QStringLiteral("report"), true, false },
+        { QStringLiteral("拉黑"), QStringLiteral("拉黑该用户"), QStringLiteral("block"), true, false },
+        { QStringLiteral("设置群昵称"), QStringLiteral("修改该成员在本群的昵称"), QStringLiteral("set-group-nickname"), true, false }
     };
 }
 
@@ -101,6 +117,24 @@ ChatContextCommandRoute ChatContextManager::commandRoute(const QString& commandI
             || commandId == QLatin1String("mention-reply")) {
         result.handled = true;
         result.kind = ChatContextCommandRoute::Kind::Draft;
+        return result;
+    }
+    if (commandId == QLatin1String("delete")
+            || commandId == QLatin1String("favorite")
+            || commandId == QLatin1String("unfavorite")
+            || commandId == QLatin1String("emoji")
+            || commandId == QLatin1String("pin-remark")
+            || commandId == QLatin1String("multiselect")
+            || commandId == QLatin1String("essence")
+            || commandId == QLatin1String("unessence")
+            || commandId == QLatin1String("recall")
+            || commandId == QLatin1String("view-profile")
+            || commandId == QLatin1String("add-friend")
+            || commandId == QLatin1String("report")
+            || commandId == QLatin1String("block")
+            || commandId == QLatin1String("set-group-nickname")) {
+        result.handled = true;
+        result.kind = ChatContextCommandRoute::Kind::Backend;
         return result;
     }
     return result;
@@ -561,4 +595,168 @@ QString ChatContextManager::mediaFlowText(const QString& chatText,
     rows << QString("查收话术：我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
     rows << QString("回执话术：已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
     return rows.join('\n');
+}
+
+ChatContextBackendCommand ChatContextManager::backendCommand(const QString& commandId,
+                                                            const QJsonObject& messageObject,
+                                                            const QString& currentUserId,
+                                                            const QString& currentUserName,
+                                                            const QString& sessionId,
+                                                            const QString& memberId,
+                                                            const QString& memberName) {
+    ChatContextBackendCommand result;
+    const QString id = messageObject.value(QStringLiteral("id")).toString().trimmed();
+    const QString senderId = messageObject.value(QStringLiteral("senderId")).toString().trimmed();
+    const QString senderName = messageObject.value(QStringLiteral("senderName")).toString().trimmed();
+
+    if (commandId == QLatin1String("delete")) {
+        result.op = QStringLiteral("delete_local_message");
+        QJsonObject payload;
+        payload[QStringLiteral("sessionId")] = sessionId.isEmpty() ? (senderId.isEmpty() ? currentUserId : senderId) : sessionId;
+        payload[QStringLiteral("messageId")] = id.isEmpty() ? messageObject.value(QStringLiteral("messageId")).toString() : id;
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("消息已删除");
+        result.failureStatusMessage = QStringLiteral("删除消息失败");
+        result.needsConfirmation = true;
+        result.confirmTitle = QStringLiteral("删除消息");
+        result.confirmMessage = QStringLiteral("确定要删除这条本地消息吗？删除后不可恢复。");
+        return result;
+    }
+    if (commandId == QLatin1String("favorite")) {
+        result.op = QStringLiteral("favorite_local_message");
+        result.payload = messageObject;
+        result.successStatusMessage = QStringLiteral("消息已收藏");
+        result.failureStatusMessage = QStringLiteral("收藏消息失败");
+        return result;
+    }
+    if (commandId == QLatin1String("unfavorite")) {
+        result.op = QStringLiteral("toggle_local_message_favorite");
+        QJsonObject payload = messageObject;
+        payload[QStringLiteral("favorite")] = false;
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("已取消收藏");
+        result.failureStatusMessage = QStringLiteral("取消收藏失败");
+        return result;
+    }
+    if (commandId == QLatin1String("emoji")) {
+        result.op = QStringLiteral("add_local_emoji");
+        result.payload = messageObject;
+        result.successStatusMessage = QStringLiteral("已添加表情回应");
+        result.failureStatusMessage = QStringLiteral("表情回应失败");
+        return result;
+    }
+    if (commandId == QLatin1String("pin-remark")) {
+        result.op = QStringLiteral("update_local_emoji");
+        QJsonObject payload = messageObject;
+        payload[QStringLiteral("emoji")] = true;
+        payload[QStringLiteral("pin")] = true;
+        payload[QStringLiteral("remark")] = QStringLiteral("置顶备注");
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("已添加置顶备注");
+        result.failureStatusMessage = QStringLiteral("置顶备注失败");
+        return result;
+    }
+    if (commandId == QLatin1String("multiselect")) {
+        result.op = QStringLiteral("multi_select_local_message");
+        result.payload = messageObject;
+        result.successStatusMessage = QStringLiteral("已加入多选");
+        result.failureStatusMessage = QStringLiteral("多选操作失败");
+        return result;
+    }
+    if (commandId == QLatin1String("essence")) {
+        result.op = QStringLiteral("set_essence_local_message");
+        result.payload = messageObject;
+        result.successStatusMessage = QStringLiteral("已设为精华");
+        result.failureStatusMessage = QStringLiteral("设置精华失败");
+        return result;
+    }
+    if (commandId == QLatin1String("unessence")) {
+        result.op = QStringLiteral("set_essence_local_message");
+        QJsonObject payload = messageObject;
+        payload[QStringLiteral("remove")] = true;
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("已取消精华");
+        result.failureStatusMessage = QStringLiteral("取消精华失败");
+        return result;
+    }
+    if (commandId == QLatin1String("recall")) {
+        result.op = QStringLiteral("recall_local_message");
+        result.payload = messageObject;
+        result.successStatusMessage = QStringLiteral("消息已撤回");
+        result.failureStatusMessage = QStringLiteral("撤回消息失败");
+        result.needsConfirmation = true;
+        result.confirmTitle = QStringLiteral("撤回消息");
+        result.confirmMessage = QStringLiteral("确定要撤回这条消息吗？");
+        return result;
+    }
+    if (commandId == QLatin1String("view-profile")) {
+        result.op = QStringLiteral("view_local_profile");
+        QJsonObject payload;
+        QJsonObject member;
+        member[QStringLiteral("id")] = memberId.isEmpty() ? senderId : memberId;
+        member[QStringLiteral("name")] = memberName.isEmpty() ? senderName : memberName;
+        if (!sessionId.isEmpty()) payload[QStringLiteral("sessionId")] = sessionId;
+        payload[QStringLiteral("member")] = member;
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("已打开成员资料");
+        result.failureStatusMessage = QStringLiteral("查看资料失败");
+        return result;
+    }
+    if (commandId == QLatin1String("add-friend")) {
+        result.op = QStringLiteral("add_local_friend");
+        QJsonObject payload;
+        QJsonObject member;
+        member[QStringLiteral("id")] = memberId.isEmpty() ? senderId : memberId;
+        member[QStringLiteral("name")] = memberName.isEmpty() ? senderName : memberName;
+        if (!sessionId.isEmpty()) payload[QStringLiteral("sessionId")] = sessionId;
+        payload[QStringLiteral("member")] = member;
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("已发送好友申请");
+        result.failureStatusMessage = QStringLiteral("发送好友申请失败");
+        return result;
+    }
+    if (commandId == QLatin1String("report")) {
+        result.op = QStringLiteral("report_local_user");
+        QJsonObject payload;
+        QJsonObject member;
+        member[QStringLiteral("id")] = memberId.isEmpty() ? senderId : memberId;
+        member[QStringLiteral("name")] = memberName.isEmpty() ? senderName : memberName;
+        if (!sessionId.isEmpty()) payload[QStringLiteral("sessionId")] = sessionId;
+        payload[QStringLiteral("member")] = member;
+        result.successStatusMessage = QStringLiteral("举报已提交");
+        result.failureStatusMessage = QStringLiteral("举报失败");
+        result.needsConfirmation = true;
+        result.confirmTitle = QStringLiteral("举报");
+        result.confirmMessage = QStringLiteral("确定要举报该用户吗？");
+        return result;
+    }
+    if (commandId == QLatin1String("block")) {
+        result.op = QStringLiteral("block_local_user");
+        QJsonObject payload;
+        QJsonObject member;
+        member[QStringLiteral("id")] = memberId.isEmpty() ? senderId : memberId;
+        member[QStringLiteral("name")] = memberName.isEmpty() ? senderName : memberName;
+        if (!sessionId.isEmpty()) payload[QStringLiteral("sessionId")] = sessionId;
+        payload[QStringLiteral("member")] = member;
+        result.successStatusMessage = QStringLiteral("已拉黑");
+        result.failureStatusMessage = QStringLiteral("拉黑失败");
+        result.needsConfirmation = true;
+        result.confirmTitle = QStringLiteral("拉黑");
+        result.confirmMessage = QStringLiteral("确定要拉黑该用户吗？");
+        return result;
+    }
+    if (commandId == QLatin1String("set-group-nickname")) {
+        result.op = QStringLiteral("edit_local_group_nickname");
+        QJsonObject payload;
+        QJsonObject member;
+        member[QStringLiteral("id")] = memberId.isEmpty() ? senderId : memberId;
+        member[QStringLiteral("name")] = memberName.isEmpty() ? senderName : memberName;
+        if (!sessionId.isEmpty()) payload[QStringLiteral("sessionId")] = sessionId;
+        payload[QStringLiteral("member")] = member;
+        result.payload = payload;
+        result.successStatusMessage = QStringLiteral("已修改群昵称");
+        result.failureStatusMessage = QStringLiteral("修改群昵称失败");
+        return result;
+    }
+    return result;
 }

@@ -3,6 +3,7 @@
 
 #include <QDialog>
 
+class DialogTitleBar;
 class QLabel;
 class QPushButton;
 
@@ -18,13 +19,23 @@ public:
 signals:
     void saveRequested(const QString& path);
     void forwardRequested();
+    void openFolderRequested();
+    void copyBase64Requested();
 
 private:
     void setupUi();
     void updateStyle();
     void fitImage();
+    void copyImageBase64();
+    void openImageFolder();
 
     QLabel* m_imageLabel = nullptr;
+    QPushButton* m_saveBtn = nullptr;
+    QPushButton* m_forwardBtn = nullptr;
+    QPushButton* m_openFolderBtn = nullptr;
+    QPushButton* m_copyBase64Btn = nullptr;
+    QPushButton* m_closeBtn = nullptr;
+    DialogTitleBar* m_titleBar = nullptr;
     QPixmap m_originalPixmap;
     QString m_currentPath;
 };

@@ -69,7 +69,7 @@ public:
         layout->setSpacing(2);
         layout->setAlignment(Qt::AlignCenter);
 
-        // Icon container with badge
+        // Icon container with badge and mock dot
         QHBoxLayout* iconLayout = new QHBoxLayout();
         iconLayout->setContentsMargins(0, 0, 0, 0);
         iconLayout->setSpacing(0);
@@ -83,6 +83,14 @@ public:
 
         m_badge = new BadgeLabel(this);
         iconLayout->addWidget(m_badge);
+
+        if (m_mock) {
+            m_mockDot = new QLabel(this);
+            m_mockDot->setFixedSize(6, 6);
+            m_mockDot->setStyleSheet(QStringLiteral("background-color: #faad14; border-radius: 3px;"));
+            iconLayout->addWidget(m_mockDot);
+        }
+
         iconLayout->addStretch();
 
         layout->addLayout(iconLayout);
@@ -114,16 +122,16 @@ public:
     void updateStyle()
     {
         ThemeManager* tm = ThemeManager::instance();
-        const QColor activeBg = tm->color(QStringLiteral("nav-active"));
+        const QColor activeBg = tm->primarySoftColor();
+        const QColor activeFg = tm->primaryColor();
         const QColor inactiveFg = tm->color(QStringLiteral("nav-inactive"));
-        const QColor activeFg = QColor(Qt::white);
-        const QColor mockFg = tm->color(QStringLiteral("text-tertiary"));
+        const QColor mockFg = tm->textTertiaryColor();
 
         m_badge->updateStyle();
 
         if (m_active) {
             setStyleSheet(QStringLiteral(
-                "QFrame#appNavItem { background-color: %1; border-radius: 10px; }"
+                "QFrame#appNavItem { background-color: %1; border-radius: 6px; }"
                 "QLabel#appNavIcon { color: %2; }"
                 "QLabel#appNavLabel { color: %2; }"
             ).arg(activeBg.name()).arg(activeFg.name()));
@@ -131,7 +139,7 @@ public:
             QColor fg = m_mock ? mockFg : inactiveFg;
             setStyleSheet(QStringLiteral(
                 "QFrame#appNavItem { background-color: transparent; }"
-                "QFrame#appNavItem:hover { background-color: %1; }"
+                "QFrame#appNavItem:hover { background-color: %1; border-radius: 6px; }"
                 "QLabel#appNavIcon { color: %2; }"
                 "QLabel#appNavLabel { color: %2; }"
             ).arg(tm->backgroundTertiaryColor().name()).arg(fg.name()));
@@ -153,6 +161,7 @@ protected:
 private:
     QLabel* m_icon = nullptr;
     QLabel* m_label = nullptr;
+    QLabel* m_mockDot = nullptr;
     BadgeLabel* m_badge = nullptr;
     QString m_route;
     bool m_mock = false;

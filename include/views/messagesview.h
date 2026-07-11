@@ -1,13 +1,19 @@
 #ifndef MESSAGESVIEW_H
 #define MESSAGESVIEW_H
 
-#include <QWidget>
-#include <QString>
+#include <QFrame>
+#include <QMap>
+#include <QModelIndex>
+#include <QPair>
+#include <QPoint>
 #include <QStandardItemModel>
+#include <QString>
+#include <QWidget>
 
 class QListView;
 class QLineEdit;
 class QLabel;
+class QPushButton;
 class QStackedWidget;
 class ComposerWidget;
 class ChatBubbleDelegate;
@@ -40,6 +46,8 @@ public:
     void clearChat();
     void setEmptyStateVisible(bool visible);
     void setLoadingVisible(bool visible);
+    void setMultiSelectMode(bool enabled);
+    void setLocalActionState(const QString& actionId, bool visible, bool enabled);
 
 signals:
     void sessionSelected(const QModelIndex& index);
@@ -49,10 +57,28 @@ signals:
     void emojiRequested();
     void mentionRequested();
     void clearHistoryRequested();
+    void filesDropped(const QStringList& paths);
+    void messageActionRequested(const QModelIndex& index, const QString& action);
+    void avatarActionRequested(const QModelIndex& index, const QString& action);
+    void mediaActivated(const QModelIndex& index);
+    void multiSelectForwardRequested();
+    void multiSelectDeleteRequested();
+    void multiSelectFavoriteRequested();
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dragLeaveEvent(QDragLeaveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     void setupUi();
     void updateStyle();
+    void showDropOverlay();
+    void hideDropOverlay();
+    bool isInChatPanel(const QPoint& pos) const;
+    void onChatContextMenu(const QPoint& pos);
+    void onChatItemActivated(const QModelIndex& index);
 
     QStandardItemModel* m_sessionModel = nullptr;
     QStandardItemModel* m_chatModel = nullptr;
@@ -64,7 +90,18 @@ private:
     QLabel* m_chatHintLabel = nullptr;
     QLabel* m_emptyLabel = nullptr;
     QLabel* m_loadingLabel = nullptr;
+    QLabel* m_dropOverlay = nullptr;
+    QFrame* m_chatPanel = nullptr;
     ComposerWidget* m_composer = nullptr;
+
+    // Multi-select bottom action bar
+    QFrame* m_multiSelectBar = nullptr;
+    QPushButton* m_multiSelectForwardBtn = nullptr;
+    QPushButton* m_multiSelectDeleteBtn = nullptr;
+    QPushButton* m_multiSelectFavoriteBtn = nullptr;
+    QPushButton* m_multiSelectCancelBtn = nullptr;
+    bool m_multiSelectMode = false;
+    QMap<QString, QPair<bool, bool>> m_localActionStates; // id -> {visible, enabled}
 };
 
 #endif // MESSAGESVIEW_H

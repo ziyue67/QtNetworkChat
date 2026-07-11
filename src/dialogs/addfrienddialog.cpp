@@ -1,6 +1,7 @@
 #include "dialogs/addfrienddialog.h"
 
 #include "theme/thememanager.h"
+#include "widgets/dialogtitlebar.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,6 +16,7 @@ AddFriendDialog::AddFriendDialog(QWidget* parent)
 {
     setObjectName(QStringLiteral("addFriendDialog"));
     setWindowTitle(QStringLiteral("添加好友"));
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(400, 300);
     setupUi();
     updateStyle();
@@ -24,39 +26,44 @@ AddFriendDialog::AddFriendDialog(QWidget* parent)
 void AddFriendDialog::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QLabel* title = new QLabel(QStringLiteral("添加好友"), this);
-    title->setObjectName(QStringLiteral("dialogTitleLabel"));
-    root->addWidget(title);
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("添加好友"));
+    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(titleBar);
+
+    QWidget* body = new QWidget(this);
+    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setSpacing(12);
 
     QHBoxLayout* searchLayout = new QHBoxLayout();
-    m_searchEdit = new QLineEdit(this);
+    m_searchEdit = new QLineEdit(body);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("输入QQ号或昵称搜索..."));
     searchLayout->addWidget(m_searchEdit, 1);
 
-    m_searchBtn = new QPushButton(QStringLiteral("搜索"), this);
+    m_searchBtn = new QPushButton(QStringLiteral("搜索"), body);
     m_searchBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     connect(m_searchBtn, &QPushButton::clicked, this, [this]() {
         emit searchRequested(m_searchEdit->text());
     });
     searchLayout->addWidget(m_searchBtn);
-    root->addLayout(searchLayout);
+    bodyLayout->addLayout(searchLayout);
 
-    m_resultLabel = new QLabel(QStringLiteral("搜索结果将显示在这里"), this);
+    m_resultLabel = new QLabel(QStringLiteral("搜索结果将显示在这里"), body);
     m_resultLabel->setObjectName(QStringLiteral("dialogHintLabel"));
     m_resultLabel->setAlignment(Qt::AlignCenter);
-    root->addWidget(m_resultLabel);
+    bodyLayout->addWidget(m_resultLabel);
 
     m_resultModel = new QStandardItemModel(this);
-    m_resultList = new QListView(this);
+    m_resultList = new QListView(body);
     m_resultList->setObjectName(QStringLiteral("dialogListView"));
     m_resultList->setModel(m_resultModel);
-    root->addWidget(m_resultList, 1);
+    bodyLayout->addWidget(m_resultList, 1);
 
-    m_addBtn = new QPushButton(QStringLiteral("添加好友"), this);
+    m_addBtn = new QPushButton(QStringLiteral("添加好友"), body);
     m_addBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     m_addBtn->setEnabled(false);
     connect(m_addBtn, &QPushButton::clicked, this, [this]() {
@@ -65,12 +72,14 @@ void AddFriendDialog::setupUi()
             accept();
         }
     });
-    root->addWidget(m_addBtn);
+    bodyLayout->addWidget(m_addBtn);
 
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), this);
+    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), body);
     cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
-    root->addWidget(cancelBtn);
+    bodyLayout->addWidget(cancelBtn);
+
+    root->addWidget(body, 1);
 }
 
 void AddFriendDialog::updateStyle()
@@ -78,7 +87,6 @@ void AddFriendDialog::updateStyle()
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
         "QDialog#addFriendDialog { background-color: %1; }"
-        "QLabel#dialogTitleLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLabel#dialogHintLabel { color: %3; font-size: 13px; }"
         "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
         "QLineEdit#dialogInput:focus { border: 1px solid %6; }"
