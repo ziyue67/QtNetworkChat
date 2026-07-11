@@ -9001,6 +9001,11 @@ void MainWindow::setupQQNT()
     connect(m_contactsView, &ContactsView::groupSelected, this, [this](const QString& groupId) {
         switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
     });
+    if (m_contactsView->searchEdit()) {
+        connect(m_contactsView->searchEdit(), &QLineEdit::textChanged, this, [this]() {
+            refreshContactsAndProfile();
+        });
+    }
     connect(m_settingsView, &SettingsView::themeToggled, this, &MainWindow::onThemeToggled);
     connect(m_settingsView, &SettingsView::themeModeChanged, this, &MainWindow::onSettingsThemeModeChanged);
     connect(m_settingsView, &SettingsView::notificationsToggled, this, &MainWindow::onSettingsNotificationsToggled);
