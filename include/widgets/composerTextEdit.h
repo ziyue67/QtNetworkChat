@@ -29,8 +29,8 @@ private:
     void updateMentionCompleter();
     void insertCompletion(const QString& completion);
 
-    QCompleter* m_mentionCompleter = nullptr;
     QStringListModel* m_mentionModel = nullptr;
+    QCompleter* m_mentionCompleter = nullptr;
     QString m_activeMentionPrefix;
 };
 
