@@ -2,10 +2,12 @@ QT += network widgets sql multimedia
 
 CONFIG += c++17
 
-QMAKE_CXXFLAGS += /utf-8
-QMAKE_CXXFLAGS += -D_ALLOW_ITERATOR_DEBUG_LEVEL=0
-QMAKE_CXXFLAGS += -D_ITERATOR_DEBUG_LEVEL=0
-QMAKE_CXXFLAGS += /FI $$PWD/include/msvc_compat.h
+msvc {
+    QMAKE_CXXFLAGS += /utf-8
+    QMAKE_CXXFLAGS += /D_ALLOW_ITERATOR_DEBUG_LEVEL=0
+    QMAKE_CXXFLAGS += /D_ITERATOR_DEBUG_LEVEL=0
+    QMAKE_CXXFLAGS += /FI$$shell_quote($$PWD/include/msvc_compat.h)
+}
 
 INCLUDEPATH += $$PWD/include
 
