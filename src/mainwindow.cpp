@@ -8927,18 +8927,18 @@ void MainWindow::setupQQNT()
 
 void MainWindow::updateStyleSheet()
 {
+    if (!m_qqntRoot) {
+        return;
+    }
+
     ThemeManager* tm = ThemeManager::instance();
     QString style = QStringLiteral(
-        "QWidget { font-family: %1; font-size: 13px; color: %2; }"
-        "QMainWindow { background-color: %3; }"
-        "QWidget#qqntRoot { background-color: %3; }"
-        "QStackedWidget#qqntViewStack { background-color: %3; border: none; }"
+        "QWidget#qqntRoot { background-color: %1; }"
+        "QStackedWidget#qqntViewStack { background-color: %1; border: none; }"
         "QScrollBar:vertical { background: transparent; width: 6px; margin: 2px; }"
-        "QScrollBar::handle:vertical { background: %4; border-radius: 3px; min-height: 20px; }"
+        "QScrollBar::handle:vertical { background: %2; border-radius: 3px; min-height: 20px; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
-    ).arg(tm->font().family())
-     .arg(tm->textColor().name())
-     .arg(tm->backgroundColor().name())
+    ).arg(tm->backgroundColor().name())
      .arg(tm->borderColor().name());
 
     m_qqntRoot->setStyleSheet(style);
@@ -8947,14 +8947,19 @@ void MainWindow::updateStyleSheet()
 void MainWindow::loadStyleSheet()
 {
     ThemeManager* tm = ThemeManager::instance();
-    const QString fileName = tm->isDark()
-        ? QStringLiteral("ui/style-qqnt-dark.qss")
-        : QStringLiteral("ui/style-qqnt.qss");
+    const QString styleName = tm->isDark()
+        ? QStringLiteral("style-qqnt-dark.qss")
+        : QStringLiteral("style-qqnt.qss");
+    const QString fileName = QDir(QCoreApplication::applicationDirPath())
+                                 .filePath(QStringLiteral("ui/") + styleName);
     QFile styleFile(fileName);
     if (styleFile.open(QFile::ReadOnly)) {
         QTextStream textStream(&styleFile);
         setStyleSheet(textStream.readAll());
         styleFile.close();
+        qqntLog("MainWindow", QStringLiteral("stylesheet loaded: %1").arg(fileName));
+    } else {
+        qqntLog("MainWindow", QStringLiteral("stylesheet load failed: %1").arg(fileName));
     }
 }
 
