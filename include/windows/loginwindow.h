@@ -3,6 +3,8 @@
 
 #include <QDialog>
 
+#include "logincredentialstore.h"
+
 class AvatarLabel;
 class QLabel;
 class QLineEdit;
@@ -22,6 +24,7 @@ public:
     quint16 serverPort() const;
     bool rememberPassword() const;
     bool registerMode() const;
+    QString loginMode() const;
 
     void setRegisterMode(bool registerMode);
 
@@ -39,6 +42,8 @@ private:
     void loadSettings();
     bool loadLoginFromSqlite();
 
+    LoginCredentialStore m_loginCredentialStore;
+
     AvatarLabel* m_avatar = nullptr;
     QLabel* m_titleLabel = nullptr;
     QLabel* m_feedbackLabel = nullptr;
@@ -51,6 +56,7 @@ private:
     QPushButton* m_okBtn = nullptr;
     QPushButton* m_registerLinkBtn = nullptr;
     QPushButton* m_loginLinkBtn = nullptr;
+    QPushButton* m_resetPasswordBtn = nullptr;
 
     QString m_account;
     QString m_userName;
@@ -58,8 +64,8 @@ private:
     QString m_host;
     quint16 m_port = 8888;
     bool m_registerMode = false;
+    bool m_resetPasswordMode = false;
 };
 
 #endif // LOGINWINDOW_H
-
 

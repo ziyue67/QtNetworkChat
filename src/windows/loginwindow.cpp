@@ -7,11 +7,67 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPalette>
 #include <QPushButton>
 #include <QCheckBox>
 #include <QMessageBox>
-#include <QSettings>
+#include <QPainter>
 #include <QVBoxLayout>
+
+namespace {
+QString normalizedPasswordInput(QString password)
+{
+    // Chinese IMEs and clipboard tools can produce full-width digits or zero-width
+    // separators. Normalize only presentation-equivalent input before it reaches
+    // the credential protocol so a visually identical local password stays stable.
+    password.remove(QChar(0x200B));
+    password.remove(QChar(0xFEFF));
+    password = password.trimmed();
+    for (int i = 0; i < password.size(); ++i) {
+        const ushort code = password.at(i).unicode();
+        if (code >= 0xFF01 && code <= 0xFF5E) {
+            password[i] = QChar(code - 0xFEE0);
+        }
+    }
+    return password;
+}
+
+class ReadableCheckBox final : public QCheckBox {
+public:
+    explicit ReadableCheckBox(const QString& text, QWidget* parent = nullptr)
+        : QCheckBox(text, parent) {
+        setCursor(Qt::PointingHandCursor);
+        setMinimumHeight(22);
+    }
+
+    QSize sizeHint() const override {
+        const QFontMetrics metrics(font());
+        return QSize(metrics.horizontalAdvance(text()) + 30, qMax(22, metrics.height() + 4));
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        const QRect box(0, (height() - 16) / 2, 16, 16);
+        const bool dark = ThemeManager::instance()->isDark();
+        const QColor primary = ThemeManager::instance()->primaryColor();
+
+        painter.setPen(QPen(isChecked() ? primary : primary, 1));
+        painter.setBrush(isChecked() ? primary : (dark ? QColor("#252525") : Qt::white));
+        painter.drawRoundedRect(box.adjusted(0, 0, -1, -1), 4, 4);
+        if (isChecked()) {
+            painter.setPen(QPen(Qt::white, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.drawLine(QPoint(3, box.center().y()), QPoint(6, box.bottom() - 4));
+            painter.drawLine(QPoint(6, box.bottom() - 4), QPoint(13, box.top() + 4));
+        }
+
+        painter.setPen(ThemeManager::instance()->textColor());
+        painter.setFont(font());
+        painter.drawText(QRect(23, 0, width() - 23, height()), Qt::AlignVCenter | Qt::AlignLeft, text());
+    }
+};
+}
 
 LoginWindow::LoginWindow(QWidget* parent)
     : QDialog(parent)
@@ -20,7 +76,10 @@ LoginWindow::LoginWindow(QWidget* parent)
     setObjectName(QStringLiteral("loginWindow"));
     setWindowTitle(QStringLiteral("QQ 登录"));
     setFixedSize(400, 520);
-    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    // Keep the native dialog frame. The launcher and the main window use the
+    // application-wide QQNT stylesheet, while this dialog owns its own visual
+    // treatment; a native frame also keeps the close affordance reliable.
+    setWindowFlags(Qt::Dialog | Qt::WindowCloseButtonHint);
     setupUi();
     updateStyle();
     loadSettings();
@@ -106,16 +165,24 @@ void LoginWindow::setupUi()
     m_confirmEdit->setMaxLength(32);
     formLayout->addWidget(m_confirmEdit);
 
+    auto* showPasswordCheck = new QCheckBox(QStringLiteral("显示密码"), formCard);
+    showPasswordCheck->setObjectName(QStringLiteral("loginCheck"));
+    connect(showPasswordCheck, &QCheckBox::toggled, this, [this](bool visible) {
+        m_passwordEdit->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password);
+        m_confirmEdit->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password);
+    });
+    formLayout->addWidget(showPasswordCheck);
+
     // Options
     QHBoxLayout* optionLayout = new QHBoxLayout();
-    m_rememberCheck = new QCheckBox(QStringLiteral("记住密码"), formCard);
+    m_rememberCheck = new ReadableCheckBox(QStringLiteral("记住密码"), formCard);
     m_rememberCheck->setObjectName(QStringLiteral("loginCheck"));
     optionLayout->addWidget(m_rememberCheck);
     optionLayout->addStretch();
     formLayout->addLayout(optionLayout);
 
     // Agreement
-    m_agreementCheck = new QCheckBox(QStringLiteral("我已阅读并同意服务协议和隐私政策"), formCard);
+    m_agreementCheck = new ReadableCheckBox(QStringLiteral("我已阅读并同意服务协议和隐私政策"), formCard);
     m_agreementCheck->setObjectName(QStringLiteral("loginCheck"));
     m_agreementCheck->setChecked(true);
     formLayout->addWidget(m_agreementCheck);
@@ -142,20 +209,22 @@ void LoginWindow::setupUi()
             QMessageBox::warning(this, QStringLiteral("错误"), QStringLiteral("请输入昵称"));
             return;
         }
-        if (m_passwordEdit->text().isEmpty()) {
+        const QString password = normalizedPasswordInput(m_passwordEdit->text());
+        const QString confirmation = normalizedPasswordInput(m_confirmEdit->text());
+        if (password.isEmpty()) {
             QMessageBox::warning(this, QStringLiteral("错误"), QStringLiteral("请输入密码"));
             return;
         }
-        if (m_passwordEdit->text().length() < 6) {
+        if (password.length() < 6) {
             QMessageBox::warning(this, QStringLiteral("错误"), QStringLiteral("密码至少需要6位"));
             return;
         }
-        if (m_registerMode && m_passwordEdit->text() != m_confirmEdit->text()) {
+        if (m_registerMode && password != confirmation) {
             QMessageBox::warning(this, QStringLiteral("错误"), QStringLiteral("两次输入的密码不一致"));
             return;
         }
         m_account = m_registerMode ? QString() : m_accountEdit->text().trimmed();
-        m_password = m_passwordEdit->text();
+        m_password = password;
         m_userName = m_nameEdit->text().trimmed();
         if (m_userName.isEmpty()) {
             m_userName = m_account;
@@ -184,6 +253,19 @@ void LoginWindow::setupUi()
         setRegisterMode(false);
     });
     linkLayout->addWidget(m_loginLinkBtn);
+    m_resetPasswordBtn = new QPushButton(QStringLiteral("重置本地密码"), formCard);
+    m_resetPasswordBtn->setObjectName(QStringLiteral("loginLinkBtn"));
+    m_resetPasswordBtn->setFlat(true);
+    connect(m_resetPasswordBtn, &QPushButton::clicked, this, [this]() {
+        m_registerMode = false;
+        m_resetPasswordMode = true;
+        m_titleLabel->setText(QStringLiteral("重置本地账号密码"));
+        m_okBtn->setText(QStringLiteral("重置并登录"));
+        m_feedbackLabel->setText(QStringLiteral("输入 QQ 号和新密码后，将重置本机 SQLite 账号密码"));
+        m_accountEdit->setFocus();
+        updateFormState();
+    });
+    linkLayout->addWidget(m_resetPasswordBtn);
     linkLayout->addStretch();
     formLayout->addLayout(linkLayout);
 
@@ -201,33 +283,53 @@ void LoginWindow::setupUi()
 void LoginWindow::updateStyle()
 {
     ThemeManager* tm = ThemeManager::instance();
-    setStyleSheet(QStringLiteral(
-        "QDialog#loginWindow { background-color: %1; }"
-        "QFrame#loginHeader { background-color: %4; border-bottom: 1px solid %5; }"
-        "QLabel#brandLabel { color: white; font-size: 20px; font-weight: 700; }"
-        "QLabel#loginTitleLabel { color: white; font-size: 16px; font-weight: 500; }"
-        "QFrame#loginFormCard { background-color: %1; }"
-        "QLineEdit#loginInput { background-color: %2; color: %6; border: 1px solid %5; border-radius: 6px; padding: 10px 14px; font-size: 14px; }"
-        "QLineEdit#loginInput:focus { border: 1px solid %4; }"
-        "QCheckBox#loginCheck { color: %7; font-size: 12px; }"
-        "QCheckBox#loginCheck::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid %5; }"
-        "QCheckBox#loginCheck::indicator:checked { background-color: %4; border: 1px solid %4; }"
-        "QLabel#loginFeedbackLabel { color: %7; font-size: 12px; padding: 4px 8px; border-radius: 6px; background-color: %2; }"
-        "QPushButton#loginPrimaryBtn { background-color: %4; color: white; border: none; border-radius: 6px; padding: 10px; font-size: 15px; font-weight: 500; }"
-        "QPushButton#loginPrimaryBtn:hover { background-color: %8; }"
-        "QPushButton#loginPrimaryBtn:disabled { background-color: %5; color: %7; }"
-        "QPushButton#loginLinkBtn { color: %4; border: none; background: transparent; font-size: 13px; }"
-        "QPushButton#loginLinkBtn:hover { color: %8; text-decoration: underline; }"
+    QString style = QStringLiteral(
+        "QDialog#loginWindow { background-color: {bg}; }"
+        "QFrame#loginHeader { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {headerStart}, stop:1 {headerEnd}); border-bottom: 1px solid {border}; }"
+        "QLabel#brandLabel { color: {primary}; font-size: 24px; font-weight: 800; }"
+        "QLabel#loginTitleLabel { color: {text}; font-size: 16px; font-weight: 600; }"
+        "QFrame#loginFormCard { background-color: {bg}; }"
+        "QLineEdit#loginInput { background-color: {bgSecondary}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 10px 14px; font-size: 14px; font-weight: 500; selection-background-color: {primary}; selection-color: white; }"
+        "QLineEdit#loginInput:placeholder { color: {placeholder}; }"
+        "QLineEdit#loginInput:focus { border: 1px solid {primary}; }"
+        "QLabel#loginFeedbackLabel { color: {textSecondary}; font-size: 12px; padding: 4px 8px; border-radius: 6px; background-color: {bgSecondary}; }"
+        "QPushButton#loginPrimaryBtn { background-color: {primary}; color: white; border: none; border-radius: 6px; padding: 10px; font-size: 15px; font-weight: 500; }"
+        "QPushButton#loginPrimaryBtn:hover { background-color: {primaryHover}; }"
+        "QPushButton#loginPrimaryBtn:disabled { background-color: {border}; color: {textSecondary}; }"
+        "QPushButton#loginLinkBtn { color: {primary}; border: none; background: transparent; font-size: 13px; }"
+        "QPushButton#loginLinkBtn:hover { color: {primaryHover}; text-decoration: underline; }"
         "QPushButton#windowCloseBtn { color: white; border: none; background: transparent; font-size: 16px; }"
         "QPushButton#windowCloseBtn:hover { background-color: #ff4d4f; border-radius: 4px; }"
-    ).arg(tm->backgroundColor().name())
-     .arg(tm->backgroundSecondaryColor().name())
-     .arg(tm->textColor().name())
-     .arg(tm->primaryColor().name())
-     .arg(tm->borderColor().name())
-     .arg(tm->textColor().name())
-     .arg(tm->textSecondaryColor().name())
-     .arg(tm->primaryHoverColor().name()));
+    );
+    const auto replace = [&style](const QString& token, const QColor& color) {
+        style.replace(token, color.name());
+    };
+    replace(QStringLiteral("{bg}"), tm->backgroundColor());
+    replace(QStringLiteral("{bgSecondary}"), tm->backgroundSecondaryColor());
+    replace(QStringLiteral("{text}"), tm->textColor());
+    replace(QStringLiteral("{textSecondary}"), tm->textSecondaryColor());
+    replace(QStringLiteral("{primary}"), tm->primaryColor());
+    replace(QStringLiteral("{primaryHover}"), tm->primaryHoverColor());
+    replace(QStringLiteral("{border}"), tm->borderColor());
+    replace(QStringLiteral("{headerStart}"), tm->isDark() ? QColor(QStringLiteral("#252525")) : QColor(QStringLiteral("#f6feff")));
+    replace(QStringLiteral("{headerEnd}"), tm->isDark() ? QColor(QStringLiteral("#1e2f3f")) : QColor(QStringLiteral("#e6f4ff")));
+    replace(QStringLiteral("{placeholder}"), tm->isDark() ? QColor(QStringLiteral("#b9c2cf")) : QColor(QStringLiteral("#687386")));
+    setStyleSheet(style);
+
+    const QColor inputText = tm->textColor();
+    const QColor placeholder = tm->isDark() ? QColor(QStringLiteral("#b9c2cf"))
+                                             : QColor(QStringLiteral("#687386"));
+    for (QLineEdit* edit : {m_accountEdit, m_nameEdit, m_passwordEdit, m_confirmEdit}) {
+        QPalette palette = edit->palette();
+        palette.setColor(QPalette::Text, inputText);
+        palette.setColor(QPalette::PlaceholderText, placeholder);
+        edit->setPalette(palette);
+        edit->setStyleSheet(QStringLiteral(
+            "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 6px; "
+            "padding: 10px 14px; font-size: 14px; font-weight: 500; selection-background-color: %4; selection-color: white; }"
+            "QLineEdit:focus { border: 2px solid %4; }")
+            .arg(tm->backgroundSecondaryColor().name(), inputText.name(), tm->borderColor().name(), tm->primaryColor().name()));
+    }
 }
 
 void LoginWindow::updateFormState()
@@ -257,21 +359,26 @@ void LoginWindow::updateFormState()
         feedback = QStringLiteral("两次输入的密码不一致");
         ready = false;
     } else {
-        feedback = m_registerMode
+        feedback = m_resetPasswordMode
+            ? QStringLiteral("将重置 QQ:%1 的本机密码并直接登录").arg(account)
+            : (m_registerMode
             ? QStringLiteral("资料完整，点击立即注册")
-            : QStringLiteral("准备登录 QQ:%1").arg(account);
+            : QStringLiteral("准备登录 QQ:%1").arg(account));
     }
 
     m_okBtn->setEnabled(ready);
     m_feedbackLabel->setText(feedback);
-    m_titleLabel->setText(m_registerMode
+    m_titleLabel->setText(m_resetPasswordMode
+        ? QStringLiteral("重置本地账号密码")
+        : (m_registerMode
         ? (userName.isEmpty() ? QStringLiteral("欢迎注册 QQ") : QStringLiteral("注册昵称：%1").arg(userName))
-        : (account.isEmpty() ? QStringLiteral("QQ 账号登录") : QStringLiteral("QQ %1").arg(account)));
+        : (account.isEmpty() ? QStringLiteral("QQ 账号登录") : QStringLiteral("QQ %1").arg(account))));
 }
 
 void LoginWindow::setRegisterMode(bool registerMode)
 {
     m_registerMode = registerMode;
+    m_resetPasswordMode = false;
     setWindowTitle(registerMode ? QStringLiteral("注册 QQ") : QStringLiteral("QQ 登录"));
     setFixedSize(400, registerMode ? 560 : 520);
     m_avatar->setTextAvatar(registerMode ? QStringLiteral("注") : QStringLiteral("Q"), QColor(QStringLiteral("#0099ff")));
@@ -281,6 +388,7 @@ void LoginWindow::setRegisterMode(bool registerMode)
     m_rememberCheck->setVisible(!registerMode);
     m_registerLinkBtn->setVisible(!registerMode);
     m_loginLinkBtn->setVisible(registerMode);
+    m_resetPasswordBtn->setVisible(!registerMode);
     m_okBtn->setText(registerMode ? QStringLiteral("立即注册") : QStringLiteral("登录"));
     if (registerMode) {
         m_accountEdit->clear();
@@ -290,25 +398,38 @@ void LoginWindow::setRegisterMode(bool registerMode)
 
 void LoginWindow::loadSettings()
 {
-    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("Login"));
-    QString savedAccount = settings.value(QStringLiteral("account")).toString();
-    if (!savedAccount.isEmpty()) {
-        m_accountEdit->setText(savedAccount);
-        m_rememberCheck->setChecked(true);
+    // Prefer the SQLite login store; fall back to migrating legacy QSettings.
+    if (loadLoginFromSqlite()) {
+        return;
+    }
+
+    SavedLoginCredential credential;
+    if (m_loginCredentialStore.migrateLegacySettings(&credential) && !credential.account.isEmpty()) {
+        m_accountEdit->setText(credential.account);
+        m_nameEdit->setText(credential.userName);
+        m_passwordEdit->clear();
+        m_rememberCheck->setChecked(credential.rememberPassword);
     }
 }
 
 bool LoginWindow::loadLoginFromSqlite()
 {
-    return false;
+    SavedLoginCredential credential;
+    if (!m_loginCredentialStore.load(&credential)) {
+        return false;
+    }
+    m_accountEdit->setText(credential.account);
+    m_nameEdit->setText(credential.userName);
+    m_passwordEdit->clear();
+    m_rememberCheck->setChecked(credential.rememberPassword);
+    return true;
 }
 
 bool LoginWindow::saveResolvedLoginToSqlite(const QString& account, const QString& userName, bool rememberPassword)
 {
-    Q_UNUSED(account)
-    Q_UNUSED(userName)
-    Q_UNUSED(rememberPassword)
-    return true;
+    // Only the account and nickname are persisted; the plaintext password is
+    // never written to the login store.
+    return m_loginCredentialStore.save(account, userName, rememberPassword);
 }
 
 QString LoginWindow::userName() const { return m_userName; }
@@ -318,5 +439,7 @@ QString LoginWindow::serverAddress() const { return m_host; }
 quint16 LoginWindow::serverPort() const { return m_port; }
 bool LoginWindow::rememberPassword() const { return m_rememberCheck->isChecked(); }
 bool LoginWindow::registerMode() const { return m_registerMode; }
-
-
+QString LoginWindow::loginMode() const {
+    if (m_resetPasswordMode) return QStringLiteral("reset_password");
+    return m_registerMode ? QStringLiteral("register") : QStringLiteral("login");
+}

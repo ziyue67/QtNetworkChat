@@ -92,7 +92,7 @@ private slots:
     void onEditGroupAnnouncement();
     void onInsertEmoji();
     void onInsertMention();
-    void onCaptureScreenshot();
+    void onCaptureScreenshot(bool hideCurrentWindow = true);
     void onComposerFilesDropped(const QStringList& paths);
     void onMessageActionRequested(const QModelIndex& index, const QString& action);
     void onAvatarActionRequested(const QModelIndex& index, const QString& action);
@@ -236,6 +236,10 @@ private:
     bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr, bool* canceled = nullptr);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
+    void refreshSessionList();
+    void refreshFavoritesView();
+    void onFavoriteSelected(const QString& sessionId, const QString& messageId);
+    void scrollActiveChatToBottom();
     void refreshContactsAndProfile();
     void refreshGroupMemberPanel();
     void refreshComposerState();
@@ -357,6 +361,7 @@ private:
     Client* m_client;
     ClientStorage m_clientStorage;
     QStandardItemModel* m_userListModel;
+    QStandardItemModel* m_sessionModel;
     QStandardItemModel* m_chatModel;
     QStandardItemModel* m_groupMemberModel;
     FriendManager m_friendManager;
@@ -413,5 +418,4 @@ private:
 };
 
 #endif // MAINWINDOW_H
-
 

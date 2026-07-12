@@ -3,9 +3,100 @@
 #include "theme/thememanager.h"
 
 #include <QLabel>
+#include <QLineEdit>
 #include <QListView>
+#include <QMenu>
+#include <QPainter>
+#include <QSortFilterProxyModel>
 #include <QStandardItemModel>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
+
+namespace {
+constexpr int FavoriteSessionRole = Qt::UserRole;
+constexpr int FavoriteMessageRole = Qt::UserRole + 1;
+constexpr int FavoriteSenderRole = Qt::UserRole + 2;
+constexpr int FavoriteContentRole = Qt::UserRole + 3;
+constexpr int FavoriteTimeRole = Qt::UserRole + 4;
+constexpr int FavoriteSessionNameRole = Qt::UserRole + 5;
+constexpr int FavoriteGroupHeaderRole = Qt::UserRole + 6;
+constexpr int FavoritePayloadRole = Qt::UserRole + 7;
+constexpr int FavoriteSearchRole = Qt::UserRole + 8;
+
+class FavoritesItemDelegate final : public QStyledItemDelegate {
+public:
+    explicit FavoritesItemDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex& index) const override {
+        return QSize(0, index.data(FavoriteGroupHeaderRole).toBool() ? 30 : 76);
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        const QRect rect = option.rect.adjusted(0, 1, 0, -1);
+        if (index.data(FavoriteGroupHeaderRole).toBool()) {
+            QFont font = option.font;
+            font.setPixelSize(12);
+            font.setWeight(QFont::Medium);
+            painter->setFont(font);
+            painter->setPen(QColor(QStringLiteral("#0099ff")));
+            painter->drawText(rect, Qt::AlignLeft | Qt::AlignVCenter,
+                              index.data(FavoriteSessionNameRole).toString());
+            painter->restore();
+            return;
+        }
+
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(selected ? QColor(QStringLiteral("#e6f4ff"))
+                                  : (hovered ? QColor(QStringLiteral("#ebedf0")) : QColor(QStringLiteral("#f5f6f7"))));
+        painter->drawRoundedRect(rect, 8, 8);
+
+        const QString sender = index.data(FavoriteSenderRole).toString().trimmed();
+        const QString initials = sender.isEmpty() ? QStringLiteral("?") : sender.left(1).toUpper();
+        const QRect avatarRect(rect.left() + 12, rect.top() + 18, 36, 36);
+        painter->setBrush(QColor(QStringLiteral("#e6f4ff")));
+        painter->drawEllipse(avatarRect);
+        QFont avatarFont = option.font;
+        avatarFont.setPixelSize(14);
+        avatarFont.setWeight(QFont::Medium);
+        painter->setFont(avatarFont);
+        painter->setPen(QColor(QStringLiteral("#0099ff")));
+        painter->drawText(avatarRect, Qt::AlignCenter, initials);
+
+        const int contentLeft = avatarRect.right() + 12;
+        QFont titleFont = option.font;
+        titleFont.setPixelSize(14);
+        titleFont.setWeight(QFont::Medium);
+        QFont timeFont = option.font;
+        timeFont.setPixelSize(10);
+        const QString time = index.data(FavoriteTimeRole).toString();
+        const int timeWidth = QFontMetrics(timeFont).horizontalAdvance(time);
+        const QRect timeRect(rect.right() - 12 - timeWidth, rect.top() + 10, timeWidth, 18);
+        const QRect titleRect(contentLeft, rect.top() + 10,
+                              qMax(0, timeRect.left() - contentLeft - 12), 18);
+        const QRect contentRect(contentLeft, rect.top() + 33, rect.right() - contentLeft - 12, 28);
+        painter->setFont(titleFont);
+        painter->setPen(QColor(QStringLiteral("#1f2329")));
+        painter->drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(titleFont).elidedText(sender.isEmpty() ? QStringLiteral("未知用户") : sender,
+                                                              Qt::ElideRight, titleRect.width()));
+        painter->setFont(timeFont);
+        painter->setPen(QColor(QStringLiteral("#8f959e")));
+        painter->drawText(timeRect, Qt::AlignRight | Qt::AlignVCenter,
+                          time);
+        QFont contentFont = option.font;
+        contentFont.setPixelSize(12);
+        painter->setFont(contentFont);
+        painter->setPen(QColor(QStringLiteral("#5f6672")));
+        painter->drawText(contentRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
+                          QFontMetrics(contentFont).elidedText(index.data(FavoriteContentRole).toString(), Qt::ElideRight, contentRect.width()));
+        painter->restore();
+    }
+};
+}
 
 FavoritesView::FavoritesView(QWidget* parent)
     : QWidget(parent)
@@ -24,32 +115,56 @@ void FavoritesView::setupUi()
 
     QFrame* header = new QFrame(this);
     header->setObjectName(QStringLiteral("favoritesHeader"));
-    header->setFixedHeight(60);
-    QVBoxLayout* headerLayout = new QVBoxLayout(header);
-    headerLayout->setContentsMargins(16, 8, 16, 8);
-    headerLayout->setSpacing(2);
-
-    QLabel* title = new QLabel(QStringLiteral("收藏"), header);
-    title->setObjectName(QStringLiteral("favoritesTitleLabel"));
-    headerLayout->addWidget(title);
+    header->setFixedHeight(58);
+    QHBoxLayout* headerLayout = new QHBoxLayout(header);
+    headerLayout->setContentsMargins(16, 10, 16, 10);
+    m_searchEdit = new QLineEdit(header);
+    m_searchEdit->setObjectName(QStringLiteral("favoritesSearchEdit"));
+    m_searchEdit->setPlaceholderText(QStringLiteral("搜索收藏内容"));
+    m_searchEdit->setMinimumWidth(0);
+    headerLayout->addWidget(m_searchEdit);
     root->addWidget(header);
 
     m_model = new QStandardItemModel(this);
+    m_proxyModel = new QSortFilterProxyModel(this);
+    m_proxyModel->setSourceModel(m_model);
+    m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    m_proxyModel->setFilterRole(FavoriteSearchRole);
     m_listView = new QListView(this);
     m_listView->setObjectName(QStringLiteral("favoritesListView"));
-    m_listView->setModel(m_model);
+    m_listView->setModel(m_proxyModel);
+    m_listView->setItemDelegate(new FavoritesItemDelegate(m_listView));
+    m_listView->setSpacing(8);
+    m_listView->setContextMenuPolicy(Qt::CustomContextMenu);
     root->addWidget(m_listView, 1);
 
-    QLabel* hint = new QLabel(QStringLiteral("收藏消息将在这里显示"), this);
-    hint->setObjectName(QStringLiteral("favoritesHintLabel"));
-    hint->setAlignment(Qt::AlignCenter);
-    root->addWidget(hint);
+    m_emptyLabel = new QLabel(QStringLiteral("暂无收藏消息"), this);
+    m_emptyLabel->setObjectName(QStringLiteral("favoritesHintLabel"));
+    m_emptyLabel->setAlignment(Qt::AlignCenter);
+    m_emptyLabel->setVisible(false);
+    root->addWidget(m_emptyLabel, 1);
 
     connect(m_listView, &QListView::clicked, this, [this](const QModelIndex& index) {
-        if (index.isValid()) {
+        if (index.isValid() && !index.data(FavoriteGroupHeaderRole).toBool()) {
             emit favoriteSelected(index.data(Qt::UserRole).toString(),
                                   index.data(Qt::UserRole + 1).toString());
         }
+    });
+    connect(m_listView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        const QModelIndex index = m_listView->indexAt(pos);
+        if (!index.isValid() || index.data(FavoriteGroupHeaderRole).toBool()) return;
+        QMenu menu(this);
+        QAction* openAction = menu.addAction(QStringLiteral("打开会话"));
+        QAction* removeAction = menu.addAction(QStringLiteral("取消收藏"));
+        QAction* selected = menu.exec(m_listView->viewport()->mapToGlobal(pos));
+        if (selected == openAction) {
+            emit favoriteSelected(index.data(FavoriteSessionRole).toString(), index.data(FavoriteMessageRole).toString());
+        } else if (selected == removeAction) {
+            emit favoriteRemovalRequested(index.data(FavoritePayloadRole).toJsonObject());
+        }
+    });
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
+        m_proxyModel->setFilterFixedString(text.trimmed());
     });
 }
 
@@ -57,18 +172,26 @@ void FavoritesView::updateStyle()
 {
     ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
-        "QFrame#favoritesHeader { background-color: %1; border-bottom: 1px solid %2; }"
-        "QLabel#favoritesTitleLabel { color: %3; font-size: 16px; font-weight: 600; }"
-        "QListView#favoritesListView { background: transparent; border: none; outline: none; }"
-        "QListView#favoritesListView::item { color: %3; padding: 10px; border-radius: 6px; }"
-        "QListView#favoritesListView::item:hover { background-color: %4; }"
-        "QLabel#favoritesHintLabel { color: %5; font-size: 13px; padding: 20px; }"
+        "QWidget#favoritesView { background-color: %1; }"
+        "QFrame#favoritesHeader { background-color: %1; border: none; border-bottom: 1px solid %2; }"
+        "QLineEdit#favoritesSearchEdit { background-color: %1; color: %3; border: none; border-radius: 8px; padding: 8px 12px; }"
+        "QLineEdit#favoritesSearchEdit:focus { border-color: %6; }"
+        "QListView#favoritesListView { background: %1; border: none; outline: none; padding: 12px 16px; }"
+        "QListView#favoritesListView::item { border: none; }"
+        "QLabel#favoritesHintLabel { color: %5; font-size: 14px; padding: 20px; }"
     ).arg(tm->backgroundColor().name())
      .arg(tm->borderColor().name())
      .arg(tm->textColor().name())
      .arg(tm->color(QStringLiteral("session-hover")).name())
-     .arg(tm->textSecondaryColor().name()));
+     .arg(tm->textSecondaryColor().name())
+     .arg(tm->primaryColor().name()));
 }
 
 QListView* FavoritesView::listView() const { return m_listView; }
 QStandardItemModel* FavoritesView::model() const { return m_model; }
+
+void FavoritesView::setEmptyStateVisible(bool visible)
+{
+    if (m_emptyLabel) m_emptyLabel->setVisible(visible);
+    if (m_listView) m_listView->setVisible(!visible);
+}

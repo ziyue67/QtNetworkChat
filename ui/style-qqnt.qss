@@ -15,10 +15,18 @@
 }
 
 QMainWindow,
-QWidget,
 QDialog {
-    background-color: #ffffff;
+    background-color: #f3f5f8;
     color: #1f2329;
+}
+
+QWidget#qqntRoot,
+QWidget#messagesView,
+QWidget#contactsView,
+QWidget#favoritesView,
+QWidget#settingsView,
+QWidget#profileView {
+    background-color: #f3f5f8;
 }
 
 QFrame#titleBar {
@@ -101,13 +109,6 @@ QFrame#chatHeader {
 
 QFrame#composerWidget {
     border-top: 1px solid #e1e3e6;
-}
-
-QWidget#contactsView,
-QWidget#favoritesView,
-QWidget#settingsView,
-QWidget#profileView {
-    background-color: #ffffff;
 }
 
 QFrame#contactsHeader,
@@ -521,4 +522,3 @@ QLabel#fileCardSize {
     color: #8f959e;
     font-size: 12px;
 }
-

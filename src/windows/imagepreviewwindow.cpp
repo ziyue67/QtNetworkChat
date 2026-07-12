@@ -2,20 +2,15 @@
 
 #include "theme/thememanager.h"
 #include "widgets/dialogtitlebar.h"
-#include "qqnt_backend_service.h"
-
-#include <QApplication>
-#include <QClipboard>
-#include <QDesktopServices>
-#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QStandardPaths>
-#include <QUrl>
+#include <QScreen>
+#include <QShowEvent>
+#include <QTimer>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 ImagePreviewWindow::ImagePreviewWindow(QWidget* parent)
     : QDialog(parent)
@@ -23,8 +18,7 @@ ImagePreviewWindow::ImagePreviewWindow(QWidget* parent)
     setObjectName(QStringLiteral("imagePreviewWindow"));
     setWindowTitle(QStringLiteral("图片预览"));
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    setMinimumSize(400, 300);
-    resize(800, 600);
+    setMinimumSize(420, 320);
     setupUi();
     updateStyle();
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &ImagePreviewWindow::updateStyle);
@@ -45,64 +39,46 @@ void ImagePreviewWindow::setupUi()
     bodyLayout->setContentsMargins(0, 0, 0, 0);
     bodyLayout->setSpacing(0);
 
-    QScrollArea* scrollArea = new QScrollArea(body);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setAlignment(Qt::AlignCenter);
-    scrollArea->setObjectName(QStringLiteral("previewScrollArea"));
+    m_scrollArea = new QScrollArea(body);
+    m_scrollArea->setWidgetResizable(false);
+    m_scrollArea->setAlignment(Qt::AlignCenter);
+    m_scrollArea->setObjectName(QStringLiteral("previewScrollArea"));
 
-    m_imageLabel = new QLabel(scrollArea);
+    m_imageLabel = new QLabel(m_scrollArea);
     m_imageLabel->setObjectName(QStringLiteral("previewImageLabel"));
     m_imageLabel->setAlignment(Qt::AlignCenter);
-    scrollArea->setWidget(m_imageLabel);
-    bodyLayout->addWidget(scrollArea, 1);
+    m_imageLabel->setText(QStringLiteral("图片加载中"));
+    m_scrollArea->setWidget(m_imageLabel);
+    bodyLayout->addWidget(m_scrollArea, 1);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
     btnLayout->setContentsMargins(12, 8, 12, 8);
     btnLayout->setSpacing(8);
 
-    m_saveBtn = new QPushButton(QStringLiteral("保存"), body);
-    m_saveBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    connect(m_saveBtn, &QPushButton::clicked, this, [this]() {
-        QString path = QFileDialog::getSaveFileName(this, QStringLiteral("保存图片"), QStringLiteral("image.png"), QStringLiteral("Images (*.png *.jpg *.jpeg *.bmp)"));
-        if (!path.isEmpty()) {
-            emit saveRequested(path);
-        }
-    });
-    btnLayout->addWidget(m_saveBtn);
-
-    m_forwardBtn = new QPushButton(QStringLiteral("转发"), body);
-    m_forwardBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(m_forwardBtn, &QPushButton::clicked, this, &ImagePreviewWindow::forwardRequested);
-    btnLayout->addWidget(m_forwardBtn);
-
-    m_openFolderBtn = new QPushButton(QStringLiteral("打开文件夹"), body);
-    m_openFolderBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(m_openFolderBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_currentPath.isEmpty()) {
-            emit openFolderRequested();
-        } else {
-            openImageFolder();
-        }
-    });
-    btnLayout->addWidget(m_openFolderBtn);
-
-    m_copyBase64Btn = new QPushButton(QStringLiteral("复制 Base64"), body);
-    m_copyBase64Btn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(m_copyBase64Btn, &QPushButton::clicked, this, [this]() {
-        if (!m_currentPath.isEmpty()) {
-            emit copyBase64Requested();
-        } else {
-            copyImageBase64();
-        }
-    });
-    btnLayout->addWidget(m_copyBase64Btn);
-
     btnLayout->addStretch();
+    m_zoomOutBtn = new QPushButton(QStringLiteral("−"), body);
+    m_zoomOutBtn->setObjectName(QStringLiteral("previewToolButton"));
+    m_zoomOutBtn->setToolTip(QStringLiteral("缩小"));
+    connect(m_zoomOutBtn, &QPushButton::clicked, this, [this]() { setZoomFactor(m_zoomFactor - 0.1); });
+    btnLayout->addWidget(m_zoomOutBtn);
 
-    m_closeBtn = new QPushButton(QStringLiteral("关闭"), body);
-    m_closeBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(m_closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-    btnLayout->addWidget(m_closeBtn);
+    m_zoomLabel = new QLabel(QStringLiteral("100%"), body);
+    m_zoomLabel->setObjectName(QStringLiteral("previewZoomLabel"));
+    m_zoomLabel->setAlignment(Qt::AlignCenter);
+    m_zoomLabel->setFixedWidth(64);
+    btnLayout->addWidget(m_zoomLabel);
+
+    m_zoomInBtn = new QPushButton(QStringLiteral("+"), body);
+    m_zoomInBtn->setObjectName(QStringLiteral("previewToolButton"));
+    m_zoomInBtn->setToolTip(QStringLiteral("放大"));
+    connect(m_zoomInBtn, &QPushButton::clicked, this, [this]() { setZoomFactor(m_zoomFactor + 0.1); });
+    btnLayout->addWidget(m_zoomInBtn);
+
+    m_resetBtn = new QPushButton(QStringLiteral("重置"), body);
+    m_resetBtn->setObjectName(QStringLiteral("previewResetButton"));
+    connect(m_resetBtn, &QPushButton::clicked, this, [this]() { setZoomFactor(1.0); });
+    btnLayout->addWidget(m_resetBtn);
+    btnLayout->addStretch();
 
     bodyLayout->addLayout(btnLayout);
     root->addWidget(body, 1);
@@ -110,26 +86,37 @@ void ImagePreviewWindow::setupUi()
 
 void ImagePreviewWindow::updateStyle()
 {
-    ThemeManager* tm = ThemeManager::instance();
     setStyleSheet(QStringLiteral(
-        "QDialog#imagePreviewWindow { background-color: %1; }"
-        "QScrollArea#previewScrollArea { background-color: %1; border: none; }"
-        "QLabel#previewImageLabel { background-color: %1; }"
-        "QPushButton#dialogPrimaryBtn { background-color: %4; color: white; border: none; border-radius: 6px; padding: 6px 14px; }"
-        "QPushButton#dialogPrimaryBtn:hover { background-color: %5; }"
-        "QPushButton#dialogSecondaryBtn { background-color: %2; color: %3; border: 1px solid %6; border-radius: 6px; padding: 6px 14px; }"
-        "QPushButton#dialogSecondaryBtn:hover { background-color: %6; }"
-    ).arg(tm->backgroundColor().name())
-     .arg(tm->backgroundSecondaryColor().name())
-     .arg(tm->textColor().name())
-     .arg(tm->primaryColor().name())
-     .arg(tm->primaryHoverColor().name())
-     .arg(tm->borderColor().name()));
+        "QDialog#imagePreviewWindow { background-color: #1b1b1b; }"
+        "QFrame#dialogTitleBar { background-color: #1b1b1b; border-bottom: 1px solid #353535; }"
+        "QLabel#dialogTitleBarLabel { color: #f3f3f3; font-size: 14px; font-weight: 600; }"
+        "QPushButton#dialogTitleBarCloseBtn { color: #f3f3f3; }"
+        "QScrollArea#previewScrollArea { background-color: #1b1b1b; border: none; }"
+        "QLabel#previewImageLabel { background-color: #1b1b1b; color: #a9a9ad; font-size: 14px; }"
+        "QPushButton#previewToolButton { background: transparent; color: #f3f3f3; border: none; border-radius: 4px; font-size: 22px; min-width: 36px; min-height: 32px; }"
+        "QPushButton#previewToolButton:hover, QPushButton#previewResetButton:hover { background-color: #2c2c2c; }"
+        "QLabel#previewZoomLabel { color: #f3f3f3; font-size: 13px; font-weight: 600; }"
+        "QPushButton#previewResetButton { background: transparent; color: #f3f3f3; border: none; border-radius: 4px; padding: 6px 12px; font-size: 13px; }"
+    ));
+    // DialogTitleBar owns a stylesheet, so parent QSS cannot reliably restyle
+    // it. Apply the preview palette directly to prevent a white titlebar with
+    // a white close glyph.
+    if (m_titleBar) {
+        m_titleBar->setStyleSheet(QStringLiteral(
+            "QFrame#dialogTitleBar { background-color: #1b1b1b; border-bottom: 1px solid #353535; }"
+            "QLabel#dialogTitleBarLabel { color: #f3f3f3; font-size: 14px; font-weight: 600; }"
+            "QPushButton#dialogTitleBarCloseBtn { color: #f3f3f3; background: transparent; border: none; "
+            "font-family: 'Segoe UI'; font-size: 14px; font-weight: 700; padding: 0; }"
+            "QPushButton#dialogTitleBarCloseBtn:hover { background-color: #ff4d4f; color: white; }"));
+    }
 }
 
 void ImagePreviewWindow::setImage(const QPixmap& pixmap)
 {
     m_originalPixmap = pixmap;
+    m_imageLabel->setText(QString());
+    m_zoomFactor = 1.0;
+    fitWindowToImage();
     fitImage();
 }
 
@@ -139,65 +126,100 @@ void ImagePreviewWindow::setImagePath(const QString& path)
     QPixmap pixmap(path);
     if (!pixmap.isNull()) {
         setImage(pixmap);
+    } else {
+        setErrorMessage(QStringLiteral("图片预览不可用"));
     }
-    m_titleBar->setTitle(QStringLiteral("图片预览 - %1").arg(QFileInfo(path).fileName()));
+    m_titleBar->setTitle(QStringLiteral("图片预览"));
+}
+
+void ImagePreviewWindow::setErrorMessage(const QString& message)
+{
+    m_originalPixmap = QPixmap();
+    m_imageLabel->setPixmap(QPixmap());
+    m_imageLabel->setText(message.trimmed().isEmpty() ? QStringLiteral("图片预览不可用") : message);
+    m_imageLabel->setFixedSize(qMax(1, m_scrollArea->viewport()->width()), qMax(1, m_scrollArea->viewport()->height()));
+    m_zoomLabel->setText(QStringLiteral("--"));
 }
 
 void ImagePreviewWindow::fitImage()
 {
     if (m_originalPixmap.isNull()) return;
-    QSize available = size() - QSize(40, 80);
-    QPixmap scaled = m_originalPixmap.scaled(available, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    if (!m_scrollArea) return;
+    const QSize available = m_scrollArea->viewport()->size() - QSize(24, 24);
+    if (available.width() <= 0 || available.height() <= 0) return;
+    const QSize baseSize = m_originalPixmap.size().scaled(available, Qt::KeepAspectRatio);
+    const QSize scaledSize(qMax(1, qRound(baseSize.width() * m_zoomFactor)),
+                           qMax(1, qRound(baseSize.height() * m_zoomFactor)));
+    QPixmap scaled = m_originalPixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     m_imageLabel->setPixmap(scaled);
     m_imageLabel->setFixedSize(scaled.size());
+    m_zoomLabel->setText(QStringLiteral("%1%").arg(qRound(m_zoomFactor * 100)));
 }
 
-void ImagePreviewWindow::copyImageBase64()
+void ImagePreviewWindow::fitWindowToImage()
 {
-    QString sourcePath = m_currentPath;
-    if (sourcePath.isEmpty()) {
-        const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-        sourcePath = QDir(tempDir).filePath(QStringLiteral("image-preview-temp.png"));
-        if (!m_originalPixmap.isNull() && !m_originalPixmap.save(sourcePath, "PNG")) {
-            QMessageBox::warning(this, QStringLiteral("复制失败"), QStringLiteral("无法准备图片数据。"));
-            return;
-        }
-    }
+    if (m_originalPixmap.isNull()) return;
 
-    QJsonObject payload;
-    payload[QStringLiteral("filePath")] = sourcePath;
-    QJsonObject response;
-    QString errorCode;
-    QString errorMessage;
-    if (QQNTBackendService::handle(QStringLiteral("read_image_base64"), payload, &response, &errorCode, &errorMessage)) {
-        const QString b64 = response.value(QStringLiteral("base64")).toString();
-        if (!b64.isEmpty()) {
-            QClipboard* clipboard = QGuiApplication::clipboard();
-            if (clipboard) clipboard->setText(b64);
-            QMessageBox::information(this, QStringLiteral("已复制"), QStringLiteral("图片 Base64 已复制到剪贴板。"));
-            return;
-        }
-    }
-    QMessageBox::warning(this, QStringLiteral("复制失败"), QStringLiteral("无法读取图片 Base64。"));
+    QScreen* screen = this->screen();
+    if (!screen) screen = QGuiApplication::primaryScreen();
+    if (!screen) return;
+
+    const QRect available = screen->availableGeometry();
+    constexpr int titleBarHeight = 40;
+    constexpr int toolbarHeight = 56;
+    constexpr int padding = 24;
+    const QSize minimum(420, 320);
+    const QSize maximum(qMax(minimum.width(), qRound(available.width() * 0.92)),
+                        qMax(minimum.height(), qRound(available.height() * 0.92)));
+    const QSize maximumImage(maximum.width() - padding,
+                             maximum.height() - titleBarHeight - toolbarHeight - padding);
+    QSize imageSize = m_originalPixmap.size();
+    imageSize.scale(maximumImage, Qt::KeepAspectRatio);
+    const QSize target(qBound(minimum.width(), imageSize.width() + padding, maximum.width()),
+                       qBound(minimum.height(), imageSize.height() + titleBarHeight + toolbarHeight + padding,
+                              maximum.height()));
+    m_initialWindowSize = target;
+    resize(target);
+    move(available.center() - rect().center());
 }
 
-void ImagePreviewWindow::openImageFolder()
+void ImagePreviewWindow::setZoomFactor(qreal factor)
 {
-    QString sourcePath = m_currentPath;
-    if (sourcePath.isEmpty()) {
-        const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-        sourcePath = QDir(tempDir).filePath(QStringLiteral("image-preview-temp.png"));
-        if (!m_originalPixmap.isNull() && !m_originalPixmap.save(sourcePath, "PNG")) {
-            QMessageBox::warning(this, QStringLiteral("打开失败"), QStringLiteral("无法准备图片文件。"));
-            return;
-        }
-    }
-
-    const QFileInfo info(sourcePath);
-    if (info.isFile()) {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
-    } else {
-        QMessageBox::warning(this, QStringLiteral("打开失败"), QStringLiteral("图片路径无效。"));
-    }
+    m_zoomFactor = qBound<qreal>(0.2, factor, 6.0);
+    fitImage();
 }
 
+void ImagePreviewWindow::showEvent(QShowEvent* event)
+{
+    if (m_initialWindowSize.isValid()) {
+        resize(m_initialWindowSize);
+    }
+    QDialog::showEvent(event);
+    if (layout()) layout()->activate();
+    fitImage();
+
+    // A top-level QScrollArea receives its final viewport geometry only after
+    // the native window is mapped. Redraw on that first event-loop turn rather
+    // than waiting for the user to drag or resize the window.
+    QTimer::singleShot(0, this, [this]() {
+        if (m_initialWindowSize.isValid()) resize(m_initialWindowSize);
+        if (layout()) layout()->activate();
+        fitImage();
+    });
+}
+
+void ImagePreviewWindow::resizeEvent(QResizeEvent* event)
+{
+    QDialog::resizeEvent(event);
+    fitImage();
+}
+
+void ImagePreviewWindow::wheelEvent(QWheelEvent* event)
+{
+    if (!m_originalPixmap.isNull()) {
+        setZoomFactor(m_zoomFactor + (event->angleDelta().y() > 0 ? 0.1 : -0.1));
+        event->accept();
+        return;
+    }
+    QDialog::wheelEvent(event);
+}

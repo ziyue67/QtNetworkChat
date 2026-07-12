@@ -28,10 +28,17 @@ void DialogTitleBar::setupUi(bool showCloseButton)
     layout->addWidget(m_titleLabel, 1);
 
     if (showCloseButton) {
-        m_closeBtn = new QPushButton(QStringLiteral("×"), this);
+        // Use ASCII X here: the preview window can use a dark local stylesheet
+        // and the multiplication glyph was rendered blank by the active font
+        // fallback on some Windows installations.
+        m_closeBtn = new QPushButton(QStringLiteral("X"), this);
         m_closeBtn->setObjectName(QStringLiteral("dialogTitleBarCloseBtn"));
         m_closeBtn->setFixedSize(32, 32);
         m_closeBtn->setFlat(true);
+        m_closeBtn->setStyleSheet(QStringLiteral(
+            "QPushButton { color: #f3f3f3; background: transparent; border: none; "
+            "font-family: 'Segoe UI'; font-size: 14px; font-weight: 700; text-align: center; padding: 0; }"
+            "QPushButton:hover { background-color: #ff4d4f; color: white; }"));
         m_closeBtn->setToolTip(QStringLiteral("关闭"));
         layout->addWidget(m_closeBtn);
         connect(m_closeBtn, &QPushButton::clicked, this, &DialogTitleBar::closeRequested);
@@ -46,7 +53,7 @@ void DialogTitleBar::updateStyle()
     setStyleSheet(QStringLiteral(
         "QFrame#dialogTitleBar { background-color: %1; border-bottom: 1px solid %2; }"
         "QLabel#dialogTitleBarLabel { color: %3; font-size: 14px; font-weight: 600; }"
-        "QPushButton#dialogTitleBarCloseBtn { color: %3; border: none; background: transparent; font-size: 16px; border-radius: 4px; }"
+        "QPushButton#dialogTitleBarCloseBtn { color: %3; border: none; background: transparent; font-size: 14px; font-weight: 700; border-radius: 4px; padding: 0; }"
         "QPushButton#dialogTitleBarCloseBtn:hover { background-color: #ff4d4f; color: white; }"
     ).arg(tm->backgroundSecondaryColor().name())
      .arg(tm->borderColor().name())

@@ -49,6 +49,18 @@ public:
     void setMultiSelectMode(bool enabled);
     void setLocalActionState(const QString& actionId, bool visible, bool enabled);
 
+    // Unified state interface: the new message page is the single chat surface.
+    // MainWindow drives all session/composer/scroll state through these methods
+    // instead of touching the legacy hidden widgets directly.
+    void setSessionState(const QString& sessionId, const QString& title,
+                         const QString& subtitle, const QString& hint,
+                         bool loading, bool empty);
+    void setComposerState(bool enabled, const QString& placeholder,
+                          const QString& stateText, const QStringList& mentionCandidates);
+    void scrollChatToBottom();
+    void setCurrentSessionId(const QString& sessionId);
+    QString currentSessionId() const;
+
 signals:
     void sessionSelected(const QModelIndex& index);
     void sendRequested();
@@ -102,6 +114,7 @@ private:
     QPushButton* m_multiSelectCancelBtn = nullptr;
     bool m_multiSelectMode = false;
     QMap<QString, QPair<bool, bool>> m_localActionStates; // id -> {visible, enabled}
+    QString m_currentSessionId;
 };
 
 #endif // MESSAGESVIEW_H

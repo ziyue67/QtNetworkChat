@@ -59,15 +59,15 @@ void MessagesView::setupUi()
 {
     mvLog("setupUi start");
     QHBoxLayout* root = new QHBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
+    root->setContentsMargins(10, 10, 10, 10);
+    root->setSpacing(10);
 
     // Session list panel
     QFrame* sessionPanel = new QFrame(this);
     sessionPanel->setObjectName(QStringLiteral("sessionPanel"));
-    sessionPanel->setFixedWidth(ThemeManager::instance()->sessionListWidth());
+    sessionPanel->setFixedWidth(qMax(248, ThemeManager::instance()->sessionListWidth()));
     QVBoxLayout* sessionLayout = new QVBoxLayout(sessionPanel);
-    sessionLayout->setContentsMargins(12, 12, 12, 12);
+    sessionLayout->setContentsMargins(14, 16, 14, 12);
     sessionLayout->setSpacing(10);
 
     QFrame* sessionTitle = new QFrame(sessionPanel);
@@ -127,9 +127,9 @@ void MessagesView::setupUi()
 
     QFrame* header = new QFrame(chatPanel);
     header->setObjectName(QStringLiteral("chatHeader"));
-    header->setFixedHeight(60);
+    header->setFixedHeight(68);
     QVBoxLayout* headerLayout = new QVBoxLayout(header);
-    headerLayout->setContentsMargins(16, 8, 16, 8);
+    headerLayout->setContentsMargins(22, 10, 22, 9);
     headerLayout->setSpacing(2);
 
     m_chatTitleLabel = new QLabel(QStringLiteral("QQ NT"), header);
@@ -149,7 +149,9 @@ void MessagesView::setupUi()
     m_chatListView->setModel(m_chatModel);
     m_chatListView->setItemDelegate(new ChatBubbleDelegate(m_chatListView));
     m_chatListView->setIconSize(QSize(34, 34));
-    m_chatListView->setSpacing(8);
+    // The delegate includes the message-card breathing room; avoid adding a
+    // second large gap on top of the tauri-qqnt mb-4 rhythm.
+    m_chatListView->setSpacing(4);
     m_chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
     m_chatListView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     chatLayout->addWidget(m_chatListView, 1);
@@ -275,22 +277,26 @@ void MessagesView::updateStyle()
                                   .arg(tm->primaryColor().green())
                                   .arg(tm->primaryColor().blue());
     const QString sheet = QString(
-        "QFrame#sessionPanel { background-color: %1; border-right: 1px solid %2; }"
-        "QLabel#sessionTitleLabel { color: %6; font-weight: bold; }"
-        "QFrame#chatPanel { background-color: %3; }"
-        "QFrame#chatHeader { background-color: %4; border-bottom: 1px solid %2; }"
-        "QLineEdit#sessionSearchEdit { background-color: %5; color: %6; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; }"
+        "QWidget#messagesView { background-color: %3; }"
+        "QFrame#sessionPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+        "QLabel#sessionTitleLabel { color: %6; font-size: 15px; font-weight: 600; }"
+        "QFrame#chatPanel { background-color: %4; border: 1px solid %2; border-radius: 8px; }"
+        "QFrame#chatHeader { background-color: %4; border-bottom: 1px solid %2; border-top-left-radius: 8px; border-top-right-radius: 8px; }"
+        "QLineEdit#sessionSearchEdit { background-color: %5; color: %6; border: 1px solid %2; border-radius: 7px; padding: 7px 10px; }"
         "QLineEdit#sessionSearchEdit:focus { border: 1px solid %7; }"
         "QListView#sessionListView { background: transparent; border: none; outline: none; }"
-        "QListView#sessionListView::item { color: %6; padding: 0px; border-radius: 6px; }"
+        "QListView#sessionListView::item { color: %6; padding: 2px 0px; border-radius: 7px; }"
         "QListView#sessionListView::item:selected { background-color: %8; color: %6; }"
         "QListView#sessionListView::item:hover { background-color: %9; }"
+        "QListView#chatListView { background: %4; border: none; outline: none; padding: 12px 16px; }"
         "QLabel#chatTitleLabel { color: %6; font-size: 16px; font-weight: 600; }"
         "QLabel#chatSubtitleLabel { color: %10; font-size: 12px; }"
         "QLabel#chatHintLabel { color: %10; font-size: 12px; }"
         "QLabel#emptyChatLabel, QLabel#loadingLabel { color: %10; font-size: 14px; }"
         "QLabel#dropOverlay { background-color: %11; color: %7; border: 2px dashed %7; font-size: 18px; font-weight: 600; }"
-        "QMenu#chatContextMenu { background-color: %3; color: %4; border: 1px solid %2; padding: 6px; border-radius: 6px; }"
+        "QPushButton#sessionNewChatBtn { background: transparent; color: %7; border: none; font-size: 18px; }"
+        "QPushButton#sessionNewChatBtn:hover { background: %9; border-radius: 6px; }"
+        "QMenu#chatContextMenu { background-color: %4; color: %6; border: 1px solid %2; padding: 6px; border-radius: 6px; }"
         "QMenu#chatContextMenu::item { padding: 6px 18px; border-radius: 4px; }"
         "QMenu#chatContextMenu::item:selected { background-color: %5; color: %4; }"
         "QMenu#chatContextMenu::separator { background-color: %2; height: 1px; margin: 4px 8px; }"
@@ -369,6 +375,49 @@ void MessagesView::setChatTitle(const QString& title, const QString& subtitle, c
 QString MessagesView::chatTitle() const
 {
     return m_chatTitleLabel ? m_chatTitleLabel->text() : QString();
+}
+
+void MessagesView::setSessionState(const QString& sessionId, const QString& title,
+                                   const QString& subtitle, const QString& hint,
+                                   bool loading, bool empty)
+{
+    setCurrentSessionId(sessionId);
+    setChatTitle(title, subtitle, hint);
+    setLoadingVisible(loading);
+    if (!loading) {
+        setEmptyStateVisible(empty);
+    }
+}
+
+void MessagesView::setComposerState(bool enabled, const QString& placeholder,
+                                    const QString& stateText, const QStringList& mentionCandidates)
+{
+    if (!m_composer) return;
+    m_composer->setSendEnabled(enabled);
+    if (!placeholder.isEmpty()) {
+        m_composer->setPlaceholderText(placeholder);
+    }
+    m_composer->setStateText(stateText);
+    if (!mentionCandidates.isEmpty()) {
+        m_composer->setMentionCompletions(mentionCandidates);
+    }
+}
+
+void MessagesView::scrollChatToBottom()
+{
+    if (m_chatListView) {
+        m_chatListView->scrollToBottom();
+    }
+}
+
+void MessagesView::setCurrentSessionId(const QString& sessionId)
+{
+    m_currentSessionId = sessionId;
+}
+
+QString MessagesView::currentSessionId() const
+{
+    return m_currentSessionId;
 }
 
 QLabel* MessagesView::chatTitleLabel() const { return m_chatTitleLabel; }

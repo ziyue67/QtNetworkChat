@@ -641,6 +641,26 @@ if(BUILD_TESTING)
     target_include_directories(group_manager_test PRIVATE include)
     target_link_libraries(group_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
+    add_executable(screenshot_geometry_test
+        tests/screenshot_geometry_test.cpp
+        include/screenshotgeometry.h
+    )
+    target_include_directories(screenshot_geometry_test PRIVATE include)
+    target_link_libraries(screenshot_geometry_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+
+    add_executable(session_list_builder_test
+        tests/session_list_builder_test.cpp
+        include/sessionlistbuilder.h
+    )
+    target_include_directories(session_list_builder_test PRIVATE include)
+    target_link_libraries(session_list_builder_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(theme_qss_consistency_test
+        tests/theme_qss_consistency_test.cpp
+    )
+    target_include_directories(theme_qss_consistency_test PRIVATE include)
+    target_link_libraries(theme_qss_consistency_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
     add_executable(client_storage_test
         tests/client_storage_test.cpp
         src/clientstorage.cpp
@@ -1153,6 +1173,28 @@ if(BUILD_TESTING)
         NAME GroupManagerPermissionState
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:group_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ScreenshotGeometryMapping
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:screenshot_geometry_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME SessionListOrdering
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:session_list_builder_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ThemeQssConsistency
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:theme_qss_consistency_test>
+            "-DTEST_ARGS=${CMAKE_CURRENT_SOURCE_DIR}/ui/style-qqnt.qss;${CMAKE_CURRENT_SOURCE_DIR}/ui/style-qqnt-dark.qss;${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/qss_objectname_scan_manifest.txt"
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

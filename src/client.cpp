@@ -1058,6 +1058,7 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
     m_account = account;
     m_password = password;
     m_registerMode = registerMode;
+    m_loginMode = registerMode ? QStringLiteral("register") : QStringLiteral("login");
     m_loginFinished = false;
     m_loginOk = false;
     m_loginWasRegister = false;
@@ -1070,6 +1071,13 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
         m_pendingIncomingFriendNames.clear();
     }
     m_loginError.clear();
+}
+
+void Client::setLoginMode(const QString& mode) {
+    const QString normalized = mode.trimmed().toLower();
+    m_loginMode = normalized == QStringLiteral("reset_password")
+        ? normalized
+        : (m_registerMode ? QStringLiteral("register") : QStringLiteral("login"));
 }
 
 void Client::loadOrCreateE2ELocalIdentity() {
@@ -4427,9 +4435,12 @@ void Client::onHeartbeat() {
 }
 
 void Client::sendLogin() {
+    qInfo().noquote() << QStringLiteral("Login request: account=%1 mode=%2 passwordLength=%3")
+                            .arg(m_account, m_loginMode)
+                            .arg(m_password.size());
     QJsonObject obj;
     obj["type"] = "login";
-    obj["mode"] = m_registerMode ? "register" : "login";
+    obj["mode"] = m_loginMode;
     obj["account"] = m_account;
     obj["password"] = m_password;
     obj["userName"] = m_userName;

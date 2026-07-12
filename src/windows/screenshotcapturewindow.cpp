@@ -1,5 +1,7 @@
 #include "windows/screenshotcapturewindow.h"
 
+#include "screenshotgeometry.h"
+
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -131,13 +133,7 @@ QRect ScreenshotCaptureWindow::selectedSourceRect() const
     if (m_screenshot.isNull() || selection.isEmpty() || width() <= 0 || height() <= 0) {
         return QRect();
     }
-
-    const qreal scaleX = static_cast<qreal>(m_screenshot.width()) / width();
-    const qreal scaleY = static_cast<qreal>(m_screenshot.height()) / height();
-    return QRect(qRound(selection.x() * scaleX),
-                 qRound(selection.y() * scaleY),
-                 qRound(selection.width() * scaleX),
-                 qRound(selection.height() * scaleY)).intersected(m_screenshot.rect());
+    return ScreenshotGeometry::selectionToSource(selection, size(), m_screenshot.size());
 }
 
 QRect ScreenshotCaptureWindow::selectionRect() const

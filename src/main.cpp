@@ -4,21 +4,16 @@
 #include "mainwindow.h"
 #include "server.h"
 #include "client.h"
+#include "windows/loginwindow.h"
+#include "theme/thememanager.h"
 #include <QDialog>
+#include <QTextStream>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QLineEdit>
 #include <QPushButton>
-#include <QSpinBox>
 #include <QMessageBox>
-#include <QHostAddress>
-#include <QGridLayout>
 #include <QFrame>
-#include <QCheckBox>
-#include <QSettings>
-#include <QButtonGroup>
-#include <QStyle>
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
@@ -73,6 +68,22 @@ bool canConnectToRedisEndpoint(const QString& host, quint16 port, int timeoutMs 
     return connected;
 }
 
+bool sendRedisCommand(const QString& host, quint16 port, const QList<QByteArray>& arguments,
+                      QByteArray* response = nullptr, int timeoutMs = 500) {
+    QTcpSocket socket;
+    socket.connectToHost(host, port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+    QByteArray request = "*" + QByteArray::number(arguments.size()) + "\r\n";
+    for (const QByteArray& argument : arguments) {
+        request += "$" + QByteArray::number(argument.size()) + "\r\n" + argument + "\r\n";
+    }
+    if (socket.write(request) != request.size() || !socket.waitForBytesWritten(timeoutMs)) return false;
+    if (!socket.waitForReadyRead(timeoutMs)) return false;
+    const QByteArray reply = socket.readAll();
+    if (response) *response = reply;
+    return !reply.startsWith('-');
+}
+
 bool canConnectToLocalChatService(quint16 port, int timeoutMs = 250) {
     QTcpSocket socket;
     socket.connectToHost(QStringLiteral("127.0.0.1"), port);
@@ -101,6 +112,14 @@ void ensureDesktopRedisEnvironment() {
     if (!canConnectToRedisEndpoint(host, port)) {
         return;
     }
+
+    // Local desktop Redis installations commonly enter MISCONF after an RDB
+    // snapshot failure and then reject every write, which prevents the embedded
+    // chat server from starting. Keep the local service writable; account data
+    // itself remains persisted in SQLite.
+    sendRedisCommand(host, port,
+                     {QByteArrayLiteral("CONFIG"), QByteArrayLiteral("SET"),
+                      QByteArrayLiteral("stop-writes-on-bgsave-error"), QByteArrayLiteral("no")});
 
     qputenv("QTNETWORKCHAT_REDIS", "1");
     if (configuredHost.isEmpty()) {
@@ -148,451 +167,27 @@ void maybeWriteDatabaseHealthSnapshot(const Server* server) {
 }
 }
 
-class LoginDialog : public QDialog {
-public:
-    LoginDialog(bool isServer, QString& userName, QString& host, quint16& port, QWidget* parent = nullptr)
-        : QDialog(parent), m_isServer(isServer), m_userName(userName), m_host(host), m_port(port)
-    {
-        m_registerMode = isServer;
-        setWindowTitle(isServer ? "注册 QQ" : "QQ 登录");
-        setFixedSize(342, isServer ? 560 : 522);
-        setupUi();
-        loadSettings();
-        setRegisterMode(m_registerMode);
+namespace {
+
+// Load the QQNT theme stylesheet application-wide so the pre-login dialogs
+// (mode/login/register) share the same light/dark tokens as MainWindow. The
+// stylesheet ships next to the executable under ui/ (see CMake POST_BUILD).
+void applyQqntThemeStyleSheet(QApplication& app) {
+    ThemeManager* tm = ThemeManager::instance();
+    const QString styleName = tm->isDark()
+        ? QStringLiteral("style-qqnt-dark.qss")
+        : QStringLiteral("style-qqnt.qss");
+    const QString fileName = QDir(QCoreApplication::applicationDirPath())
+                                 .filePath(QStringLiteral("ui/") + styleName);
+    QFile styleFile(fileName);
+    if (styleFile.open(QFile::ReadOnly | QFile::Text)) {
+        QTextStream textStream(&styleFile);
+        app.setStyleSheet(textStream.readAll());
+        styleFile.close();
     }
+}
 
-    QString serverAddress() const { return m_host; }
-    quint16 serverPort() const { return m_port; }
-    QString userName() const { return m_userName; }
-    QString account() const { return m_account; }
-    QString password() const { return m_password; }
-    bool registerMode() const { return m_registerMode; }
-    bool serverMode() const { return m_isServer; }
-    bool rememberPassword() const { return m_rememberCheck && m_rememberCheck->isChecked(); }
-    bool saveResolvedLoginToSqlite(const QString& account, const QString& userName, const QString& password, bool rememberPassword) const {
-        Q_UNUSED(password);
-        return m_loginCredentialStore.save(account, userName, rememberPassword);
-    }
-
-private:
-    void setupUi() {
-        setObjectName("qqLoginDialog");
-        QVBoxLayout* mainLayout = new QVBoxLayout(this);
-        mainLayout->setContentsMargins(0, 0, 0, 0);
-        mainLayout->setSpacing(0);
-
-        QFrame* header = new QFrame(this);
-        header->setObjectName("qqHeader");
-        header->setFixedHeight(190);
-        QVBoxLayout* headerLayout = new QVBoxLayout(header);
-        headerLayout->setContentsMargins(22, 8, 22, 10);
-        headerLayout->setSpacing(0);
-
-        QHBoxLayout* titleBarLayout = new QHBoxLayout;
-        QLabel* brandLabel = new QLabel("QQ", header);
-        brandLabel->setObjectName("brandLabel");
-        titleBarLayout->addWidget(brandLabel);
-        titleBarLayout->addStretch();
-        QPushButton* closeBtn = new QPushButton("×", header);
-        closeBtn->setObjectName("windowCloseBtn");
-        closeBtn->setFixedSize(28, 28);
-        titleBarLayout->addWidget(closeBtn);
-        headerLayout->addLayout(titleBarLayout);
-
-        m_avatarLabel = new QLabel("Q", header);
-        m_avatarLabel->setObjectName("qqAvatar");
-        m_avatarLabel->setAlignment(Qt::AlignCenter);
-        m_avatarLabel->setFixedSize(92, 92);
-        headerLayout->addSpacing(24);
-        headerLayout->addWidget(m_avatarLabel, 0, Qt::AlignCenter);
-
-        m_titleLabel = new QLabel(header);
-        m_titleLabel->setObjectName("qqTitle");
-        m_titleLabel->setAlignment(Qt::AlignCenter);
-        headerLayout->addWidget(m_titleLabel);
-        mainLayout->addWidget(header);
-
-        QFrame* formCard = new QFrame(this);
-        formCard->setObjectName("qqFormCard");
-        QVBoxLayout* formLayout = new QVBoxLayout(formCard);
-        formLayout->setContentsMargins(33, 16, 33, 24);
-        formLayout->setSpacing(10);
-
-        m_accountEdit = new QLineEdit(formCard);
-        m_accountEdit->setObjectName("qqInput");
-        m_accountEdit->setPlaceholderText("QQ 号 / 账号");
-        m_accountEdit->setClearButtonEnabled(true);
-        m_accountEdit->setMaxLength(24);
-        m_accountEdit->setToolTip("输入已有 QQ 账号登录本地聊天服务");
-        formLayout->addWidget(m_accountEdit);
-
-        m_nameEdit = new QLineEdit(formCard);
-        m_nameEdit->setObjectName("qqInput");
-        m_nameEdit->setPlaceholderText("昵称");
-        m_nameEdit->setClearButtonEnabled(true);
-        m_nameEdit->setMaxLength(20);
-        m_nameEdit->setToolTip("注册时显示在聊天列表和消息里的昵称");
-        formLayout->addWidget(m_nameEdit);
-
-        m_passwordEdit = new QLineEdit(formCard);
-        m_passwordEdit->setObjectName("qqInput");
-        m_passwordEdit->setPlaceholderText("密码");
-        m_passwordEdit->setEchoMode(QLineEdit::Password);
-        m_passwordEdit->setClearButtonEnabled(true);
-        m_passwordEdit->setMaxLength(32);
-        m_passwordEdit->setToolTip("密码至少 6 位；本地不会持久化保存明文密码");
-        formLayout->addWidget(m_passwordEdit);
-
-        m_confirmPasswordEdit = new QLineEdit(formCard);
-        m_confirmPasswordEdit->setObjectName("qqInput");
-        m_confirmPasswordEdit->setPlaceholderText("确认密码");
-        m_confirmPasswordEdit->setEchoMode(QLineEdit::Password);
-        m_confirmPasswordEdit->setClearButtonEnabled(true);
-        m_confirmPasswordEdit->setMaxLength(32);
-        m_confirmPasswordEdit->setToolTip("再次输入密码，需与上一行一致");
-        formLayout->addWidget(m_confirmPasswordEdit);
-
-        QHBoxLayout* optionLayout = new QHBoxLayout;
-        m_autoLoginCheck = new QCheckBox("自动登录", formCard);
-        m_autoLoginCheck->setVisible(false);
-        m_rememberCheck = new QCheckBox("记住密码", formCard);
-        m_rememberCheck->setToolTip("仅记住账号和昵称；不会保存明文密码");
-        optionLayout->addWidget(m_autoLoginCheck);
-        optionLayout->addWidget(m_rememberCheck);
-        optionLayout->addStretch();
-        formLayout->addLayout(optionLayout);
-
-        m_agreementCheck = new QCheckBox("已阅读并同意服务协议和隐私政策", formCard);
-        m_agreementCheck->setObjectName("agreementCheck");
-        m_agreementCheck->setToolTip("勾选后才能继续登录或注册");
-        formLayout->addWidget(m_agreementCheck);
-
-        m_feedbackLabel = new QLabel(formCard);
-        m_feedbackLabel->setObjectName("formFeedbackLabel");
-        m_feedbackLabel->setWordWrap(true);
-        formLayout->addWidget(m_feedbackLabel);
-
-        m_okBtn = new QPushButton(formCard);
-        m_okBtn->setObjectName("primaryBtn");
-        m_okBtn->setMinimumHeight(44);
-        m_okBtn->setDefault(true);
-        formLayout->addWidget(m_okBtn);
-
-        QHBoxLayout* bottomLayout = new QHBoxLayout;
-        bottomLayout->addStretch();
-        m_loginLinkBtn = new QPushButton("账号登录", formCard);
-        m_loginLinkBtn->setObjectName("linkBtn");
-        m_registerLinkBtn = new QPushButton("注册账号", formCard);
-        m_registerLinkBtn->setObjectName("linkBtn");
-        bottomLayout->addWidget(m_loginLinkBtn);
-        bottomLayout->addWidget(m_registerLinkBtn);
-        bottomLayout->addStretch();
-        formLayout->addLayout(bottomLayout);
-        formLayout->addStretch();
-        mainLayout->addWidget(formCard);
-
-        if (m_isServer) {
-            m_portSpin = new QSpinBox(formCard);
-            m_portSpin->setRange(1024, 65535);
-            m_portSpin->setValue(8888);
-            m_portSpin->hide();
-        }
-
-        setStyleSheet(R"(
-            QDialog#qqLoginDialog {
-                background: #EFF6FA;
-                font-family: "Microsoft YaHei", "Segoe UI";
-                color: #253342;
-            }
-            QFrame#qqHeader {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
-            }
-            QLabel#brandLabel {
-                color: #168BE8;
-                font-size: 28px;
-                font-weight: 900;
-            }
-            QPushButton#windowCloseBtn {
-                background: transparent;
-                color: #243447;
-                border: none;
-                font-size: 20px;
-                font-weight: 300;
-            }
-            QPushButton#windowCloseBtn:hover {
-                background: rgba(255, 255, 255, 120);
-                border-radius: 14px;
-            }
-            QLabel#qqAvatar {
-                background: white;
-                color: #168BE8;
-                border: 3px solid rgba(255, 255, 255, 220);
-                border-radius: 46px;
-                font-size: 42px;
-                font-weight: 900;
-            }
-            QLabel#qqTitle {
-                color: #203144;
-                font-size: 17px;
-                font-weight: 600;
-                padding-top: 14px;
-            }
-            QFrame#qqFormCard {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFFFFF, stop:1 #F0F8FB);
-            }
-            QLineEdit#qqInput {
-                min-height: 38px;
-                border: none;
-                border-bottom: 1px solid rgba(104, 143, 174, 100);
-                padding: 4px 6px;
-                background: transparent;
-                color: #253342;
-                font-size: 14px;
-            }
-            QLineEdit#qqInput:focus {
-                border-bottom: 2px solid #17A8F3;
-            }
-            QCheckBox {
-                color: #718395;
-                font-size: 12px;
-                spacing: 6px;
-            }
-            QCheckBox#agreementCheck {
-                margin-top: 2px;
-            }
-            QLabel#formFeedbackLabel {
-                min-height: 30px;
-                border-radius: 10px;
-                background: rgba(255, 248, 232, 170);
-                color: #A36800;
-                font-size: 12px;
-                font-weight: 700;
-                padding: 5px 9px;
-            }
-            QPushButton#primaryBtn {
-                background: #18A8F2;
-                color: white;
-                border: none;
-                border-radius: 7px;
-                font-size: 16px;
-                font-weight: 600;
-            }
-            QPushButton#primaryBtn:hover {
-                background: #0E95DF;
-            }
-            QPushButton#primaryBtn:pressed {
-                background: #0B7EC6;
-            }
-            QPushButton#primaryBtn:disabled {
-                background: #BFD0DE;
-                color: #F8FBFD;
-            }
-            QPushButton#linkBtn {
-                background: transparent;
-                color: #1679CA;
-                border: none;
-                padding: 6px 10px;
-                font-size: 13px;
-            }
-            QPushButton#linkBtn:hover {
-                color: #0B82E6;
-                text-decoration: underline;
-            }
-        )");
-
-        closeBtn->setToolTip("关闭登录窗口");
-        connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-        connect(m_okBtn, &QPushButton::clicked, this, &LoginDialog::onOk);
-        connect(m_loginLinkBtn, &QPushButton::clicked, this, [this]() { setRegisterMode(false); });
-        connect(m_registerLinkBtn, &QPushButton::clicked, this, [this]() { setRegisterMode(true); });
-        connect(m_accountEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
-        connect(m_nameEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
-        connect(m_passwordEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
-        connect(m_confirmPasswordEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
-#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
-        connect(m_agreementCheck, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState) { updateFormState(); });
-        connect(m_rememberCheck, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState) { updateFormState(); });
-#else
-        connect(m_agreementCheck, &QCheckBox::stateChanged, this, [this](int) { updateFormState(); });
-        connect(m_rememberCheck, &QCheckBox::stateChanged, this, [this](int) { updateFormState(); });
-#endif
-    }
-
-    void setRegisterMode(bool registerMode) {
-        m_registerMode = registerMode;
-        setWindowTitle(registerMode ? "注册 QQ" : "QQ 登录");
-        setFixedSize(342, registerMode ? 560 : 522);
-        m_avatarLabel->setText(registerMode ? "注" : "Q");
-        m_accountEdit->setVisible(!registerMode);
-        m_accountEdit->setReadOnly(false);
-        m_accountEdit->setPlaceholderText("请输入 QQ 账号");
-        m_nameEdit->setVisible(registerMode);
-        m_confirmPasswordEdit->setVisible(registerMode);
-        m_autoLoginCheck->setVisible(false);
-        m_rememberCheck->setVisible(!registerMode);
-        m_loginLinkBtn->setVisible(registerMode);
-        m_registerLinkBtn->setVisible(!registerMode && !m_isServer);
-        m_okBtn->setText(registerMode ? "立即注册" : "登录");
-        if (registerMode) {
-            m_accountEdit->clear();
-        }
-        updateFormState();
-    }
-
-    void updateFormState() {
-        if (!m_okBtn || !m_feedbackLabel) return;
-
-        const QString account = m_accountEdit ? m_accountEdit->text().trimmed() : QString();
-        const QString userName = m_nameEdit ? m_nameEdit->text().trimmed() : QString();
-        const QString password = m_passwordEdit ? m_passwordEdit->text() : QString();
-        const QString confirmPassword = m_confirmPasswordEdit ? m_confirmPasswordEdit->text() : QString();
-        const bool agreed = m_agreementCheck && m_agreementCheck->isChecked();
-        QString feedback;
-        bool ready = true;
-
-        if (!agreed) {
-            feedback = "请先勾选服务协议和隐私政策";
-            ready = false;
-        } else if (!m_registerMode && account.isEmpty()) {
-            feedback = "请输入 QQ 账号";
-            ready = false;
-        } else if (m_registerMode && userName.isEmpty()) {
-            feedback = "注册时请输入昵称";
-            ready = false;
-        } else if (password.isEmpty()) {
-            feedback = "请输入密码";
-            ready = false;
-        } else if (password.length() < 6) {
-            feedback = QString("密码至少需要 6 位，当前 %1 位").arg(password.length());
-            ready = false;
-        } else if (m_registerMode && password != confirmPassword) {
-            feedback = "两次输入的密码不一致";
-            ready = false;
-        } else {
-            feedback = m_registerMode
-                ? QString("资料完整，点击立即注册创建本地 QQ 账号")
-                : QString("准备登录 QQ:%1%2")
-                    .arg(account,
-                         m_rememberCheck && m_rememberCheck->isChecked() ? "，仅记住账号信息" : "，本次不记住账号");
-        }
-
-        m_okBtn->setEnabled(ready);
-        m_okBtn->setToolTip(ready ? (m_registerMode ? "创建本地 QQ 账号并进入聊天室" : "登录并进入聊天室") : feedback);
-        m_feedbackLabel->setText(feedback);
-        m_feedbackLabel->setStyleSheet(ready
-            ? "min-height: 30px; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 5px 9px; color: #12875A; background: rgba(232, 248, 239, 190);"
-            : "min-height: 30px; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 5px 9px; color: #A36800; background: rgba(255, 248, 232, 170);");
-        m_titleLabel->setText(m_registerMode
-            ? (userName.isEmpty() ? "欢迎注册 QQ" : QString("注册昵称：%1").arg(userName))
-            : (account.isEmpty() ? "QQ 账号登录" : QString("QQ %1").arg(account)));
-    }
-
-    void onOk() {
-        m_account = m_registerMode ? QString() : m_accountEdit->text().trimmed();
-        m_password = m_passwordEdit->text();
-        if (!m_agreementCheck->isChecked()) {
-            QMessageBox::warning(this, "错误", "请先勾选同意服务协议和隐私政策");
-            return;
-        }
-        if (!m_registerMode && m_account.isEmpty()) {
-            QMessageBox::warning(this, "错误", "请输入 QQ 账号");
-            return;
-        }
-        if (m_password.isEmpty()) {
-            QMessageBox::warning(this, "错误", "请输入密码");
-            return;
-        }
-        if (m_password.length() < 6) {
-            QMessageBox::warning(this, "错误", "密码至少需要 6 位");
-            return;
-        }
-        if (m_registerMode && m_password != m_confirmPasswordEdit->text()) {
-            QMessageBox::warning(this, "错误", "两次输入的密码不一致");
-            return;
-        }
-        m_userName = m_nameEdit->text().trimmed();
-        if (m_userName.isEmpty()) {
-            if (m_registerMode) {
-                QMessageBox::warning(this, "错误", "注册时请输入昵称");
-                return;
-            }
-            m_userName = m_account;
-        }
-        m_host = "127.0.0.1";
-        m_port = 8888;
-        accept();
-    }
-
-    void loadSettings() {
-        if (m_isServer) return;
-        if (loadLoginFromSqlite()) return;
-
-        SavedLoginCredential credential;
-        if (m_loginCredentialStore.migrateLegacySettings(&credential) && !credential.account.isEmpty()) {
-            m_accountEdit->setText(credential.account);
-            m_nameEdit->setText(credential.userName);
-            m_passwordEdit->clear();
-            m_rememberCheck->setChecked(credential.rememberPassword);
-        }
-    }
-
-    void saveSettings() {
-        if (m_registerMode || !m_rememberCheck) return;
-        if (!saveLoginToSqlite()) {
-            QSettings fallback("QtNetworkChat", "QtNetworkChat");
-            fallback.setValue("login/account", m_accountEdit->text().trimmed());
-            fallback.setValue("login/name", m_nameEdit->text().trimmed());
-            fallback.setValue("login/remember", m_rememberCheck->isChecked());
-            fallback.remove("login/password");
-            return;
-        }
-
-        QSettings settings("QtNetworkChat", "QtNetworkChat");
-        settings.setValue("login/account", m_accountEdit->text().trimmed());
-        settings.setValue("login/name", m_nameEdit->text().trimmed());
-        settings.setValue("login/remember", m_rememberCheck->isChecked());
-        settings.remove("login/password");
-    }
-
-    bool loadLoginFromSqlite() {
-        SavedLoginCredential credential;
-        if (!m_loginCredentialStore.load(&credential)) return false;
-        m_accountEdit->setText(credential.account);
-        m_nameEdit->setText(credential.userName);
-        m_passwordEdit->clear();
-        m_rememberCheck->setChecked(credential.rememberPassword);
-        return true;
-    }
-
-    bool saveLoginToSqlite() const {
-        return m_loginCredentialStore.save(m_accountEdit->text().trimmed(),
-                                           m_nameEdit->text().trimmed(),
-                                           m_rememberCheck && m_rememberCheck->isChecked());
-    }
-
-    bool m_isServer;
-    QString& m_userName;
-    QString& m_host;
-    quint16& m_port;
-    LoginCredentialStore m_loginCredentialStore;
-    QString m_account;
-    QString m_password;
-    bool m_registerMode = false;
-    QLabel* m_avatarLabel = nullptr;
-    QLabel* m_titleLabel = nullptr;
-    QLabel* m_feedbackLabel = nullptr;
-    QLineEdit* m_accountEdit = nullptr;
-    QLineEdit* m_passwordEdit = nullptr;
-    QLineEdit* m_confirmPasswordEdit = nullptr;
-    QLineEdit* m_nameEdit = nullptr;
-    QCheckBox* m_autoLoginCheck = nullptr;
-    QCheckBox* m_rememberCheck = nullptr;
-    QCheckBox* m_agreementCheck = nullptr;
-    QPushButton* m_okBtn = nullptr;
-    QPushButton* m_loginLinkBtn = nullptr;
-    QPushButton* m_registerLinkBtn = nullptr;
-    QSpinBox* m_portSpin = nullptr;
-};
+}
 
 int main(int argc, char *argv[])
 {
@@ -601,6 +196,9 @@ int main(int argc, char *argv[])
 #endif
 
     QApplication a(argc, argv);
+    // Login/register dialogs temporarily leave no visible top-level window while
+    // MainWindow is being constructed. Do not let Qt terminate during that gap.
+    a.setQuitOnLastWindowClosed(false);
     ensureDesktopRedisEnvironment();
     a.setApplicationName("QtNetworkChat");
     a.setApplicationVersion("1.0.0");
@@ -617,7 +215,7 @@ int main(int argc, char *argv[])
 
         Client* client = new Client;
         client->setUserInfo("", "DebugUser");
-        client->setAccountInfo("debug123", "123456", true);
+        client->setAccountInfo("debug123", "123456", false);
         client->connectToServer("127.0.0.1", 8888);
         if (!client->isConnected() || !client->waitForLoginResult()) {
             qDebug() << "Debug auto-login failed:" << client->lastLoginError();
@@ -637,6 +235,7 @@ int main(int argc, char *argv[])
     modeDialog->setObjectName("modeDialog");
     modeDialog->setWindowTitle("QtNetworkChat");
     modeDialog->setFixedSize(322, 460);
+    QObject::connect(modeDialog, &QDialog::rejected, &a, &QCoreApplication::quit);
     QVBoxLayout* layout = new QVBoxLayout(modeDialog);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -734,6 +333,7 @@ int main(int argc, char *argv[])
             border-radius: 14px;
         }
         QLabel#logoLabel {
+            background: transparent;
             color: #168BE8;
             font-size: 30px;
             font-weight: 900;
@@ -747,6 +347,7 @@ int main(int argc, char *argv[])
             font-weight: 900;
         }
         QLabel#accountNameLabel {
+            background: transparent;
             color: #203144;
             font-size: 17px;
             font-weight: 600;
@@ -763,6 +364,7 @@ int main(int argc, char *argv[])
             padding: 3px 10px;
         }
         QLabel#modeStatusLabel {
+            background: transparent;
             color: #5C7286;
             font-size: 12px;
             padding-top: 10px;
@@ -800,7 +402,6 @@ int main(int argc, char *argv[])
     QObject::connect(closeBtn, &QPushButton::clicked, modeDialog, &QDialog::reject);
     QObject::connect(accountLoginBtn, &QPushButton::clicked, clientBtn, &QPushButton::click);
 
-    LoginDialog* loginDlg = nullptr;
     Server* server = new Server(&a);
     if (!server->start(port)) {
         delete server;
@@ -823,91 +424,106 @@ int main(int argc, char *argv[])
     }
     Client* client = nullptr;
 
-    QObject::connect(serverBtn, &QPushButton::clicked, [&]() {
-        loginDlg = new LoginDialog(true, userName, host, port, modeDialog);
+    // Shared launcher for both the "登录" and "注册账号" entry points. LoginWindow
+    // is a frameless, DialogTitleBar-driven dialog that toggles between login and
+    // register modes internally, so the two mode-dialog buttons only differ by the
+    // initial mode they open it in.
+    auto launchLogin = [&](bool startInRegisterMode) {
+        LoginWindow* loginDlg = new LoginWindow(modeDialog);
+        loginDlg->setRegisterMode(startInRegisterMode);
         modeDialog->hide();
-        if (loginDlg->exec() == QDialog::Accepted) {
-            port = 8888;
-            client = new Client;
-            client->setUserInfo("", userName);
-            client->setAccountInfo(loginDlg->account(), loginDlg->password(), true);
-            client->connectToServer("127.0.0.1", port);
-            if (!client->isConnected() || !client->waitForLoginResult()) {
-                QString reason = client->lastLoginError().isEmpty() ? "无法连接本地测试服务" : client->lastLoginError();
-                QMessageBox::critical(nullptr, "注册失败", reason);
-                delete client;
-                client = nullptr;
-                modeDialog->show();
-                return;
-            }
-            if (client->currentLoginWasRegister()) {
-                loginDlg->saveResolvedLoginToSqlite(client->currentUserId(),
-                                                    client->currentUserName(),
-                                                    loginDlg->password(),
-                                                    true);
-                QMessageBox::information(nullptr,
-                                         "注册成功",
-                                         QString("你的 QQ 账号是：%1\n账号和密码已保存到本地 SQLite 登录库，之后登录和加好友都使用它。")
-                                             .arg(client->currentUserId()));
-            }
-            MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
-            w->setAttribute(Qt::WA_DeleteOnClose);
-            QObject::connect(w, &MainWindow::logoutRequested, [&]() {
-                w->close();
-                delete client;
-                client = nullptr;
-                modeDialog->show();
-            });
-            QObject::connect(w, &QObject::destroyed, [&]() {
-                client = nullptr;
-            });
-            w->show();
-        } else {
-            modeDialog->show();
-        }
-    });
 
-    QObject::connect(clientBtn, &QPushButton::clicked, [&]() {
-        loginDlg = new LoginDialog(false, userName, host, port, modeDialog);
-        modeDialog->hide();
-        if (loginDlg->exec() == QDialog::Accepted) {
-            host = "127.0.0.1";
-            port = 8888;
-            userName = loginDlg->userName();
-            client = new Client;
-            client->setUserInfo("", userName);
-            client->setAccountInfo(loginDlg->account(), loginDlg->password(), loginDlg->registerMode());
-            client->connectToServer(host, port);
-            if (!client->isConnected() || !client->waitForLoginResult()) {
-                QString reason = client->lastLoginError().isEmpty()
-                    ? QString("无法连接本地测试服务")
-                    : client->lastLoginError();
-                QMessageBox::critical(nullptr, "连接失败", reason);
+        if (loginDlg->exec() != QDialog::Accepted) {
+            loginDlg->deleteLater();
+            modeDialog->show();
+            return;
+        }
+
+        host = QStringLiteral("127.0.0.1");
+        port = 8888;
+        userName = loginDlg->userName();
+        const bool wasRegisterMode = loginDlg->registerMode();
+        const QString account = loginDlg->account();
+        const QString password = loginDlg->password();
+        const bool remember = loginDlg->rememberPassword();
+
+        // The workspace contains several historical executables. Never submit
+        // credentials unless this process owns a healthy local service or a
+        // service is verifiably listening on the expected port.
+        if (!canConnectToLocalChatService(port, 500)) {
+            if (!server) {
+                server = new Server(&a);
+            }
+            if (!server->start(port) && !canConnectToLocalChatService(port, 500)) {
+                QMessageBox::critical(
+                    nullptr,
+                    QStringLiteral("本地服务未启动"),
+                    QStringLiteral("无法启动本机聊天服务。\n程序：%1\n数据库：%2")
+                        .arg(QCoreApplication::applicationFilePath(),
+                             QDir(appDataDir()).filePath(QStringLiteral("accounts.sqlite3"))));
                 delete client;
                 client = nullptr;
+                loginDlg->deleteLater();
                 modeDialog->show();
                 return;
             }
-            loginDlg->saveResolvedLoginToSqlite(loginDlg->account(),
-                                                client->currentUserName(),
-                                                loginDlg->password(),
-                                                loginDlg->rememberPassword());
-            MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
-            w->setAttribute(Qt::WA_DeleteOnClose);
-            QObject::connect(w, &MainWindow::logoutRequested, [&]() {
-                w->close();
-                delete client;
-                client = nullptr;
-                modeDialog->show();
-            });
-            QObject::connect(w, &QObject::destroyed, [&]() {
-                client = nullptr;
-            });
-            w->show();
-        } else {
-            modeDialog->show();
         }
-    });
+
+        client = new Client;
+        client->setUserInfo("", userName);
+        client->setAccountInfo(account, password, wasRegisterMode);
+        client->setLoginMode(loginDlg->loginMode());
+        client->connectToServer(host, port);
+        if (!client->isConnected() || !client->waitForLoginResult()) {
+            const QString reason = client->lastLoginError().isEmpty()
+                ? QStringLiteral("无法连接本地测试服务")
+                : client->lastLoginError();
+            QMessageBox::critical(
+                nullptr,
+                wasRegisterMode ? QStringLiteral("注册失败") : QStringLiteral("登录失败"),
+                QStringLiteral("%1\n\n账号：%2\n程序：%3\n数据库：%4")
+                    .arg(reason,
+                         account,
+                         QCoreApplication::applicationFilePath(),
+                         QDir(appDataDir()).filePath(QStringLiteral("accounts.sqlite3"))));
+            delete client;
+            client = nullptr;
+            loginDlg->deleteLater();
+            modeDialog->show();
+            return;
+        }
+
+        if (client->currentLoginWasRegister()) {
+            loginDlg->saveResolvedLoginToSqlite(client->currentUserId(),
+                                                client->currentUserName(),
+                                                true);
+            QMessageBox::information(nullptr,
+                                     QStringLiteral("注册成功"),
+                                     QStringLiteral("你的 QQ 账号是：%1\n账号已保存到本地 SQLite 登录库，之后登录和加好友都使用它。")
+                                         .arg(client->currentUserId()));
+        } else {
+            loginDlg->saveResolvedLoginToSqlite(account, client->currentUserName(), remember);
+        }
+
+        MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        QObject::connect(w, &MainWindow::logoutRequested, [&, w]() {
+            w->close();
+            delete client;
+            client = nullptr;
+            modeDialog->show();
+        });
+        QObject::connect(w, &QObject::destroyed, [&]() {
+            client = nullptr;
+        });
+        w->show();
+        w->raise();
+        w->activateWindow();
+        loginDlg->deleteLater();
+    };
+
+    QObject::connect(serverBtn, &QPushButton::clicked, [&]() { launchLogin(true); });
+    QObject::connect(clientBtn, &QPushButton::clicked, [&]() { launchLogin(false); });
 
     modeDialog->show();
     return a.exec();

@@ -7,6 +7,7 @@
 class QTextEdit;
 class QPushButton;
 class QLabel;
+class QFrame;
 
 class ComposerWidget : public QFrame {
     Q_OBJECT
@@ -36,7 +37,7 @@ signals:
     void imageRequested();
     void emojiRequested();
     void mentionRequested();
-    void screenshotRequested();
+    void screenshotRequested(bool hideCurrentWindow);
     void clearHistoryRequested();
     void filesDropped(const QStringList& paths);
     void textChanged();
@@ -45,6 +46,8 @@ private:
     void setupUi();
     void updateStyle();
     void refreshHints();
+    void showEmojiPicker();
+    void showScreenshotMenu();
     QString placeholderText() const;
 
     QTextEdit* m_input = nullptr;
@@ -54,8 +57,11 @@ private:
     QPushButton* m_historyBtn = nullptr;
     QPushButton* m_mentionBtn = nullptr;
     QPushButton* m_screenshotBtn = nullptr;
+    QPushButton* m_screenshotMoreBtn = nullptr;
     QPushButton* m_sendBtn = nullptr;
     QLabel* m_stateLabel = nullptr;
+    QFrame* m_emojiPopup = nullptr;
+    bool m_hideWindowBeforeScreenshot = true;
     QString m_sessionName;
 };
 

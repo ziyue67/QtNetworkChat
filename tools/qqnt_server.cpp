@@ -55,7 +55,9 @@ int main(int argc, char* argv[]) {
     qInstallMessageHandler(stderrMessageHandler);
 
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral("QQNTServer"));
+    // Match the desktop client so both local executables resolve the same
+    // AppData directory and therefore the same accounts.sqlite3 database.
+    QCoreApplication::setApplicationName(QStringLiteral("QtNetworkChat"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
     Server server;

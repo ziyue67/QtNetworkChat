@@ -20,6 +20,7 @@ enum ChatBubbleRole {
     ChatBubbleMediaKindRole,
     ChatBubbleMediaPreviewRole,
     ChatBubbleMediaOpenPathRole,
+    ChatBubbleMediaPreviewUnavailableRole,
 
     // New enhanced roles
     ChatBubbleTimestampRole,          // QString - formatted timestamp (e.g. "14:23")
@@ -56,6 +57,9 @@ private:
                            const QPixmap& preview, const QSize& mediaSize,
                            bool outgoing) const;
 
+    void paintImagePlaceholder(QPainter* painter, const QRect& bubbleRect,
+                               bool outgoing) const;
+
     void paintTextOnly(QPainter* painter, const QRect& bubbleRect,
                        const QString& text, const QPixmap& preview,
                        bool outgoing, const QModelIndex& index) const;
@@ -82,16 +86,19 @@ private:
     QRect contentRect(const QModelIndex& index) const;
 
     // Metrics
-    static constexpr int kAvatarSize = 38;
-    static constexpr int kBubbleRadius = 14;
-    static constexpr int kSmallBubbleRadius = 10;
-    static constexpr int kSideInset = 14;
+    // Match tauri-qqnt MessageBubble: px-4 outer padding, 36px avatar,
+    // 12px avatar gap and rounded-lg (8px) message surface.
+    static constexpr int kAvatarSize = 36;
+    static constexpr int kBubbleRadius = 8;
+    static constexpr int kSmallBubbleRadius = 6;
+    // The list view already provides the 16px outer padding. Keep only the
+    // remaining native-view inset here so the avatar aligns with QQNT.
+    static constexpr int kSideInset = 6;
     static constexpr int kTopInset = 4;
     static constexpr int kBottomInset = 4;
-    static constexpr int kSpacing = 8;
+    static constexpr int kSpacing = 12;
     static constexpr int kGroupedSpacing = 2;
     static constexpr int kTimestampHeight = 16;
-    static constexpr int kReadStatusWidth = 24;
     static constexpr int kQuoteBarWidth = 3;
     static constexpr int kForwardLabelHeight = 18;
     static constexpr int kMaxBubbleWidthGlobal = 560;

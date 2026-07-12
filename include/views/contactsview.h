@@ -24,6 +24,8 @@ public:
 signals:
     void friendSelected(const QString& userId);
     void groupSelected(const QString& groupId);
+    void addFriendRequested();
+    void createGroupRequested();
 
 private:
     void setupUi();

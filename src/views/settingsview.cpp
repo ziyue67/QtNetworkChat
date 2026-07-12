@@ -3,15 +3,54 @@
 #include "theme/thememanager.h"
 
 #include <QButtonGroup>
+#include <QVariantAnimation>
 #include <QCheckBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPainter>
 #include <QPushButton>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
 namespace {
+class AnimatedSwitch final : public QCheckBox {
+public:
+    explicit AnimatedSwitch(QWidget* parent = nullptr) : QCheckBox(parent) {
+        setObjectName(QStringLiteral("settingsCheck"));
+        setCursor(Qt::PointingHandCursor);
+        setFixedSize(46, 26);
+        m_animation.setDuration(160);
+        m_animation.setEasingCurve(QEasingCurve::OutCubic);
+        connect(&m_animation, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
+            setThumbOffset(value.toReal());
+        });
+        connect(this, &QCheckBox::toggled, this, [this](bool checked) {
+            m_animation.stop();
+            m_animation.setStartValue(m_thumbOffset);
+            m_animation.setEndValue(checked ? 22.0 : 2.0);
+            m_animation.start();
+        });
+    }
+    qreal thumbOffset() const { return m_thumbOffset; }
+    void setThumbOffset(qreal offset) { m_thumbOffset = offset; update(); }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
+        const QColor blue = ThemeManager::instance()->primaryColor();
+        p.setPen(Qt::NoPen);
+        p.setBrush(isChecked() ? blue : ThemeManager::instance()->backgroundTertiaryColor());
+        p.drawRoundedRect(QRectF(1, 3, 44, 20), 10, 10);
+        p.setBrush(Qt::white);
+        p.drawEllipse(QRectF(m_thumbOffset, 5, 16, 16));
+    }
+private:
+    QVariantAnimation m_animation;
+    qreal m_thumbOffset = 2.0;
+};
+
+QCheckBox* makeSwitch(QWidget* parent) { return new AnimatedSwitch(parent); }
+
 
 // Helper: creates a horizontal row with a label on the left and a widget on the right,
 // separated by a bottom border. Matches the Row component in tauri-qqnt SettingsView.tsx.
@@ -20,7 +59,7 @@ QFrame* makeRow(const QString& label, QWidget* control, QWidget* parent)
     auto* row = new QFrame(parent);
     row->setObjectName(QStringLiteral("settingsRow"));
     auto* layout = new QHBoxLayout(row);
-    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setContentsMargins(18, 13, 18, 13);
     layout->setSpacing(12);
     auto* lbl = new QLabel(label, row);
     lbl->setObjectName(QStringLiteral("settingsRowLabel"));
@@ -35,6 +74,11 @@ QFrame* makePanel(QWidget* content, QWidget* parent)
 {
     auto* panel = new QFrame(parent);
     panel->setObjectName(QStringLiteral("settingsPanel"));
+    // A settings surface needs a stable desktop width. Using only a maximum
+    // let Qt collapse every page to its size hint on empty views.
+    panel->setMinimumWidth(720);
+    panel->setMaximumWidth(900);
+    panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto* layout = new QVBoxLayout(panel);
     layout->setContentsMargins(16, 8, 16, 8);
     layout->setSpacing(0);
@@ -59,10 +103,11 @@ void SettingsView::setupUi()
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
 
-    // Left sidebar (tab bar oriented vertically on the left, mimics SettingsSidebar)
+    // Horizontal navigation avoids Qt's rotated text rendering in West tabs.
     m_tabWidget = new QTabWidget(this);
     m_tabWidget->setObjectName(QStringLiteral("settingsTabWidget"));
-    m_tabWidget->setTabPosition(QTabWidget::West);
+    m_tabWidget->setTabPosition(QTabWidget::North);
+    m_tabWidget->setDocumentMode(true);
 
     m_tabWidget->addTab(buildGeneralTab(), QStringLiteral("  通用  "));
     m_tabWidget->addTab(buildAccountTab(), QStringLiteral("  账号  "));
@@ -136,13 +181,11 @@ QWidget* SettingsView::buildGeneralTab()
     });
 
     // Launch on startup (display-only toggle; backend wiring comes later)
-    auto* launchCheck = new QCheckBox(page);
-    launchCheck->setObjectName(QStringLiteral("settingsCheck"));
+    auto* launchCheck = makeSwitch(page);
     layout->addWidget(makeRow(QStringLiteral("开机自启"), launchCheck, page));
 
     // Minimize to tray
-    auto* trayCheck = new QCheckBox(page);
-    trayCheck->setObjectName(QStringLiteral("settingsCheck"));
+    auto* trayCheck = makeSwitch(page);
     layout->addWidget(makeRow(QStringLiteral("最小化到托盘"), trayCheck, page));
 
     // Language row (static text)
@@ -154,8 +197,9 @@ QWidget* SettingsView::buildGeneralTab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -193,8 +237,9 @@ QWidget* SettingsView::buildAccountTab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -212,26 +257,22 @@ QWidget* SettingsView::buildNotificationTab()
     header->setObjectName(QStringLiteral("settingsPageHeader"));
     layout->addWidget(header);
 
-    m_notifyCheck = new QCheckBox(page);
-    m_notifyCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_notifyCheck = makeSwitch(page);
     m_notifyCheck->setChecked(true);
     connect(m_notifyCheck, &QCheckBox::toggled, this, &SettingsView::notificationsToggled);
     layout->addWidget(makeRow(QStringLiteral("消息通知"), m_notifyCheck, page));
 
-    m_soundCheck = new QCheckBox(page);
-    m_soundCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_soundCheck = makeSwitch(page);
     m_soundCheck->setChecked(true);
     connect(m_soundCheck, &QCheckBox::toggled, this, &SettingsView::soundToggled);
     layout->addWidget(makeRow(QStringLiteral("声音"), m_soundCheck, page));
 
-    m_desktopNotifyCheck = new QCheckBox(page);
-    m_desktopNotifyCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_desktopNotifyCheck = makeSwitch(page);
     m_desktopNotifyCheck->setChecked(true);
     connect(m_desktopNotifyCheck, &QCheckBox::toggled, this, &SettingsView::desktopNotificationsToggled);
     layout->addWidget(makeRow(QStringLiteral("桌面通知"), m_desktopNotifyCheck, page));
 
-    m_muteInSessionCheck = new QCheckBox(page);
-    m_muteInSessionCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_muteInSessionCheck = makeSwitch(page);
     connect(m_muteInSessionCheck, &QCheckBox::toggled, this, &SettingsView::muteInSessionToggled);
     layout->addWidget(makeRow(QStringLiteral("会话内消息免打扰"), m_muteInSessionCheck, page));
 
@@ -239,8 +280,9 @@ QWidget* SettingsView::buildNotificationTab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -264,8 +306,7 @@ QWidget* SettingsView::buildShortcutTab()
             this, &SettingsView::screenshotShortcutChangeRequested);
     layout->addWidget(makeRow(QStringLiteral("截图快捷键"), m_screenshotShortcutBtn, page));
 
-    m_hideWindowCheck = new QCheckBox(page);
-    m_hideWindowCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_hideWindowCheck = makeSwitch(page);
     m_hideWindowCheck->setChecked(true);
     connect(m_hideWindowCheck, &QCheckBox::toggled, this, &SettingsView::hideWindowBeforeScreenshotToggled);
     layout->addWidget(makeRow(QStringLiteral("截图时隐藏当前窗口"), m_hideWindowCheck, page));
@@ -282,8 +323,9 @@ QWidget* SettingsView::buildShortcutTab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -306,13 +348,11 @@ QWidget* SettingsView::buildFileTab()
     connect(m_downloadPathBtn, &QPushButton::clicked, this, &SettingsView::downloadPathChangeRequested);
     layout->addWidget(makeRow(QStringLiteral("默认下载目录"), m_downloadPathBtn, page));
 
-    m_autoAcceptCheck = new QCheckBox(page);
-    m_autoAcceptCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_autoAcceptCheck = makeSwitch(page);
     connect(m_autoAcceptCheck, &QCheckBox::toggled, this, &SettingsView::autoAcceptFilesToggled);
     layout->addWidget(makeRow(QStringLiteral("自动接收文件（不超过 100 MB）"), m_autoAcceptCheck, page));
 
-    m_openFolderCheck = new QCheckBox(page);
-    m_openFolderCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_openFolderCheck = makeSwitch(page);
     connect(m_openFolderCheck, &QCheckBox::toggled, this, &SettingsView::openFolderAfterDownloadToggled);
     layout->addWidget(makeRow(QStringLiteral("下载完成后打开文件夹"), m_openFolderCheck, page));
 
@@ -320,8 +360,9 @@ QWidget* SettingsView::buildFileTab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -339,8 +380,7 @@ QWidget* SettingsView::buildE2ETab()
     header->setObjectName(QStringLiteral("settingsPageHeader"));
     layout->addWidget(header);
 
-    m_e2eCheck = new QCheckBox(page);
-    m_e2eCheck->setObjectName(QStringLiteral("settingsCheck"));
+    m_e2eCheck = makeSwitch(page);
     m_e2eCheck->setChecked(true);
     connect(m_e2eCheck, &QCheckBox::toggled, this, &SettingsView::e2eEnabledToggled);
     layout->addWidget(makeRow(QStringLiteral("端到端加密"), m_e2eCheck, page));
@@ -357,8 +397,9 @@ QWidget* SettingsView::buildE2ETab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -396,8 +437,9 @@ QWidget* SettingsView::buildAboutTab()
 
     auto* panel = makePanel(page, this);
     auto* wrapper = new QVBoxLayout();
-    wrapper->setContentsMargins(0, 0, 0, 0);
-    wrapper->addWidget(panel);
+    wrapper->setContentsMargins(34, 18, 34, 28);
+    wrapper->addWidget(panel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    wrapper->addStretch();
     auto* wrapperWidget = new QWidget(this);
     wrapperWidget->setLayout(wrapper);
     return wrapperWidget;
@@ -427,28 +469,29 @@ void SettingsView::updateStyle()
 
     setStyleSheet(QStringLiteral(
         // Tab widget
-        "QTabWidget#settingsTabWidget::pane { background: %1; border: none; top: 0; }"
-        "QTabWidget#settingsTabWidget::tab-bar { alignment: stretch; }"
-        "QTabBar::tab { background: %2; color: %3; padding: 10px 18px; border: none; "
-        "  min-width: 100px; text-align: left; }"
-        "QTabBar::tab:selected { background: %1; color: %5; border-left: 3px solid %5; }"
-        "QTabBar::tab:hover:!selected { background: %4; color: %3; }"
+        "QWidget#settingsView { background: %2; }"
+        "QTabWidget#settingsTabWidget::pane { background: %2; border: none; top: 0; }"
+        "QTabBar { background: %1; border-bottom: 1px solid %8; padding-left: 24px; }"
+        "QTabBar::tab { background: transparent; color: %6; padding: 13px 18px 11px; border: none; "
+        "  min-width: 68px; text-align: center; }"
+        "QTabBar::tab:selected { color: %9; font-weight: 600; border-bottom: 3px solid %9; }"
+        "QTabBar::tab:hover:!selected { background: %4; color: %9; }"
 
         // Page header
-        "QLabel#settingsPageHeader { color: %5; font-size: 16px; font-weight: 600; }"
+        "QLabel#settingsPageHeader { color: %5; font-size: 18px; font-weight: 600; padding: 8px 18px 2px; }"
         "QLabel#settingsSyncStatus { color: %6; font-size: 12px; }"
 
         // Row
-        "QFrame#settingsRow { border-bottom: 1px solid %8; }"
-        "QLabel#settingsRowLabel { color: %5; font-size: 13px; }"
+        "QFrame#settingsRow { border-bottom: 1px solid %8; min-height: 48px; }"
+        "QLabel#settingsRowLabel { color: %5; font-size: 13px; font-weight: 500; }"
 
         // Panel card
-        "QFrame#settingsPanel { background: %1; border: 1px solid %8; border-radius: %7px; }"
+        "QFrame#settingsPanel { background: %1; border: 1px solid %8; border-radius: 8px; margin-top: 20px; }"
 
         // Checkboxes
         "QCheckBox#settingsCheck { color: %5; spacing: 8px; }"
-        "QCheckBox#settingsCheck::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid %8; }"
-        "QCheckBox#settingsCheck::indicator:checked { background: %5; border: 1px solid %5; }"
+        "QCheckBox#settingsCheck::indicator { width: 34px; height: 18px; border-radius: 9px; background: %4; border: 1px solid %8; }"
+        "QCheckBox#settingsCheck::indicator:checked { background: %9; border: 1px solid %9; }"
 
         // Theme buttons
         "QPushButton#settingsThemeBtn { background: %4; color: %3; border: 1px solid %8;"

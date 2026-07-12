@@ -25,6 +25,7 @@ public:
     void disconnectFromServer();
 
     void setAccountInfo(const QString& account, const QString& password, bool registerMode);
+    void setLoginMode(const QString& mode);
     void setE2ESessionKey(const QString& peerId, const QString& keyId, const QByteArray& sessionKey);
     void clearE2ESessionKey(const QString& peerId);
     bool hasE2ESession(const QString& peerId) const;
@@ -299,6 +300,7 @@ private:
     QString m_password;
     QString m_avatarBase64;
     bool m_registerMode;
+    QString m_loginMode;
     bool m_loginFinished;
     bool m_loginOk;
     bool m_loginWasRegister;

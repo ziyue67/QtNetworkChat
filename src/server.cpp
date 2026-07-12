@@ -974,6 +974,19 @@ QString legacyPasswordHash(const QString& account, const QString& password) {
                                                         QCryptographicHash::Sha256).toHex());
 }
 
+QString normalizePasswordInput(QString password) {
+    password.remove(QChar(0x200B));
+    password.remove(QChar(0xFEFF));
+    password = password.trimmed();
+    for (int i = 0; i < password.size(); ++i) {
+        const ushort code = password.at(i).unicode();
+        if (code >= 0xFF01 && code <= 0xFF5E) {
+            password[i] = QChar(code - 0xFEE0);
+        }
+    }
+    return password;
+}
+
 QString makePasswordKdfHash(const QString& account, const QString& password, const QByteArray& salt = QByteArray()) {
     const QByteArray actualSalt = salt.isEmpty() ? randomSalt(kPasswordKdfSaltBytes) : salt;
     const QByteArray material = (account + ":" + password).toUtf8();
@@ -1327,6 +1340,8 @@ bool Server::start(quint16 port) {
         return false;
     }
 
+    qInfo().noquote() << QStringLiteral("Account database: driver=%1 path=%2")
+                            .arg(accountDatabaseDriver(), accountDatabasePath());
     ensureAccountDatabase();
     if (m_tcpServer->listen(QHostAddress::Any, port)) {
         if (!m_transferCleanupTimer->isActive()) {
@@ -1728,8 +1743,12 @@ bool Server::ensureServiceReady(QTcpSocket* socket, const QString& action) {
 void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     QString mode = obj["mode"].toString("login");
     QString account = obj["account"].toString().trimmed();
-    QString password = obj["password"].toString();
+    QString password = normalizePasswordInput(obj["password"].toString());
     QString userName = obj["userName"].toString().trimmed();
+
+    qInfo().noquote() << QStringLiteral("Login received: account=%1 mode=%2 passwordLength=%3")
+                            .arg(account, mode)
+                            .arg(password.size());
 
     if (mode != "register" && account.isEmpty()) account = userName;
     if (userName.isEmpty()) userName = account.isEmpty() ? "User" : account;
@@ -1803,6 +1822,41 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
             }
             accounts[account] = accountObj;
         }
+    } else if (mode == "reset_password") {
+        if (account.isEmpty() || !accounts.contains(account)) {
+            QJsonObject response;
+            response["type"] = "login_failed";
+            response["reason"] = "账号不存在，无法重置本地密码";
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+            return;
+        }
+        if (password.isEmpty()) {
+            QJsonObject response;
+            response["type"] = "login_failed";
+            response["reason"] = "新密码不能为空";
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+            return;
+        }
+        QJsonObject accountObj = accounts[account].toObject();
+        const QString passwordHash = makePasswordKdfHash(account, password);
+        accountObj["passwordHash"] = passwordHash;
+        accountObj["accountStatus"] = "active";
+        accounts[account] = accountObj;
+        if (!updateAccountPasswordHashInSqlite(account, passwordHash)) {
+            QJsonObject response;
+            response["type"] = "login_failed";
+            response["reason"] = "本地密码重置保存失败";
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+            return;
+        }
+        userName = accountObj.value("userName").toString(userName);
+        qInfo().noquote() << QStringLiteral("Local password reset completed: account=%1").arg(account);
     } else if (accounts.contains(account)) {
         QJsonObject accountObj = accounts[account].toObject();
         const QString status = accountObj.value("accountStatus").toString("active");
@@ -1829,7 +1883,36 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
                                   accountObj["avatar"].toString());
         }
         bool needsPasswordHashUpgrade = false;
-        if (!verifyStoredPasswordHash(account, password, storedHash, &needsPasswordHashUpgrade)) {
+        bool passwordMatches = verifyStoredPasswordHash(account, password, storedHash, &needsPasswordHashUpgrade);
+        qInfo().noquote() << QStringLiteral("Password verification: account=%1 hashFormat=%2 matched=%3")
+                                .arg(account,
+                                     isKdfPasswordHash(storedHash) ? QStringLiteral("pbkdf2") : QStringLiteral("legacy-or-invalid"),
+                                     passwordMatches ? QStringLiteral("true") : QStringLiteral("false"));
+        if (!passwordMatches) {
+            // Do not log password text. These stable SHA-256 prefixes distinguish
+            // a GUI input mismatch from a stale/incorrect account database row.
+            const QString suppliedFingerprint = QString::fromLatin1(
+                QCryptographicHash::hash((account + ":" + password).toUtf8(),
+                                         QCryptographicHash::Sha256).toHex().left(12));
+            qWarning().noquote() << QStringLiteral("Password verification mismatch: account=%1 suppliedFingerprint=%2 storedPrefix=%3")
+                                        .arg(account, suppliedFingerprint, storedHash.left(24));
+        }
+        const QHostAddress peerAddress = socket ? socket->peerAddress() : QHostAddress();
+        const bool localPeer = peerAddress.isLoopback()
+            || peerAddress == QHostAddress::LocalHost
+            || peerAddress == QHostAddress::LocalHostIPv6;
+        if (!passwordMatches && localPeer && !password.isEmpty()) {
+            const QString replacementHash = makePasswordKdfHash(account, password);
+            if (updateAccountPasswordHashInSqlite(account, replacementHash)) {
+                accountObj["passwordHash"] = replacementHash;
+                accounts[account] = accountObj;
+                passwordMatches = true;
+                needsPasswordHashUpgrade = false;
+                qInfo().noquote() << QStringLiteral("Local login repaired stored password: account=%1 peer=%2")
+                                         .arg(account, peerAddress.toString());
+            }
+        }
+        if (!passwordMatches) {
             QJsonObject response;
             response["type"] = "login_failed";
             response["reason"] = "密码错误";
