@@ -1,6 +1,9 @@
 #include "views/contactsview.h"
 
 #include "theme/thememanager.h"
+#include "widgets/contactcard.h"
+#include "widgets/contactlistwidget.h"
+#include "widgets/contactnoticepanel.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -81,19 +84,24 @@ void ContactsView::setupUi()
     m_groupListView->setContextMenuPolicy(Qt::CustomContextMenu);
     m_tabWidget->addTab(m_groupListView, QStringLiteral("群聊"));
 
-    contentLayout->addWidget(m_tabWidget, 1);
+    m_contactList = new ContactListWidget(this);
+    m_contactList->setObjectName(QStringLiteral("contactListWidget"));
+    m_contactCard = new ContactCard(this);
+    m_contactCard->setObjectName(QStringLiteral("contactCard"));
+
+    auto* listDetailLayout = new QHBoxLayout();
+    listDetailLayout->setSpacing(14);
+    listDetailLayout->addWidget(m_contactList, 1);
+    listDetailLayout->addWidget(m_contactCard, 1);
+
+    // Keep the old model-backed tabs alive for MainWindow compatibility.
+    m_tabWidget->setVisible(false);
+
+    contentLayout->addLayout(listDetailLayout, 1);
     root->addWidget(content, 1);
 
-    connect(m_friendListView, &QListView::clicked, this, [this](const QModelIndex& index) {
-        if (index.isValid()) {
-            emit friendSelected(index.data(Qt::UserRole).toString());
-        }
-    });
-    connect(m_groupListView, &QListView::clicked, this, [this](const QModelIndex& index) {
-        if (index.isValid()) {
-            emit groupSelected(index.data(Qt::UserRole).toString());
-        }
-    });
+    connect(m_contactList, &ContactListWidget::friendSelected, this, &ContactsView::friendSelected);
+    connect(m_contactList, &ContactListWidget::groupSelected, this, &ContactsView::groupSelected);
     connect(addButton, &QPushButton::clicked, this, &ContactsView::addFriendRequested);
     connect(createGroupButton, &QPushButton::clicked, this, &ContactsView::createGroupRequested);
 }
@@ -133,5 +141,6 @@ void ContactsView::updateStyle()
 QLineEdit* ContactsView::searchEdit() const { return m_searchEdit; }
 QListView* ContactsView::friendListView() const { return m_friendListView; }
 QListView* ContactsView::groupListView() const { return m_groupListView; }
+ContactListWidget* ContactsView::contactList() const { return m_contactList; }
 QStandardItemModel* ContactsView::friendModel() const { return m_friendModel; }
 QStandardItemModel* ContactsView::groupModel() const { return m_groupModel; }

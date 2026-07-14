@@ -20,6 +20,7 @@ public:
     QLineEdit* searchEdit() const;
     QListView* friendListView() const;
     QListView* groupListView() const;
+    ContactListWidget* contactList() const;
 
     QStandardItemModel* friendModel() const;
     QStandardItemModel* groupModel() const;
