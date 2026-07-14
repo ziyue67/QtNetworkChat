@@ -1,6 +1,9 @@
 #ifndef CONTACTSVIEW_H
 #define CONTACTSVIEW_H
 
+#include "widgets/contactlistwidget.h"
+
+#include <QMap>
 #include <QWidget>
 
 class QLineEdit;
@@ -24,6 +27,9 @@ public:
 
     QStandardItemModel* friendModel() const;
     QStandardItemModel* groupModel() const;
+
+    void setFriends(const QList<ContactDisplayData>& contacts);
+    void setGroups(const QList<ContactDisplayData>& groups);
 
 signals:
     void friendSelected(const QString& userId);
@@ -49,6 +55,9 @@ private:
     ContactListWidget* m_contactList = nullptr;
     ContactCard* m_contactCard = nullptr;
     ContactNoticePanel* m_noticePanel = nullptr;
+
+    QMap<QString, ContactDisplayData> m_friendMap;
+    QMap<QString, ContactDisplayData> m_groupMap;
 };
 
 #endif // CONTACTSVIEW_H

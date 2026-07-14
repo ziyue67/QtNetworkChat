@@ -40,6 +40,7 @@ void qqntLog(const QString& tag, const QString& msg)
 #include "windowstatemanager.h"
 #include "views/messagesview.h"
 #include "views/contactsview.h"
+#include "widgets/contactlistwidget.h"
 #include "views/favoritesview.h"
 #include "views/settingsview.h"
 #include "views/profileview.h"
@@ -8788,6 +8789,8 @@ void MainWindow::refreshContactsAndProfile() {
     if (m_contactsView) {
         QStandardItemModel* friendModel = m_contactsView->friendModel();
         QStandardItemModel* groupModel = m_contactsView->groupModel();
+        QList<ContactDisplayData> friendContacts;
+        QList<ContactDisplayData> groupContacts;
         const QString filter = m_contactsView->searchEdit()
             ? m_contactsView->searchEdit()->text().trimmed()
             : QString();
@@ -8816,6 +8819,12 @@ void MainWindow::refreshContactsAndProfile() {
                 item->setToolTip(QStringLiteral("QQ: %1").arg(friendId));
                 friendModel->appendRow(item);
                 ++friendRows;
+                ContactDisplayData fd;
+                fd.id = friendId;
+                fd.nickname = name;
+                fd.isOnline = online;
+                fd.status = online ? QStringLiteral("在线") : QStringLiteral("离线");
+                friendContacts.append(fd);
             }
             if (friendRows == 0) {
                 QStandardItem* empty = new QStandardItem(
@@ -8844,6 +8853,12 @@ void MainWindow::refreshContactsAndProfile() {
                 item->setToolTip(QStringLiteral("群号: %1").arg(groupId));
                 groupModel->appendRow(item);
                 ++groupRows;
+                ContactDisplayData gd;
+                gd.id = groupId;
+                gd.nickname = name;
+                gd.memberCount = memberCount;
+                gd.isGroup = true;
+                groupContacts.append(gd);
             }
             if (groupRows == 0) {
                 QStandardItem* empty = new QStandardItem(
@@ -8855,6 +8870,9 @@ void MainWindow::refreshContactsAndProfile() {
                 groupModel->appendRow(empty);
             }
         }
+        // Feed new list widget with the same data.
+        m_contactsView->setFriends(friendContacts);
+        m_contactsView->setGroups(groupContacts);
     }
 
     // Feed real statistics into the ProfileView.

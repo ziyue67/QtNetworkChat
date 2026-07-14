@@ -100,8 +100,8 @@ void ContactsView::setupUi()
     contentLayout->addLayout(listDetailLayout, 1);
     root->addWidget(content, 1);
 
-    connect(m_contactList, &ContactListWidget::friendSelected, this, &ContactsView::friendSelected);
-    connect(m_contactList, &ContactListWidget::groupSelected, this, &ContactsView::groupSelected);
+    connect(m_contactList, &ContactListWidget::friendSelected, this, [this](const QString& id){ onContactSelected(id, false); });
+    connect(m_contactList, &ContactListWidget::groupSelected, this, [this](const QString& id){ onContactSelected(id, true); });
     connect(addButton, &QPushButton::clicked, this, &ContactsView::addFriendRequested);
     connect(createGroupButton, &QPushButton::clicked, this, &ContactsView::createGroupRequested);
 }
@@ -144,3 +144,43 @@ QListView* ContactsView::groupListView() const { return m_groupListView; }
 ContactListWidget* ContactsView::contactList() const { return m_contactList; }
 QStandardItemModel* ContactsView::friendModel() const { return m_friendModel; }
 QStandardItemModel* ContactsView::groupModel() const { return m_groupModel; }
+void ContactsView::setFriends(const QList<ContactDisplayData>& contacts)
+{
+    if (m_contactList) {
+        m_contactList->setFriends(contacts);
+    }
+    m_friendMap.clear();
+    for (const ContactDisplayData& d : contacts) {
+        if (!d.id.isEmpty()) {
+            m_friendMap.insert(d.id, d);
+        }
+    }
+}
+
+void ContactsView::setGroups(const QList<ContactDisplayData>& groups)
+{
+    if (m_contactList) {
+        m_contactList->setGroups(groups);
+    }
+    m_groupMap.clear();
+    for (const ContactDisplayData& d : groups) {
+        if (!d.id.isEmpty()) {
+            m_groupMap.insert(d.id, d);
+        }
+    }
+}
+
+void ContactsView::onContactSelected(const QString& id, bool isGroup)
+{
+    if (isGroup) {
+        const auto it = m_groupMap.constFind(id);
+        if (it != m_groupMap.constEnd() && m_contactCard) {
+            m_contactCard->setGroupData(*it, {});
+        }
+    } else {
+        const auto it = m_friendMap.constFind(id);
+        if (it != m_friendMap.constEnd() && m_contactCard) {
+            m_contactCard->setFriendData(*it);
+        }
+    }
+}
