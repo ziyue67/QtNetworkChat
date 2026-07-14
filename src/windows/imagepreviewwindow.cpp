@@ -2,6 +2,7 @@
 
 #include "theme/thememanager.h"
 #include "widgets/dialogtitlebar.h"
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
