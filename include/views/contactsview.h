@@ -7,6 +7,9 @@ class QLineEdit;
 class QTabWidget;
 class QListView;
 class QStandardItemModel;
+class ContactListWidget;
+class ContactCard;
+class ContactNoticePanel;
 
 class ContactsView : public QWidget {
     Q_OBJECT
@@ -26,10 +29,14 @@ signals:
     void groupSelected(const QString& groupId);
     void addFriendRequested();
     void createGroupRequested();
+    void friendManagerRequested();
+    void globalSearchRequested();
 
 private:
     void setupUi();
     void updateStyle();
+    void onContactSelected(const QString& id, bool isGroup);
+    void onShowNoticePanel();
 
     QLineEdit* m_searchEdit = nullptr;
     QTabWidget* m_tabWidget = nullptr;
@@ -37,6 +44,10 @@ private:
     QListView* m_groupListView = nullptr;
     QStandardItemModel* m_friendModel = nullptr;
     QStandardItemModel* m_groupModel = nullptr;
+
+    ContactListWidget* m_contactList = nullptr;
+    ContactCard* m_contactCard = nullptr;
+    ContactNoticePanel* m_noticePanel = nullptr;
 };
 
 #endif // CONTACTSVIEW_H
