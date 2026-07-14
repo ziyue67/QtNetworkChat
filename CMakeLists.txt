@@ -186,6 +186,10 @@ add_executable(QtNetworkChat
     src/widgets/appnav.cpp
     src/widgets/composerwidget.cpp
     src/widgets/composerTextEdit.cpp
+    src/widgets/contactcard.cpp
+    src/widgets/contactlistwidget.cpp
+    src/widgets/contactnoticepanel.cpp
+    src/widgets/groupmembersidebar.cpp
     src/views/messagesview.cpp
     src/views/contactsview.cpp
     src/views/favoritesview.cpp
@@ -233,6 +237,10 @@ add_executable(QtNetworkChat
     include/widgets/appnav.h
     include/widgets/composerwidget.h
     include/widgets/composerTextEdit.h
+    include/widgets/contactcard.h
+    include/widgets/contactlistwidget.h
+    include/widgets/contactnoticepanel.h
+    include/widgets/groupmembersidebar.h
     include/views/messagesview.h
     include/views/contactsview.h
     include/views/favoritesview.h
@@ -1690,6 +1698,3 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qqnt_engine_smoke_test.cmake
     )
 endif()
-
-
-
