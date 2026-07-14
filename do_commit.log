@@ -1,0 +1,2 @@
+[qqnt-ui-frontend c1b83cc8] build: add contact/group widgets to build configs; stage ContactsView integration
+ 1 file changed, 63 deletions(-)
