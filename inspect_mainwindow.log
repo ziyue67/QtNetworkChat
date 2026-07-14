@@ -1,0 +1,7 @@
+m_messagesView->setChatModel\(m_chatModel\); -> 424176 line 8909
+void MainWindow::onShowGroupMemberSidebar\(\) -> 445460 line 9330
+void MainWindow::refreshWorkspaceChrome\(\) -> 141542 line 3017
+void MainWindow::switchToLocalGroup\(const QString& groupId, const QString& groupName\) -> 198805 line 4243
+GroupMemberSidebar\* m_groupMemberSidebar = new GroupMemberSidebar -> not found line 
+EssencePanel\* m_essencePanel = new EssencePanel -> not found line 
+refreshWorkspaceChrome\(\) -> 29828 line 742

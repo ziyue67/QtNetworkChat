@@ -1,0 +1,8 @@
+**********************************************************************
+** Visual Studio 2026 Developer Command Prompt v18.6.2
+** Copyright (c) 2026 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x64'
+QMake version 3.1
+Using Qt version 5.15.2 in D:/Qt/5.15.2/msvc2019_64/lib
+Project ERROR: msvc-version.conf loaded but QMAKE_MSC_VER isn't set

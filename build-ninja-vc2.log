@@ -1,0 +1,12 @@
+[1/510] Building CXX object CMakeFiles\QtNetworkChat.dir\Debug\src\filetransferstatus.cpp.obj
+[2/510] Building CXX object CMakeFiles\QtNetworkChat.dir\Debug\src\tlssecurity.cpp.obj
+[3/510] Building CXX object CMakeFiles\QtNetworkChat.dir\Debug\src\windows\imagepreviewwindow.cpp.obj
+FAILED: [code=2] CMakeFiles/QtNetworkChat.dir/Debug/src/windows/imagepreviewwindow.cpp.obj 
+D:\PROGRA~1\MICROS~1\18\COMMUN~1\VC\Tools\MSVC\1451~1.362\bin\Hostx64\x64\cl.exe  /nologo /TP -DQT_CORE_LIB -DQT_GUI_LIB -DQT_MULTIMEDIA_LIB -DQT_NETWORK_LIB -DQT_SQL_LIB -DQT_WIDGETS_LIB -D_ALLOW_ITERATOR_DEBUG_LEVEL=0 -DCMAKE_INTDIR=\"Debug\" -I"D:\C++VS pro\QtNetworkChat\build-qqnt-ui-ninja\QtNetworkChat_autogen\include_Debug" -I"D:\C++VS pro\QtNetworkChat\build-qqnt-ui-ninja\generated" -I"D:\C++VS pro\QtNetworkChat\include" -external:ID:\Qt\5.15.2\msvc2019_64\include -external:ID:\Qt\5.15.2\msvc2019_64\include\QtWidgets -external:ID:\Qt\5.15.2\msvc2019_64\include\QtGui -external:ID:\Qt\5.15.2\msvc2019_64\include\QtANGLE -external:ID:\Qt\5.15.2\msvc2019_64\include\QtCore -external:ID:\Qt\5.15.2\msvc2019_64\.\mkspecs\win32-msvc -external:ID:\Qt\5.15.2\msvc2019_64\include\QtNetwork -external:ID:\Qt\5.15.2\msvc2019_64\include\QtSql -external:ID:\Qt\5.15.2\msvc2019_64\include\QtMultimedia -external:W0 /DWIN32 /D_WINDOWS /GR /EHsc /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd /utf-8 /D_ITERATOR_DEBUG_LEVEL=0 /FI "D:/C++VS pro/QtNetworkChat/include/msvc_compat.h" /showIncludes /FoCMakeFiles\QtNetworkChat.dir\Debug\src\windows\imagepreviewwindow.cpp.obj /FdCMakeFiles\QtNetworkChat.dir\Debug\ /FS -c "D:\C++VS pro\QtNetworkChat\src\windows\imagepreviewwindow.cpp"
+D:\C++VS pro\QtNetworkChat\src\windows\imagepreviewwindow.cpp(164): error C2027: 使用了未定义类型“QGuiApplication”
+D:\Qt\5.15.2\msvc2019_64\include\QtWidgets/qwidget.h(705): note: 参见“QGuiApplication”的声明
+D:\C++VS pro\QtNetworkChat\src\windows\imagepreviewwindow.cpp(164): error C3861: “primaryScreen”: 找不到标识符
+[4/510] Building CXX object CMakeFiles\QtNetworkChat.dir\Debug\src\historyattachmentparser.cpp.obj
+[5/510] Building CXX object CMakeFiles\QtNetworkChat.dir\Debug\src\transfermanager.cpp.obj
+[6/510] Building CXX object CMakeFiles\QtNetworkChat.dir\Debug\src\chatcontextmanager.cpp.obj
+ninja: build stopped: subcommand failed.
