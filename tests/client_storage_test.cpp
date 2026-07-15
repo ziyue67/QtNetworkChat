@@ -167,6 +167,21 @@ int main(int argc, char** argv) {
                                             QStringList{QStringLiteral("2001"), QStringLiteral("1001")},
                                             QStringList{QStringLiteral("2002")}),
                 "friends and pending requests should save to sqlite") && ok;
+    QMap<QString, QString> friendGroups;
+    friendGroups.insert(QStringLiteral("1001"), QStringLiteral("家人"));
+    friendGroups.insert(QStringLiteral("1002"), QStringLiteral("项目组"));
+    const QStringList customGroups{QStringLiteral("项目组"), QStringLiteral("空分组")};
+    ok = expect(storage.saveFriendGroupsToSqlite(databasePath, friendGroups, customGroups),
+                "friend groups should save to sqlite") && ok;
+    QMap<QString, QString> loadedFriendGroups;
+    QStringList loadedCustomGroups;
+    ClientStorage reloadedStorage(QStringLiteral("Alice"));
+    ok = expect(reloadedStorage.loadFriendGroupsFromSqlite(databasePath,
+                                                           &loadedFriendGroups,
+                                                           &loadedCustomGroups)
+                    && loadedFriendGroups == friendGroups
+                    && loadedCustomGroups == customGroups,
+                "friend assignments and empty custom groups should round-trip through sqlite") && ok;
     ok = expect(storage.saveLocalGroupsToSqlite(databasePath,
                                                 QStringLiteral("self"),
                                                 groupIds,
@@ -178,6 +193,8 @@ int main(int argc, char** argv) {
                     && countRows(databasePath, QStringLiteral("peer_avatars")) == 1
                     && countRows(databasePath, QStringLiteral("friends")) == 2
                     && countRows(databasePath, QStringLiteral("friend_requests")) == 2
+                    && countRows(databasePath, QStringLiteral("friend_groups")) == 2
+                    && countRows(databasePath, QStringLiteral("custom_groups")) == 2
                     && countRows(databasePath, QStringLiteral("local_groups")) == 2,
                 "sqlite persistence should write expected row counts and skip requests for existing friends") && ok;
 

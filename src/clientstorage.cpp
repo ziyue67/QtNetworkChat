@@ -242,6 +242,83 @@ bool ClientStorage::writeFriendGroups(const QMap<QString, QString>& friendGroups
     return true;
 }
 
+bool ClientStorage::loadFriendGroupsFromSqlite(const QString& databasePath,
+                                               QMap<QString, QString>* friendGroups,
+                                               QStringList* customGroups) const {
+    if (databasePath.isEmpty() || !friendGroups || !customGroups) return false;
+    const QString connectionName = QStringLiteral("client_storage_friend_groups_read_%1")
+        .arg(QString::number(reinterpret_cast<quintptr>(this)));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(databasePath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS friend_groups(friend_id TEXT PRIMARY KEY, group_name TEXT NOT NULL)"))
+                && query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS custom_groups(name TEXT PRIMARY KEY)"));
+            if (ok) {
+                friendGroups->clear();
+                customGroups->clear();
+                ok = query.exec(QStringLiteral("SELECT friend_id, group_name FROM friend_groups"));
+                while (ok && query.next()) {
+                    const QString id = query.value(0).toString().trimmed();
+                    const QString group = query.value(1).toString().trimmed();
+                    if (!id.isEmpty() && !group.isEmpty()) friendGroups->insert(id, group);
+                }
+                ok = ok && query.exec(QStringLiteral("SELECT name FROM custom_groups ORDER BY rowid"));
+                while (ok && query.next()) {
+                    const QString name = query.value(0).toString().trimmed();
+                    if (!name.isEmpty() && !customGroups->contains(name)) customGroups->append(name);
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool ClientStorage::saveFriendGroupsToSqlite(const QString& databasePath,
+                                             const QMap<QString, QString>& friendGroups,
+                                             const QStringList& customGroups) const {
+    if (databasePath.isEmpty()) return false;
+    const QString connectionName = QStringLiteral("client_storage_friend_groups_write_%1")
+        .arg(QString::number(reinterpret_cast<quintptr>(this)));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(databasePath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS friend_groups(friend_id TEXT PRIMARY KEY, group_name TEXT NOT NULL)"))
+                && query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS custom_groups(name TEXT PRIMARY KEY)"));
+            if (ok) ok = db.transaction();
+            if (ok) ok = query.exec(QStringLiteral("DELETE FROM friend_groups"))
+                         && query.exec(QStringLiteral("DELETE FROM custom_groups"));
+            QSqlQuery insertGroup(db);
+            insertGroup.prepare(QStringLiteral("INSERT INTO friend_groups(friend_id, group_name) VALUES(?, ?)"));
+            for (auto it = friendGroups.cbegin(); ok && it != friendGroups.cend(); ++it) {
+                if (it.key().trimmed().isEmpty() || it.value().trimmed().isEmpty()) continue;
+                insertGroup.bindValue(0, it.key().trimmed());
+                insertGroup.bindValue(1, it.value().trimmed());
+                ok = insertGroup.exec();
+            }
+            QSqlQuery insertCustom(db);
+            insertCustom.prepare(QStringLiteral("INSERT OR IGNORE INTO custom_groups(name) VALUES(?)"));
+            for (const QString& name : customGroups) {
+                if (!ok) break;
+                if (name.trimmed().isEmpty()) continue;
+                insertCustom.bindValue(0, name.trimmed());
+                ok = insertCustom.exec();
+            }
+            ok ? db.commit() : db.rollback();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
 bool ClientStorage::readLegacyLocalGroups(const QString& currentUserId,
                                           QStringList* groupIds,
                                           QMap<QString, QString>* groupNames,

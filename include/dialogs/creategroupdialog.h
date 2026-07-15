@@ -5,65 +5,68 @@
 #include <QMap>
 #include <QStringList>
 
-class QLineEdit;
+class QButtonGroup;
+class QCheckBox;
+class QFrame;
+class QGridLayout;
 class QLabel;
-class QPushButton;
+class QLineEdit;
 class QListWidget;
-class QListWidgetItem;
+class QPushButton;
 class QStackedWidget;
+class QVBoxLayout;
+class QScrollArea;
 
-// Three-step group-creation wizard (matches tauri-qqnt CreateGroupModal):
-//   1. 选择成员  2. 选择分类  3. 填写信息
-// The public API (setCandidateMembers / groupName / selectedMembers /
-// createRequested) is unchanged so MainWindow's wiring keeps working.
 class CreateGroupDialog : public QDialog {
     Q_OBJECT
-
 public:
     explicit CreateGroupDialog(QWidget* parent = nullptr);
-
-    // Populate the selectable member list. names maps id -> display name.
     void setCandidateMembers(const QStringList& memberIds,
-                             const QMap<QString, QString>& names);
-
+                             const QMap<QString, QString>& names,
+                             const QStringList& recentMemberIds = {});
     QString groupName() const;
     QStringList selectedMembers() const;
     QString selectedCategory() const;
+    QString selectedAvatarId() const;
 
 signals:
     void createRequested(const QString& name, const QStringList& members);
 
 private:
+    QWidget* buildSelectPage();
+    QWidget* buildCategoryPage();
+    QWidget* buildInfoPage();
     void setupUi();
     void updateStyle();
-    QWidget* buildMemberStep();
-    QWidget* buildCategoryStep();
-    QWidget* buildInfoStep();
-    void goToStep(int step);
-    void updateStepChrome();
-    void refreshMemberFilter();
-    int selectedMemberCount() const;
+    void showPage(int page);
+    void refreshMemberLists();
+    void refreshSelectedMembers();
+    void toggleMember(const QString& id);
+    QWidget* buildMemberRow(const QString& id, QWidget* parent);
+    void chooseCategory(const QString& category);
+    void finishDirect();
+    void finishCategorized();
+    QString defaultGroupName() const;
 
-    // Wizard chrome
     QStackedWidget* m_stack = nullptr;
-    QLabel* m_stepLabel = nullptr;
-    QPushButton* m_backBtn = nullptr;
-    QPushButton* m_nextBtn = nullptr;
-    int m_step = 0;
-
-    // Step 1: members
-    QLineEdit* m_memberSearch = nullptr;
-    QListWidget* m_memberList = nullptr;
-
-    // Step 2: category
-    QListWidget* m_categoryList = nullptr;
-
-    // Step 3: info
+    QLineEdit* m_searchEdit = nullptr;
+    QVBoxLayout* m_recentLayout = nullptr;
+    QVBoxLayout* m_friendLayout = nullptr;
+    QLabel* m_recentEmpty = nullptr;
+    QVBoxLayout* m_selectedLayout = nullptr;
+    QLabel* m_selectedEmpty = nullptr;
+    QPushButton* m_directCreateBtn = nullptr;
     QLineEdit* m_nameEdit = nullptr;
-    QLabel* m_summaryLabel = nullptr;
-    QLabel* m_agreeLabel = nullptr;
-    QPushButton* m_agreeCheck = nullptr;
-    bool m_agreed = false;
+    QLabel* m_categoryLabel = nullptr;
+    QButtonGroup* m_avatarGroup = nullptr;
+    QCheckBox* m_agreeCheck = nullptr;
+    QPushButton* m_createBtn = nullptr;
+    QStringList m_memberIds;
+    QStringList m_recentIds;
+    QMap<QString, QString> m_names;
+    QStringList m_selectedIds;
+    QString m_category;
+    QString m_avatarId;
 };
 
-#endif // CREATEGROUPDIALOG_H
+#endif

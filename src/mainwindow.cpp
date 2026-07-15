@@ -1486,7 +1486,16 @@ int MainWindow::appendMembersToLocalGroup(const QString& groupId, const QStringL
 bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
     if (commandId == QLatin1String("create-group")) {
         CreateGroupDialog dialog(this);
-        dialog.setCandidateMembers(m_friendIds, m_friendNames);
+        QStringList recentFriendIds;
+        if (m_sessionModel) {
+            for (int row = 0; row < m_sessionModel->rowCount(); ++row) {
+                const QModelIndex index = m_sessionModel->index(row, 0);
+                const QString id = index.data(SessionItemDelegate::SessionIdRole).toString();
+                const bool isGroup = index.data(SessionItemDelegate::SessionGroupRole).toBool();
+                if (!isGroup && m_friendIds.contains(id) && !recentFriendIds.contains(id)) recentFriendIds << id;
+            }
+        }
+        dialog.setCandidateMembers(m_friendIds, m_friendNames, recentFriendIds);
         if (dialog.exec() != QDialog::Accepted) {
             return true;
         }
@@ -1495,13 +1504,49 @@ bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
             groupName = QStringLiteral("我的群聊");
         }
         const QStringList members = dialog.selectedMembers();
+        const QString category = dialog.selectedCategory();
 
         const QString groupId = members.isEmpty()
             ? createLocalGroupSession(groupName)
             : createLocalGroupSession(
                   groupName,
                   members,
-                  QStringLiteral("%1 已创建，已邀请 %2 位好友。").arg(groupName).arg(members.size()));
+                  category.isEmpty()
+                      ? QStringLiteral("%1 已创建，已邀请 %2 位好友。").arg(groupName).arg(members.size())
+                      : QStringLiteral("群分类：%1").arg(category));
+        const QMap<QString, QColor> avatarColors = {
+            {QStringLiteral("blue"), QColor(QStringLiteral("#12a4ff"))},
+            {QStringLiteral("green"), QColor(QStringLiteral("#18c98b"))},
+            {QStringLiteral("orange"), QColor(QStringLiteral("#ff9f1a"))},
+            {QStringLiteral("pink"), QColor(QStringLiteral("#fb6f92"))},
+            {QStringLiteral("cyan"), QColor(QStringLiteral("#12c9bd"))},
+            {QStringLiteral("purple"), QColor(QStringLiteral("#8b7cf6"))}
+        };
+        const QString avatarId = dialog.selectedAvatarId();
+        QPixmap avatarPixmap(80, 80);
+        avatarPixmap.fill(Qt::transparent);
+        {
+            QPainter painter(&avatarPixmap);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setBrush(avatarColors.value(avatarId, avatarColors.value(QStringLiteral("blue"))));
+            painter.setPen(Qt::NoPen);
+            painter.drawEllipse(0, 0, 80, 80);
+            painter.setPen(Qt::white);
+            QFont font = painter.font();
+            font.setBold(true);
+            font.setPixelSize(30);
+            painter.setFont(font);
+            const QString avatarText = avatarId == QStringLiteral("green") ? QStringLiteral("G")
+                : avatarId == QStringLiteral("orange") ? QStringLiteral("C")
+                : avatarId == QStringLiteral("pink") ? QStringLiteral("N")
+                : avatarId == QStringLiteral("cyan") ? QStringLiteral("T")
+                : avatarId == QStringLiteral("purple") ? QStringLiteral("群") : QStringLiteral("Q");
+            painter.drawText(avatarPixmap.rect(), Qt::AlignCenter, avatarText);
+        }
+        const QString groupAvatarDir = QDir(ClientStorage::appDataRootDirectory()).filePath(QStringLiteral("group_avatars"));
+        QDir().mkpath(groupAvatarDir);
+        const QString groupAvatarPath = QDir(groupAvatarDir).filePath(groupId + QStringLiteral(".png"));
+        if (avatarPixmap.save(groupAvatarPath, "PNG")) m_localGroupAvatarPaths[groupId] = groupAvatarPath;
         switchToLocalGroup(groupId, groupName);
         showMessagesView();
         const QString created = members.isEmpty()
@@ -8499,7 +8544,13 @@ void MainWindow::refreshFriendList() {
     // Load local-only friend groups (friendId -> group name + custom groups).
     m_friendGroups.clear();
     m_customGroups.clear();
-    m_clientStorage.readFriendGroups(&m_friendGroups, &m_customGroups);
+    const bool loadedFriendGroupsFromSqlite = ensureClientDatabase()
+        && m_clientStorage.loadFriendGroupsFromSqlite(clientDbPath(), &m_friendGroups, &m_customGroups);
+    if (!loadedFriendGroupsFromSqlite || (m_friendGroups.isEmpty() && m_customGroups.isEmpty())) {
+        if (m_clientStorage.readFriendGroups(&m_friendGroups, &m_customGroups) && ensureClientDatabase()) {
+            m_clientStorage.saveFriendGroupsToSqlite(clientDbPath(), m_friendGroups, m_customGroups);
+        }
+    }
 
     if (m_pendingFriendRequests.isEmpty() && m_pendingOutgoingFriendRequests.isEmpty() && ensureClientDatabase()) {
         const QString connectionName = "client_requests_read_" + QString::number(reinterpret_cast<quintptr>(this));
@@ -8726,6 +8777,18 @@ void MainWindow::refreshSessionList() {
         item->setData(entry.atMention, SessionItemDelegate::SessionAtMentionRole);
         item->setData(entry.online, SessionItemDelegate::SessionOnlineRole);
         item->setData(entry.isGroup, SessionItemDelegate::SessionGroupRole);
+        if (entry.isGroup) {
+            QString avatarPath = m_localGroupAvatarPaths.value(entry.id);
+            if (avatarPath.isEmpty()) {
+                const QString candidate = QDir(ClientStorage::appDataRootDirectory())
+                    .filePath(QStringLiteral("group_avatars/%1.png").arg(entry.id));
+                if (QFileInfo::exists(candidate)) {
+                    avatarPath = candidate;
+                    m_localGroupAvatarPaths[entry.id] = candidate;
+                }
+            }
+            if (!avatarPath.isEmpty()) item->setData(avatarPath, SessionItemDelegate::SessionAvatarPathRole);
+        }
         // Avatar path: public room and local groups have no avatar file, friends may.
         if (!entry.isGroup) {
             const QString avatarPath = chatAvatarPath(entry.id);
@@ -9684,6 +9747,9 @@ void MainWindow::saveFriends() const {
 }
 
 void MainWindow::saveFriendGroups() const {
+    if (ensureClientDatabase()) {
+        m_clientStorage.saveFriendGroupsToSqlite(clientDbPath(), m_friendGroups, m_customGroups);
+    }
     m_clientStorage.writeFriendGroups(m_friendGroups, m_customGroups);
 }
 

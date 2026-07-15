@@ -53,7 +53,7 @@ void ContactsView::setupUi()
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索"));
     searchRow->addWidget(m_searchEdit, 1);
 
-    m_plusButton = new QPushButton(QStringLiteral("＋"), sidebar);
+    m_plusButton = new QPushButton(QStringLiteral("+"), sidebar);
     m_plusButton->setObjectName(QStringLiteral("contactsPlusButton"));
     m_plusButton->setFixedSize(28, 28);
     m_plusButton->setCursor(Qt::PointingHandCursor);
@@ -214,7 +214,7 @@ void ContactsView::updateStyle()
         "QLabel#contactsEmptyLabel { color: %6; font-size: 14px; }"
         "QLineEdit#contactsSearchEdit { background-color: %4; color: %3; border: 1px solid %2; border-radius: 7px; padding: 6px 10px; }"
         "QLineEdit#contactsSearchEdit:focus { border: 1px solid %5; }"
-        "QPushButton#contactsPlusButton { background-color: %4; color: %3; border: none; border-radius: 6px; font-size: 18px; }"
+        "QPushButton#contactsPlusButton { background-color: %4; color: %3; border: none; border-radius: 6px; font-size: 20px; font-weight: 300; padding: 0; }"
         "QPushButton#contactsPlusButton:hover { background-color: %8; color: %5; }"
         "QPushButton#contactsPlusButton::menu-indicator { image: none; width: 0; }"
         "QMenu#contactsPlusMenu { background-color: %1; border: 1px solid %2; border-radius: 8px; padding: 4px; }"

@@ -19,7 +19,8 @@ AddFriendDialog::AddFriendDialog(QWidget* parent)
     setObjectName(QStringLiteral("addFriendDialog"));
     setWindowTitle(QStringLiteral("添加好友"));
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    setMinimumSize(400, 300);
+    setFixedWidth(384);
+    setMinimumHeight(250);
     setupUi();
     updateStyle();
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &AddFriendDialog::updateStyle);
@@ -37,7 +38,7 @@ void AddFriendDialog::setupUi()
 
     QWidget* body = new QWidget(this);
     QVBoxLayout* bodyLayout = new QVBoxLayout(body);
-    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setContentsMargins(20, 16, 20, 20);
     bodyLayout->setSpacing(12);
 
     // Search row: input + primary search button (matches AddFriendModal).
@@ -112,11 +113,6 @@ void AddFriendDialog::setupUi()
 
     bodyLayout->addStretch();
 
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("关闭"), body);
-    cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
-    bodyLayout->addWidget(cancelBtn, 0, Qt::AlignRight);
-
     root->addWidget(body, 1);
 }
 
@@ -146,7 +142,7 @@ void AddFriendDialog::updateStyle()
     setStyleSheet(DialogStyle::common() + QStringLiteral(
         "QDialog#addFriendDialog { background-color: %1; }"
         "QLabel#dialogErrorLabel { color: %5; font-size: 12px; }"
-        "QFrame#addFriendResultCard { background-color: %2; border: 1px solid %3; border-radius: 8px; }"
+        "QFrame#addFriendResultCard { background-color: %2; border: 1px solid %3; border-radius: 12px; }"
         "QLabel#addFriendResultName { color: %4; font-size: 14px; font-weight: 600; }"
         "QLabel#addFriendResultDesc { color: %6; font-size: 12px; }"
     ).arg(tm->backgroundColor().name())            // %1

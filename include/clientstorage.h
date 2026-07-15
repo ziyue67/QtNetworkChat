@@ -41,6 +41,12 @@ public:
                           QStringList* customGroups) const;
     bool writeFriendGroups(const QMap<QString, QString>& friendGroups,
                            const QStringList& customGroups) const;
+    bool loadFriendGroupsFromSqlite(const QString& databasePath,
+                                    QMap<QString, QString>* friendGroups,
+                                    QStringList* customGroups) const;
+    bool saveFriendGroupsToSqlite(const QString& databasePath,
+                                  const QMap<QString, QString>& friendGroups,
+                                  const QStringList& customGroups) const;
     bool readLegacyLocalGroups(const QString& currentUserId,
                                QStringList* groupIds,
                                QMap<QString, QString>* groupNames,

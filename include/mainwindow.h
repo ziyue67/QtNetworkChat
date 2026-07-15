@@ -393,6 +393,7 @@ private:
     QStringList m_customGroups;
     QMap<QString, QString> m_localGroupNames;
     QMap<QString, QString> m_localGroupAnnouncements;
+    QMap<QString, QString> m_localGroupAvatarPaths;
     QMap<QString, QStringList> m_localGroupMembers;
     QMap<QString, QString> m_serverGroupNames;
     QMap<QString, QString> m_serverGroupAnnouncements;
