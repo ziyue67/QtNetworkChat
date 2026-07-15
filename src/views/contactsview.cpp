@@ -27,151 +27,146 @@ ContactsView::ContactsView(QWidget* parent)
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &ContactsView::updateStyle);
 }
 
-namespace {
-QPushButton* makeToolButton(QWidget* parent, const QString& text, const QString& objName)
-{
-    auto* btn = new QPushButton(text, parent);
-    btn->setObjectName(objName);
-    btn->setFlat(true);
-    btn->setCursor(Qt::PointingHandCursor);
-    return btn;
-}
-}
-
 void ContactsView::setupUi()
 {
-    QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(18, 18, 18, 18);
-    root->setSpacing(14);
+    // QQNT ContactsView layout (mirrors tauri-qqnt ContactsView.tsx):
+    //   left sidebar (fixed width): search + [+] menu, 好友管理器, 好友通知 / 群通知,
+    //   好友/群聊 toggle, contact list.
+    //   right main area: stacked 空占位 / ContactCard / ContactNoticePanel.
+    QHBoxLayout* root = new QHBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    // Header
-    QFrame* header = new QFrame(this);
-    header->setObjectName(QStringLiteral("contactsHeader"));
-    header->setFixedHeight(76);
-    QHBoxLayout* headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(20, 14, 20, 14);
-    headerLayout->setSpacing(14);
+    // ---- Left sidebar ----------------------------------------------------
+    QFrame* sidebar = new QFrame(this);
+    sidebar->setObjectName(QStringLiteral("contactsSidebar"));
+    sidebar->setFixedWidth(260);
+    QVBoxLayout* sideLayout = new QVBoxLayout(sidebar);
+    sideLayout->setContentsMargins(8, 8, 8, 8);
+    sideLayout->setSpacing(8);
 
-    QLabel* title = new QLabel(QStringLiteral("联系人"), header);
-    title->setObjectName(QStringLiteral("contactsTitleLabel"));
-    headerLayout->addWidget(title);
-    headerLayout->addStretch();
-
-    m_searchEdit = new QLineEdit(header);
+    // Search row: read-only search box + [+] menu button.
+    QHBoxLayout* searchRow = new QHBoxLayout();
+    searchRow->setSpacing(6);
+    m_searchEdit = new QLineEdit(sidebar);
     m_searchEdit->setObjectName(QStringLiteral("contactsSearchEdit"));
-    m_searchEdit->setPlaceholderText(QStringLiteral("搜索好友或群聊，按回车进入全局搜索"));
-    m_searchEdit->setFixedWidth(300);
-    headerLayout->addWidget(m_searchEdit);
+    m_searchEdit->setPlaceholderText(QStringLiteral("搜索"));
+    searchRow->addWidget(m_searchEdit, 1);
 
-    m_plusButton = new QPushButton(QStringLiteral("＋"), header);
+    m_plusButton = new QPushButton(QStringLiteral("＋"), sidebar);
     m_plusButton->setObjectName(QStringLiteral("contactsPlusButton"));
-    m_plusButton->setFixedSize(34, 34);
+    m_plusButton->setFixedSize(28, 28);
+    m_plusButton->setCursor(Qt::PointingHandCursor);
     m_plusMenu = new QMenu(m_plusButton);
     m_plusMenu->setObjectName(QStringLiteral("contactsPlusMenu"));
-    QAction* actionAddFriend = m_plusMenu->addAction(QStringLiteral("加好友/群"));
     QAction* actionCreateGroup = m_plusMenu->addAction(QStringLiteral("创建群聊"));
+    QAction* actionAddFriend = m_plusMenu->addAction(QStringLiteral("加好友/群"));
     QAction* actionFlashFile = m_plusMenu->addAction(QStringLiteral("闪传文件"));
     actionFlashFile->setEnabled(false);
     m_plusButton->setMenu(m_plusMenu);
-    headerLayout->addWidget(m_plusButton);
+    searchRow->addWidget(m_plusButton, 0);
+    sideLayout->addLayout(searchRow);
 
-    m_friendManagerButton = makeToolButton(header, QStringLiteral("好友管理器"), QStringLiteral("contactsToolButton"));
-    headerLayout->addWidget(m_friendManagerButton);
+    // 好友管理器 full-width button.
+    m_friendManagerButton = new QPushButton(QStringLiteral("好友管理器"), sidebar);
+    m_friendManagerButton->setObjectName(QStringLiteral("contactsManagerButton"));
+    m_friendManagerButton->setCursor(Qt::PointingHandCursor);
+    m_friendManagerButton->setFixedHeight(32);
+    sideLayout->addWidget(m_friendManagerButton);
 
-    root->addWidget(header);
+    // 好友通知 / 群通知 rows (text + unread dot + chevron).
+    auto makeNoticeRow = [sidebar](const QString& text, QLabel** dotOut) -> QPushButton* {
+        auto* btn = new QPushButton(sidebar);
+        btn->setObjectName(QStringLiteral("contactsNoticeRow"));
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setFixedHeight(36);
+        auto* rowLayout = new QHBoxLayout(btn);
+        rowLayout->setContentsMargins(4, 0, 8, 0);
+        rowLayout->setSpacing(6);
+        auto* label = new QLabel(text, btn);
+        label->setObjectName(QStringLiteral("contactsNoticeText"));
+        rowLayout->addWidget(label);
+        auto* dot = new QLabel(btn);
+        dot->setObjectName(QStringLiteral("contactsNoticeDot"));
+        dot->setFixedSize(8, 8);
+        dot->setVisible(false);
+        rowLayout->addWidget(dot);
+        rowLayout->addStretch();
+        auto* chevron = new QLabel(QStringLiteral("›"), btn);
+        chevron->setObjectName(QStringLiteral("contactsNoticeChevron"));
+        rowLayout->addWidget(chevron);
+        if (dotOut) *dotOut = dot;
+        return btn;
+    };
+    m_friendNoticeButton = makeNoticeRow(QStringLiteral("好友通知"), &m_friendNoticeDot);
+    m_groupNoticeButton = makeNoticeRow(QStringLiteral("群通知"), &m_groupNoticeDot);
+    sideLayout->addWidget(m_friendNoticeButton);
+    sideLayout->addWidget(m_groupNoticeButton);
 
-    // Content
-    QFrame* content = new QFrame(this);
-    content->setObjectName(QStringLiteral("contactsContentPanel"));
-    auto* contentLayout = new QVBoxLayout(content);
-    contentLayout->setContentsMargins(18, 16, 18, 18);
-    contentLayout->setSpacing(12);
+    // 好友 / 群聊 segmented toggle.
+    QHBoxLayout* modeLayout = new QHBoxLayout();
+    modeLayout->setSpacing(0);
+    m_friendModeButton = new QPushButton(QStringLiteral("好友"), sidebar);
+    m_friendModeButton->setObjectName(QStringLiteral("contactsModeButton"));
+    m_friendModeButton->setCheckable(true);
+    m_friendModeButton->setChecked(true);
+    m_friendModeButton->setFixedHeight(30);
+    m_groupModeButton = new QPushButton(QStringLiteral("群聊"), sidebar);
+    m_groupModeButton->setObjectName(QStringLiteral("contactsModeButton"));
+    m_groupModeButton->setCheckable(true);
+    m_groupModeButton->setFixedHeight(30);
+    modeLayout->addWidget(m_friendModeButton);
+    modeLayout->addWidget(m_groupModeButton);
+    sideLayout->addLayout(modeLayout);
 
-    auto* sectionTitle = new QLabel(QStringLiteral("通讯录"), content);
-    sectionTitle->setObjectName(QStringLiteral("contactsSectionTitle"));
-    contentLayout->addWidget(sectionTitle);
-
-    // Notice / manager toolbar
-    auto* toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setSpacing(10);
-    m_friendNoticeButton = makeToolButton(content, QStringLiteral("好友通知"), QStringLiteral("contactsToolButton"));
-    m_groupNoticeButton = makeToolButton(content, QStringLiteral("群通知"), QStringLiteral("contactsToolButton"));
-    toolbarLayout->addWidget(m_friendNoticeButton);
-    toolbarLayout->addWidget(m_groupNoticeButton);
-    toolbarLayout->addStretch();
-    contentLayout->addLayout(toolbarLayout);
-
-    m_tabWidget = new QTabWidget(content);
-    m_tabWidget->setObjectName(QStringLiteral("contactsTabWidget"));
-    m_tabWidget->setDocumentMode(true);
-
-    m_friendModel = new QStandardItemModel(this);
-    m_friendListView = new QListView(this);
-    m_friendListView->setObjectName(QStringLiteral("friendListView"));
-    m_friendListView->setModel(m_friendModel);
-    m_friendListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_tabWidget->addTab(m_friendListView, QStringLiteral("好友"));
-
-    m_groupModel = new QStandardItemModel(this);
-    m_groupListView = new QListView(this);
-    m_groupListView->setObjectName(QStringLiteral("groupListView"));
-    m_groupListView->setModel(m_groupModel);
-    m_groupListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_tabWidget->addTab(m_groupListView, QStringLiteral("群聊"));
-
-    m_tabWidget->setVisible(false);
-
-    m_contactList = new ContactListWidget(this);
+    // Contact list fills the rest of the sidebar.
+    m_contactList = new ContactListWidget(sidebar);
     m_contactList->setObjectName(QStringLiteral("contactListWidget"));
+    sideLayout->addWidget(m_contactList, 1);
 
+    root->addWidget(sidebar);
+
+    // ---- Right main area -------------------------------------------------
     m_contactCard = new ContactCard(this);
     m_contactCard->setObjectName(QStringLiteral("contactCard"));
 
     m_noticePanel = new ContactNoticePanel(this);
     m_noticePanel->setObjectName(QStringLiteral("contactNoticePanel"));
 
-    m_emptyLabel = new QLabel(QStringLiteral("选择一位好友或群聊查看详情"), this);
+    m_emptyLabel = new QLabel(QStringLiteral("选择一个联系人查看资料"), this);
     m_emptyLabel->setObjectName(QStringLiteral("contactsEmptyLabel"));
     m_emptyLabel->setAlignment(Qt::AlignCenter);
 
     m_detailStack = new QStackedWidget(this);
+    m_detailStack->setObjectName(QStringLiteral("contactsMainArea"));
     m_detailStack->addWidget(m_emptyLabel);
     m_detailStack->addWidget(m_contactCard);
     m_detailStack->addWidget(m_noticePanel);
     m_detailStack->setCurrentIndex(0);
+    root->addWidget(m_detailStack, 1);
 
-    auto* listDetailLayout = new QHBoxLayout();
-    listDetailLayout->setSpacing(14);
-    listDetailLayout->addWidget(m_contactList, 1);
-    listDetailLayout->addWidget(m_detailStack, 1);
-    contentLayout->addLayout(listDetailLayout, 1);
+    // ---- Legacy compatibility (hidden) -----------------------------------
+    // MainWindow still reads friendModel()/groupModel()/friendListView() etc.
+    // Keep them alive but invisible; the visible list is ContactListWidget.
+    m_tabWidget = new QTabWidget(this);
+    m_tabWidget->setObjectName(QStringLiteral("contactsTabWidget"));
+    m_friendModel = new QStandardItemModel(this);
+    m_friendListView = new QListView(this);
+    m_friendListView->setObjectName(QStringLiteral("friendListView"));
+    m_friendListView->setModel(m_friendModel);
+    m_friendListView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_groupModel = new QStandardItemModel(this);
+    m_groupListView = new QListView(this);
+    m_groupListView->setObjectName(QStringLiteral("groupListView"));
+    m_groupListView->setModel(m_groupModel);
+    m_groupListView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_tabWidget->addTab(m_friendListView, QStringLiteral("好友"));
+    m_tabWidget->addTab(m_groupListView, QStringLiteral("群聊"));
+    m_tabWidget->setVisible(false);
 
-    // Friend / group mode toggle
-    auto* modeLayout = new QHBoxLayout();
-    modeLayout->setSpacing(0);
-    m_friendModeButton = new QPushButton(QStringLiteral("好友"), content);
-    m_friendModeButton->setObjectName(QStringLiteral("contactsModeButton"));
-    m_friendModeButton->setCheckable(true);
-    m_friendModeButton->setChecked(true);
-    m_friendModeButton->setFixedHeight(32);
-
-    m_groupModeButton = new QPushButton(QStringLiteral("群聊"), content);
-    m_groupModeButton->setObjectName(QStringLiteral("contactsModeButton"));
-    m_groupModeButton->setCheckable(true);
-    m_groupModeButton->setFixedHeight(32);
-
-    modeLayout->addWidget(m_friendModeButton);
-    modeLayout->addWidget(m_groupModeButton);
-    modeLayout->addStretch();
-    contentLayout->addLayout(modeLayout);
-
-    root->addWidget(content, 1);
-
-    // Connections
+    // ---- Connections -----------------------------------------------------
     connect(m_contactList, &ContactListWidget::friendSelected, this, [this](const QString& id){ onContactSelected(id, false); });
     connect(m_contactList, &ContactListWidget::groupSelected, this, [this](const QString& id){ onContactSelected(id, true); });
-    // The profile card's primary button opens the conversation. Route it through the
-    // same friendSelected/groupSelected signals MainWindow already binds to session opening.
     connect(m_contactCard, &ContactCard::sendMessageRequested, this, [this](const QString& id, bool isGroup) {
         if (isGroup) {
             emit groupSelected(id);
@@ -184,6 +179,7 @@ void ContactsView::setupUi()
     connect(m_friendManagerButton, &QPushButton::clicked, this, &ContactsView::friendManagerRequested);
     connect(m_friendNoticeButton, &QPushButton::clicked, this, [this]() { onShowNoticePanel(false); });
     connect(m_groupNoticeButton, &QPushButton::clicked, this, [this]() { onShowNoticePanel(true); });
+    // The search box opens the global search flow (read-only entry point like the ref).
     connect(m_searchEdit, &QLineEdit::returnPressed, this, &ContactsView::globalSearchRequested);
 
     auto* modeGroup = new QButtonGroup(this);
@@ -193,8 +189,6 @@ void ContactsView::setupUi()
     connect(m_friendModeButton, &QPushButton::toggled, this, [this](bool checked) {
         if (checked) {
             m_contactList->setShowGroups(false);
-            // No item is selected in the new list yet; show the placeholder rather
-            // than a stale card from the previous mode.
             setDetailMode(false);
         }
     });
@@ -209,39 +203,41 @@ void ContactsView::setupUi()
 void ContactsView::updateStyle()
 {
     ThemeManager* tm = ThemeManager::instance();
+    // %1 bg  %2 border  %3 text  %4 bg-secondary  %5 primary  %6 text-tertiary
+    // %7 session-selected  %8 session-hover  %9 primary-hover  %10 danger
     setStyleSheet(QStringLiteral(
         "QWidget#contactsView { background-color: %4; }"
-        "QFrame#contactsHeader, QFrame#contactsContentPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-        "QLabel#contactsTitleLabel { color: %3; font-size: 18px; font-weight: 600; }"
-        "QLabel#contactsSectionTitle { color: %3; font-size: 14px; font-weight: 600; }"
+        "QFrame#contactsSidebar { background-color: %1; border: 1px solid %2; border-right: none; "
+            "border-top-left-radius: 8px; border-bottom-left-radius: 8px; }"
+        "QStackedWidget#contactsMainArea { background-color: %1; border: 1px solid %2; "
+            "border-top-right-radius: 8px; border-bottom-right-radius: 8px; }"
         "QLabel#contactsEmptyLabel { color: %6; font-size: 14px; }"
-        "QLineEdit#contactsSearchEdit { background-color: %4; color: %3; border: 1px solid %2; border-radius: 7px; padding: 7px 10px; }"
+        "QLineEdit#contactsSearchEdit { background-color: %4; color: %3; border: 1px solid %2; border-radius: 7px; padding: 6px 10px; }"
         "QLineEdit#contactsSearchEdit:focus { border: 1px solid %5; }"
-        "QPushButton#contactsPlusButton { background-color: %5; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 16px; }"
+        "QPushButton#contactsPlusButton { background-color: %5; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 15px; }"
         "QPushButton#contactsPlusButton:hover { background-color: %9; }"
         "QPushButton#contactsPlusButton::menu-indicator { image: none; }"
-        "QPushButton#contactsToolButton { background: transparent; color: %3; border: none; padding: 4px 8px; font-weight: 500; }"
-        "QPushButton#contactsToolButton:hover { color: %5; }"
+        "QPushButton#contactsManagerButton { background: %4; color: %3; border: 1px solid %2; border-radius: 7px; font-weight: 500; }"
+        "QPushButton#contactsManagerButton:hover { background: %8; color: %5; }"
+        "QPushButton#contactsNoticeRow { background: transparent; border: none; border-radius: 7px; text-align: left; }"
+        "QPushButton#contactsNoticeRow:hover { background: %8; }"
+        "QLabel#contactsNoticeText { color: %3; font-size: 13px; background: transparent; }"
+        "QLabel#contactsNoticeChevron { color: %6; font-size: 15px; background: transparent; }"
+        "QLabel#contactsNoticeDot { background-color: %10; border-radius: 4px; }"
         "QPushButton#contactsModeButton { background: %4; color: %3; border: 1px solid %2; padding: 4px 16px; }"
         "QPushButton#contactsModeButton:checked { background: %5; color: white; border-color: %5; }"
         "QPushButton#contactsModeButton:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }"
         "QPushButton#contactsModeButton:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }"
-        "QTabWidget#contactsTabWidget::pane { background-color: %1; border: none; }"
-        "QTabBar::tab { background-color: transparent; color: %6; padding: 8px 18px; border: none; }"
-        "QTabBar::tab:selected { color: %5; border-bottom: 2px solid %5; }"
-        "QListView#friendListView, QListView#groupListView { background: %1; border: none; outline: none; padding: 6px 0; }"
-        "QListView#friendListView::item, QListView#groupListView::item { color: %3; padding: 12px 14px; border-radius: 7px; }"
-        "QListView#friendListView::item:selected, QListView#groupListView::item:selected { background-color: %7; }"
-        "QListView#friendListView::item:hover, QListView#groupListView::item:hover { background-color: %8; }"
     ).arg(tm->backgroundColor().name())
      .arg(tm->borderColor().name())
      .arg(tm->textColor().name())
-     .arg(tm->backgroundTertiaryColor().name())
+     .arg(tm->backgroundSecondaryColor().name())
      .arg(tm->primaryColor().name())
      .arg(tm->textTertiaryColor().name())
      .arg(tm->color(QStringLiteral("session-selected")).name())
      .arg(tm->color(QStringLiteral("session-hover")).name())
-     .arg(tm->primaryHoverColor().name()));
+     .arg(tm->primaryHoverColor().name())
+     .arg(tm->dangerColor().name()));
 }
 
 QLineEdit* ContactsView::searchEdit() const { return m_searchEdit; }

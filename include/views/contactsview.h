@@ -69,6 +69,8 @@ private:
     QPushButton* m_friendManagerButton = nullptr;
     QPushButton* m_friendNoticeButton = nullptr;
     QPushButton* m_groupNoticeButton = nullptr;
+    QLabel* m_friendNoticeDot = nullptr;
+    QLabel* m_groupNoticeDot = nullptr;
     QPushButton* m_friendModeButton = nullptr;
     QPushButton* m_groupModeButton = nullptr;
 
