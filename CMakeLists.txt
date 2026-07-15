@@ -180,6 +180,7 @@ add_executable(QtNetworkChat
     src/heartbeatmonitor.cpp
     src/logincredentialstore.cpp
     src/theme/thememanager.cpp
+    src/theme/dialogstyle.cpp
     src/widgets/avatarlabel.cpp
     src/widgets/titlebar.cpp
     src/widgets/dialogtitlebar.cpp
@@ -231,6 +232,7 @@ add_executable(QtNetworkChat
     include/heartbeatmonitor.h
     include/logincredentialstore.h
     include/theme/thememanager.h
+    include/theme/dialogstyle.h
     include/widgets/avatarlabel.h
     include/widgets/titlebar.h
     include/widgets/dialogtitlebar.h

@@ -1,24 +1,33 @@
 #include "dialogs/globalsearchdialog.h"
 
+#include "theme/dialogstyle.h"
 #include "theme/thememanager.h"
+#include "widgets/avatarlabel.h"
 #include "widgets/dialogtitlebar.h"
 
+#include <QAbstractItemView>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListView>
+#include <QListWidget>
 #include <QPushButton>
-#include <QStandardItemModel>
-#include <QTabWidget>
+#include <QStackedWidget>
 #include <QVBoxLayout>
+
+namespace {
+constexpr int kIdRole = Qt::UserRole;
+constexpr int kTypeRole = Qt::UserRole + 1;
+constexpr int kSubtitleRole = Qt::UserRole + 2;
+}
 
 GlobalSearchDialog::GlobalSearchDialog(QWidget* parent)
     : QDialog(parent)
 {
     setObjectName(QStringLiteral("globalSearchDialog"));
-    setWindowTitle(QStringLiteral("全局搜索"));
+    setWindowTitle(QStringLiteral("综合搜索"));
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    setMinimumSize(500, 400);
+    setMinimumSize(660, 560);
     setupUi();
     updateStyle();
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &GlobalSearchDialog::updateStyle);
@@ -30,87 +39,213 @@ void GlobalSearchDialog::setupUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("全局搜索"));
+    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("综合搜索"));
     connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
     root->addWidget(titleBar);
 
     QWidget* body = new QWidget(this);
     QVBoxLayout* bodyLayout = new QVBoxLayout(body);
-    bodyLayout->setContentsMargins(20, 20, 20, 20);
+    bodyLayout->setContentsMargins(16, 16, 16, 16);
     bodyLayout->setSpacing(12);
 
+    // Search row.
     QHBoxLayout* searchLayout = new QHBoxLayout();
+    searchLayout->setSpacing(8);
     m_searchEdit = new QLineEdit(body);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
-    m_searchEdit->setPlaceholderText(QStringLiteral("搜索消息、联系人、群聊..."));
+    m_searchEdit->setPlaceholderText(QStringLiteral("输入搜索关键词"));
+    m_searchEdit->setClearButtonEnabled(true);
     searchLayout->addWidget(m_searchEdit, 1);
-
     m_searchBtn = new QPushButton(QStringLiteral("搜索"), body);
     m_searchBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    connect(m_searchBtn, &QPushButton::clicked, this, [this]() {
-        clearResults();
-        emit searchRequested(m_searchEdit->text());
-    });
+    m_searchBtn->setCursor(Qt::PointingHandCursor);
     searchLayout->addWidget(m_searchBtn);
     bodyLayout->addLayout(searchLayout);
 
-    m_tabWidget = new QTabWidget(body);
-    m_tabWidget->setObjectName(QStringLiteral("dialogTabWidget"));
+    auto triggerSearch = [this]() {
+        clearResults();
+        emit searchRequested(m_searchEdit->text());
+    };
+    connect(m_searchBtn, &QPushButton::clicked, this, triggerSearch);
+    connect(m_searchEdit, &QLineEdit::returnPressed, this, triggerSearch);
 
-    m_messagesModel = new QStandardItemModel(this);
-    m_messagesList = new QListView(body);
-    m_messagesList->setObjectName(QStringLiteral("dialogListView"));
-    m_messagesList->setModel(m_messagesModel);
-    m_tabWidget->addTab(m_messagesList, QStringLiteral("消息"));
+    // Tab bar.
+    QHBoxLayout* tabRow = new QHBoxLayout();
+    tabRow->setSpacing(4);
+    const QStringList tabLabels =
+        {QStringLiteral("全部"), QStringLiteral("用户"), QStringLiteral("群聊"),
+         QStringLiteral("小程序"), QStringLiteral("机器人")};
+    for (int i = 0; i < tabLabels.size(); ++i) {
+        QPushButton* tab = new QPushButton(tabLabels.at(i), body);
+        tab->setObjectName(QStringLiteral("searchTabButton"));
+        tab->setCheckable(true);
+        tab->setCursor(Qt::PointingHandCursor);
+        tab->setChecked(i == TabAll);
+        connect(tab, &QPushButton::clicked, this, [this, i]() { setActiveTab(i); });
+        m_tabButtons.append(tab);
+        tabRow->addWidget(tab);
+    }
+    tabRow->addStretch();
+    bodyLayout->addLayout(tabRow);
 
-    m_contactsModel = new QStandardItemModel(this);
-    m_contactsList = new QListView(body);
-    m_contactsList->setObjectName(QStringLiteral("dialogListView"));
-    m_contactsList->setModel(m_contactsModel);
-    m_tabWidget->addTab(m_contactsList, QStringLiteral("联系人"));
+    // Content: results/placeholder stack on the left, group detail on the right.
+    QHBoxLayout* contentRow = new QHBoxLayout();
+    contentRow->setSpacing(0);
 
-    m_groupsModel = new QStandardItemModel(this);
-    m_groupsList = new QListView(body);
-    m_groupsList->setObjectName(QStringLiteral("dialogListView"));
-    m_groupsList->setModel(m_groupsModel);
-    m_tabWidget->addTab(m_groupsList, QStringLiteral("群聊"));
+    m_bodyStack = new QStackedWidget(body);
 
-    bodyLayout->addWidget(m_tabWidget, 1);
+    // Page 0: user + group result lists with section headings.
+    QWidget* listsPage = new QWidget(m_bodyStack);
+    QVBoxLayout* listsLayout = new QVBoxLayout(listsPage);
+    listsLayout->setContentsMargins(0, 0, 0, 0);
+    listsLayout->setSpacing(8);
 
-    QPushButton* closeBtn = new QPushButton(QStringLiteral("关闭"), body);
-    closeBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-    bodyLayout->addWidget(closeBtn);
+    m_usersHeading = new QLabel(QStringLiteral("用户"), listsPage);
+    m_usersHeading->setObjectName(QStringLiteral("searchSectionHeading"));
+    m_usersList = new QListWidget(listsPage);
+    m_usersList->setObjectName(QStringLiteral("searchResultList"));
+    m_usersList->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
+    m_groupsHeading = new QLabel(QStringLiteral("群聊"), listsPage);
+    m_groupsHeading->setObjectName(QStringLiteral("searchSectionHeading"));
+    m_groupsList = new QListWidget(listsPage);
+    m_groupsList->setObjectName(QStringLiteral("searchResultList"));
+    m_groupsList->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+    listsLayout->addWidget(m_usersHeading);
+    listsLayout->addWidget(m_usersList, 1);
+    listsLayout->addWidget(m_groupsHeading);
+    listsLayout->addWidget(m_groupsList, 1);
+    m_bodyStack->addWidget(listsPage);
+
+    // Page 1: coming-soon placeholder.
+    QWidget* placeholderPage = new QWidget(m_bodyStack);
+    QVBoxLayout* phLayout = new QVBoxLayout(placeholderPage);
+    phLayout->setAlignment(Qt::AlignCenter);
+    m_placeholderLabel = new QLabel(QStringLiteral("功能即将上线"), placeholderPage);
+    m_placeholderLabel->setObjectName(QStringLiteral("searchPlaceholder"));
+    m_placeholderLabel->setAlignment(Qt::AlignCenter);
+    phLayout->addWidget(m_placeholderLabel);
+    m_bodyStack->addWidget(placeholderPage);
+
+    contentRow->addWidget(m_bodyStack, 1);
+
+    // Group detail side panel (hidden until a group row is clicked).
+    m_detailPanel = new QFrame(body);
+    m_detailPanel->setObjectName(QStringLiteral("groupDetailPanel"));
+    m_detailPanel->setFixedWidth(240);
+    m_detailPanel->setVisible(false);
+    QVBoxLayout* detailLayout = new QVBoxLayout(m_detailPanel);
+    detailLayout->setContentsMargins(16, 16, 16, 16);
+    detailLayout->setSpacing(10);
+
+    m_detailAvatar = new AvatarLabel(m_detailPanel, 56);
+    detailLayout->addWidget(m_detailAvatar, 0, Qt::AlignHCenter);
+    m_detailName = new QLabel(m_detailPanel);
+    m_detailName->setObjectName(QStringLiteral("groupDetailName"));
+    m_detailName->setAlignment(Qt::AlignHCenter);
+    m_detailName->setWordWrap(true);
+    m_detailMeta = new QLabel(m_detailPanel);
+    m_detailMeta->setObjectName(QStringLiteral("groupDetailInfo"));
+    m_detailMeta->setAlignment(Qt::AlignHCenter);
+    m_detailMeta->setWordWrap(true);
+    detailLayout->addWidget(m_detailName);
+    detailLayout->addWidget(m_detailMeta);
+    detailLayout->addStretch();
+
+    QPushButton* joinBtn = new QPushButton(QStringLiteral("申请加群"), m_detailPanel);
+    joinBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
+    joinBtn->setCursor(Qt::PointingHandCursor);
+    connect(joinBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_detailGroupId.isEmpty()) {
+            emit resultActivated(QStringLiteral("group"), m_detailGroupId);
+        }
+    });
+    detailLayout->addWidget(joinBtn);
+
+    QPushButton* detailCloseBtn = new QPushButton(QStringLiteral("关闭"), m_detailPanel);
+    detailCloseBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
+    detailCloseBtn->setCursor(Qt::PointingHandCursor);
+    connect(detailCloseBtn, &QPushButton::clicked, this, [this]() { hideGroupDetail(); });
+    detailLayout->addWidget(detailCloseBtn);
+
+    contentRow->addWidget(m_detailPanel);
+    bodyLayout->addLayout(contentRow, 1);
     root->addWidget(body, 1);
+
+    // Single-click a user opens the session; a group opens its detail panel.
+    connect(m_usersList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+        if (item) {
+            emit resultActivated(QStringLiteral("contact"), item->data(kIdRole).toString());
+        }
+    });
+    connect(m_groupsList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+        showGroupDetail(item);
+    });
+
+    setActiveTab(TabAll);
 }
 
-void GlobalSearchDialog::updateStyle()
+void GlobalSearchDialog::setActiveTab(int tab)
 {
-    ThemeManager* tm = ThemeManager::instance();
-    setStyleSheet(QStringLiteral(
-        "QDialog#globalSearchDialog { background-color: %1; }"
-        "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
-        "QLineEdit#dialogInput:focus { border: 1px solid %6; }"
-        "QPushButton#dialogPrimaryBtn { background-color: %6; color: white; border: none; border-radius: 6px; padding: 8px 16px; }"
-        "QPushButton#dialogPrimaryBtn:hover { background-color: %7; }"
-        "QPushButton#dialogSecondaryBtn { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 16px; }"
-        "QPushButton#dialogSecondaryBtn:hover { background-color: %5; }"
-        "QTabWidget#dialogTabWidget::pane { border: 1px solid %5; border-radius: 6px; background-color: %4; }"
-        "QTabWidget#dialogTabWidget::tab-bar { left: 8px; }"
-        "QTabBar::tab { background-color: %4; color: %3; padding: 8px 16px; border: none; }"
-        "QTabBar::tab:selected { background-color: %8; color: %2; }"
-        "QListView#dialogListView { background-color: %4; border: none; color: %2; }"
-        "QListView#dialogListView::item { padding: 8px 12px; }"
-        "QListView#dialogListView::item:selected { background-color: %8; color: %2; }"
-    ).arg(tm->backgroundColor().name())
-     .arg(tm->textColor().name())
-     .arg(tm->textSecondaryColor().name())
-     .arg(tm->backgroundSecondaryColor().name())
-     .arg(tm->borderColor().name())
-     .arg(tm->primaryColor().name())
-     .arg(tm->primaryHoverColor().name())
-     .arg(tm->primarySoftColor().name()));
+    m_activeTab = tab;
+    for (int i = 0; i < m_tabButtons.size(); ++i) {
+        m_tabButtons.at(i)->setChecked(i == tab);
+    }
+    const bool comingSoon = (tab == TabMiniPrograms || tab == TabBots);
+    m_bodyStack->setCurrentIndex(comingSoon ? 1 : 0);
+    if (!comingSoon) {
+        refreshVisibility();
+    }
+}
+
+void GlobalSearchDialog::refreshVisibility()
+{
+    const bool showUsers = (m_activeTab == TabAll || m_activeTab == TabUsers);
+    const bool showGroups = (m_activeTab == TabAll || m_activeTab == TabGroups);
+    m_usersHeading->setVisible(showUsers);
+    m_usersList->setVisible(showUsers);
+    m_groupsHeading->setVisible(showGroups);
+    m_groupsList->setVisible(showGroups);
+}
+
+void GlobalSearchDialog::showGroupDetail(QListWidgetItem* item)
+{
+    if (!item) return;
+    m_detailGroupId = item->data(kIdRole).toString();
+    const QString name = item->data(Qt::DisplayRole).toString();
+    m_detailName->setText(name);
+    m_detailMeta->setText(QStringLiteral("群号: %1 · %2")
+                              .arg(m_detailGroupId, item->data(kSubtitleRole).toString()));
+    m_detailAvatar->setTextAvatar(name.left(1).toUpper(), ThemeManager::instance()->primaryColor());
+    m_detailPanel->setVisible(true);
+}
+
+void GlobalSearchDialog::hideGroupDetail()
+{
+    m_detailPanel->setVisible(false);
+    m_detailGroupId.clear();
+}
+
+void GlobalSearchDialog::addResult(const QString& type, const QString& id, const QString& title, const QString& subtitle)
+{
+    QListWidgetItem* item = new QListWidgetItem(
+        subtitle.isEmpty() ? title : QStringLiteral("%1  ·  %2").arg(title, subtitle));
+    item->setData(kIdRole, id);
+    item->setData(kTypeRole, type);
+    item->setData(kSubtitleRole, subtitle);
+    if (type == QStringLiteral("group")) {
+        m_groupsList->addItem(item);
+    } else {
+        m_usersList->addItem(item);
+    }
+}
+
+void GlobalSearchDialog::clearResults()
+{
+    if (m_usersList) m_usersList->clear();
+    if (m_groupsList) m_groupsList->clear();
+    hideGroupDetail();
 }
 
 QString GlobalSearchDialog::searchText() const
@@ -118,26 +253,27 @@ QString GlobalSearchDialog::searchText() const
     return m_searchEdit->text();
 }
 
-void GlobalSearchDialog::addResult(const QString& type, const QString& id, const QString& title, const QString& subtitle)
+void GlobalSearchDialog::updateStyle()
 {
-    QStandardItem* item = new QStandardItem(title);
-    item->setData(id, Qt::UserRole);
-    item->setData(type, Qt::UserRole + 1);
-    item->setToolTip(subtitle);
-
-    if (type == QStringLiteral("message")) {
-        m_messagesModel->appendRow(item);
-    } else if (type == QStringLiteral("contact")) {
-        m_contactsModel->appendRow(item);
-    } else if (type == QStringLiteral("group")) {
-        m_groupsModel->appendRow(item);
-    }
+    ThemeManager* tm = ThemeManager::instance();
+    // Shared rules from DialogStyle::common(); search-specific selectors (tab
+    // buttons, result list, group detail panel, placeholder, headings) here.
+    setStyleSheet(DialogStyle::common() + QStringLiteral(
+        "QDialog#globalSearchDialog { background-color: %1; }"
+        "QPushButton#searchTabButton { background: transparent; color: %3; border: none; padding: 6px 14px; border-radius: 6px; }"
+        "QPushButton#searchTabButton:checked { background: %6; color: %2; font-weight: 600; }"
+        "QListWidget#searchResultList { background-color: %4; border: 1px solid %5; border-radius: 6px; color: %2; }"
+        "QListWidget#searchResultList::item { padding: 8px 12px; border-bottom: 1px solid %5; }"
+        "QListWidget#searchResultList::item:selected { background-color: %6; color: %2; }"
+        "QFrame#groupDetailPanel { background-color: %4; border-left: 1px solid %5; }"
+        "QLabel#groupDetailName { color: %2; font-size: 16px; font-weight: 600; }"
+        "QLabel#groupDetailInfo { color: %3; font-size: 12px; }"
+        "QLabel#searchPlaceholder { color: %3; font-size: 14px; }"
+        "QLabel#searchSectionHeading { color: %3; font-size: 12px; font-weight: 600; }"
+    ).arg(tm->backgroundColor().name())            // %1
+     .arg(tm->textColor().name())                  // %2
+     .arg(tm->textSecondaryColor().name())          // %3
+     .arg(tm->backgroundSecondaryColor().name())    // %4
+     .arg(tm->borderColor().name())                 // %5
+     .arg(tm->primarySoftColor().name()));          // %6
 }
-
-void GlobalSearchDialog::clearResults()
-{
-    m_messagesModel->clear();
-    m_contactsModel->clear();
-    m_groupsModel->clear();
-}
-

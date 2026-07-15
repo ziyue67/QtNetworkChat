@@ -1,14 +1,16 @@
 #include "dialogs/addfrienddialog.h"
 
 #include "theme/thememanager.h"
+#include "theme/dialogstyle.h"
+#include "widgets/avatarlabel.h"
 #include "widgets/dialogtitlebar.h"
 
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListView>
 #include <QPushButton>
-#include <QStandardItemModel>
+#include <QStyle>
 #include <QVBoxLayout>
 
 AddFriendDialog::AddFriendDialog(QWidget* parent)
@@ -38,74 +40,121 @@ void AddFriendDialog::setupUi()
     bodyLayout->setContentsMargins(20, 20, 20, 20);
     bodyLayout->setSpacing(12);
 
+    // Search row: input + primary search button (matches AddFriendModal).
     QHBoxLayout* searchLayout = new QHBoxLayout();
+    searchLayout->setSpacing(8);
     m_searchEdit = new QLineEdit(body);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
-    m_searchEdit->setPlaceholderText(QStringLiteral("输入QQ号或昵称搜索..."));
+    m_searchEdit->setPlaceholderText(QStringLiteral("输入 QQ 号 / 昵称"));
+    m_searchEdit->setClearButtonEnabled(true);
     searchLayout->addWidget(m_searchEdit, 1);
 
     m_searchBtn = new QPushButton(QStringLiteral("搜索"), body);
     m_searchBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    connect(m_searchBtn, &QPushButton::clicked, this, [this]() {
-        emit searchRequested(m_searchEdit->text());
-    });
+    m_searchBtn->setCursor(Qt::PointingHandCursor);
     searchLayout->addWidget(m_searchBtn);
     bodyLayout->addLayout(searchLayout);
 
-    m_resultLabel = new QLabel(QStringLiteral("搜索结果将显示在这里"), body);
-    m_resultLabel->setObjectName(QStringLiteral("dialogHintLabel"));
-    m_resultLabel->setAlignment(Qt::AlignCenter);
-    bodyLayout->addWidget(m_resultLabel);
+    auto triggerSearch = [this]() {
+        const QString text = m_searchEdit->text().trimmed();
+        if (text.isEmpty()) {
+            return;
+        }
+        setLoading(true);
+        m_errorLabel->clear();
+        m_errorLabel->setVisible(false);
+        m_resultCard->setVisible(false);
+        emit searchRequested(text);
+    };
+    connect(m_searchBtn, &QPushButton::clicked, this, triggerSearch);
+    connect(m_searchEdit, &QLineEdit::returnPressed, this, triggerSearch);
 
-    m_resultModel = new QStandardItemModel(this);
-    m_resultList = new QListView(body);
-    m_resultList->setObjectName(QStringLiteral("dialogListView"));
-    m_resultList->setModel(m_resultModel);
-    bodyLayout->addWidget(m_resultList, 1);
+    // Error / hint line.
+    m_errorLabel = new QLabel(body);
+    m_errorLabel->setObjectName(QStringLiteral("dialogErrorLabel"));
+    m_errorLabel->setWordWrap(true);
+    m_errorLabel->setVisible(false);
+    bodyLayout->addWidget(m_errorLabel);
 
-    m_addBtn = new QPushButton(QStringLiteral("添加好友"), body);
+    // Result card: avatar + name/signature + add button.
+    m_resultCard = new QFrame(body);
+    m_resultCard->setObjectName(QStringLiteral("addFriendResultCard"));
+    m_resultCard->setVisible(false);
+    QHBoxLayout* cardLayout = new QHBoxLayout(m_resultCard);
+    cardLayout->setContentsMargins(12, 12, 12, 12);
+    cardLayout->setSpacing(12);
+
+    m_resultAvatar = new AvatarLabel(m_resultCard, 44);
+    cardLayout->addWidget(m_resultAvatar, 0, Qt::AlignVCenter);
+
+    QVBoxLayout* infoLayout = new QVBoxLayout();
+    infoLayout->setContentsMargins(0, 0, 0, 0);
+    infoLayout->setSpacing(2);
+    m_resultName = new QLabel(m_resultCard);
+    m_resultName->setObjectName(QStringLiteral("addFriendResultName"));
+    m_resultDesc = new QLabel(m_resultCard);
+    m_resultDesc->setObjectName(QStringLiteral("addFriendResultDesc"));
+    infoLayout->addWidget(m_resultName);
+    infoLayout->addWidget(m_resultDesc);
+    cardLayout->addLayout(infoLayout, 1);
+
+    m_addBtn = new QPushButton(QStringLiteral("加好友"), m_resultCard);
     m_addBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    m_addBtn->setEnabled(false);
+    m_addBtn->setCursor(Qt::PointingHandCursor);
     connect(m_addBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_currentResultId.isEmpty()) {
+        if (!m_currentResultId.isEmpty() && !m_added) {
             emit addFriendRequested(m_currentResultId);
-            accept();
+            setAdded();
         }
     });
-    bodyLayout->addWidget(m_addBtn);
+    cardLayout->addWidget(m_addBtn, 0, Qt::AlignVCenter);
+    bodyLayout->addWidget(m_resultCard);
 
-    QPushButton* cancelBtn = new QPushButton(QStringLiteral("取消"), body);
+    bodyLayout->addStretch();
+
+    QPushButton* cancelBtn = new QPushButton(QStringLiteral("关闭"), body);
     cancelBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
-    bodyLayout->addWidget(cancelBtn);
+    bodyLayout->addWidget(cancelBtn, 0, Qt::AlignRight);
 
     root->addWidget(body, 1);
+}
+
+void AddFriendDialog::setLoading(bool loading)
+{
+    m_searchBtn->setEnabled(!loading);
+    m_searchBtn->setText(loading ? QStringLiteral("搜索中…") : QStringLiteral("搜索"));
+}
+
+void AddFriendDialog::setAdded()
+{
+    m_added = true;
+    m_addBtn->setEnabled(false);
+    m_addBtn->setText(QStringLiteral("已发送"));
+    m_addBtn->setProperty("state", QStringLiteral("success"));
+    // Re-polish so the success style applies immediately.
+    m_addBtn->style()->unpolish(m_addBtn);
+    m_addBtn->style()->polish(m_addBtn);
 }
 
 void AddFriendDialog::updateStyle()
 {
     ThemeManager* tm = ThemeManager::instance();
-    setStyleSheet(QStringLiteral(
+    // Shared input/button/list rules come from DialogStyle::common(); only the
+    // add-friend-specific selectors (dialog background, error line, result card)
+    // are defined here.
+    setStyleSheet(DialogStyle::common() + QStringLiteral(
         "QDialog#addFriendDialog { background-color: %1; }"
-        "QLabel#dialogHintLabel { color: %3; font-size: 13px; }"
-        "QLineEdit#dialogInput { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 12px; }"
-        "QLineEdit#dialogInput:focus { border: 1px solid %6; }"
-        "QPushButton#dialogPrimaryBtn { background-color: %6; color: white; border: none; border-radius: 6px; padding: 8px 16px; }"
-        "QPushButton#dialogPrimaryBtn:hover { background-color: %7; }"
-        "QPushButton#dialogPrimaryBtn:disabled { background-color: %5; color: %3; }"
-        "QPushButton#dialogSecondaryBtn { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 8px 16px; }"
-        "QPushButton#dialogSecondaryBtn:hover { background-color: %5; }"
-        "QListView#dialogListView { background-color: %4; border: 1px solid %5; border-radius: 6px; color: %2; }"
-        "QListView#dialogListView::item { padding: 8px 12px; }"
-        "QListView#dialogListView::item:selected { background-color: %8; color: %2; }"
-    ).arg(tm->backgroundColor().name())
-     .arg(tm->textColor().name())
-     .arg(tm->textSecondaryColor().name())
-     .arg(tm->backgroundSecondaryColor().name())
-     .arg(tm->borderColor().name())
-     .arg(tm->primaryColor().name())
-     .arg(tm->primaryHoverColor().name())
-     .arg(tm->primarySoftColor().name()));
+        "QLabel#dialogErrorLabel { color: %5; font-size: 12px; }"
+        "QFrame#addFriendResultCard { background-color: %2; border: 1px solid %3; border-radius: 8px; }"
+        "QLabel#addFriendResultName { color: %4; font-size: 14px; font-weight: 600; }"
+        "QLabel#addFriendResultDesc { color: %6; font-size: 12px; }"
+    ).arg(tm->backgroundColor().name())            // %1
+     .arg(tm->backgroundSecondaryColor().name())    // %2
+     .arg(tm->borderColor().name())                 // %3
+     .arg(tm->textColor().name())                   // %4
+     .arg(tm->dangerColor().name())                 // %5
+     .arg(tm->textSecondaryColor().name()));        // %6
 }
 
 QString AddFriendDialog::searchText() const
@@ -115,18 +164,26 @@ QString AddFriendDialog::searchText() const
 
 void AddFriendDialog::onSearchResult(const QString& account, const QString& userId, const QString& userName, bool found)
 {
-    m_resultModel->clear();
+    setLoading(false);
     if (found) {
-        QStandardItem* item = new QStandardItem(QStringLiteral("%1 (%2)").arg(userName).arg(account));
-        item->setData(userId, Qt::UserRole);
-        m_resultModel->appendRow(item);
-        m_resultLabel->setText(QStringLiteral("找到用户"));
+        const QString displayName = userName.isEmpty() ? account : userName;
         m_currentResultId = userId;
+        m_added = false;
+        m_resultName->setText(displayName);
+        m_resultDesc->setText(QStringLiteral("QQ: %1").arg(account));
+        m_resultAvatar->setTextAvatar(displayName.left(1).toUpper(),
+                                      ThemeManager::instance()->primaryColor());
         m_addBtn->setEnabled(true);
+        m_addBtn->setText(QStringLiteral("加好友"));
+        m_addBtn->setProperty("state", QString());
+        m_addBtn->style()->unpolish(m_addBtn);
+        m_addBtn->style()->polish(m_addBtn);
+        m_errorLabel->setVisible(false);
+        m_resultCard->setVisible(true);
     } else {
-        m_resultLabel->setText(QStringLiteral("未找到用户"));
         m_currentResultId.clear();
-        m_addBtn->setEnabled(false);
+        m_resultCard->setVisible(false);
+        m_errorLabel->setText(QStringLiteral("未找到用户"));
+        m_errorLabel->setVisible(true);
     }
 }
-

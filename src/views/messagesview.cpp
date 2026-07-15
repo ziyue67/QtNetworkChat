@@ -3,6 +3,7 @@
 #include "sessionitemdelegate.h"
 #include "theme/thememanager.h"
 #include "widgets/composerwidget.h"
+#include "widgets/groupmembersidebar.h"
 #include "chatbubbledelegate.h"
 
 #include <QDragEnterEvent>
@@ -132,15 +133,34 @@ void MessagesView::setupUi()
     headerLayout->setContentsMargins(22, 10, 22, 9);
     headerLayout->setSpacing(2);
 
+    // Top row: title/subtitle/hint column on the left, group actions on the right.
+    QHBoxLayout* headerTopRow = new QHBoxLayout();
+    headerTopRow->setContentsMargins(0, 0, 0, 0);
+    headerTopRow->setSpacing(8);
+    QVBoxLayout* headerLabelCol = new QVBoxLayout();
+    headerLabelCol->setContentsMargins(0, 0, 0, 0);
+    headerLabelCol->setSpacing(2);
+
     m_chatTitleLabel = new QLabel(QStringLiteral("QQ NT"), header);
     m_chatTitleLabel->setObjectName(QStringLiteral("chatTitleLabel"));
     m_chatSubtitleLabel = new QLabel(header);
     m_chatSubtitleLabel->setObjectName(QStringLiteral("chatSubtitleLabel"));
     m_chatHintLabel = new QLabel(header);
     m_chatHintLabel->setObjectName(QStringLiteral("chatHintLabel"));
-    headerLayout->addWidget(m_chatTitleLabel);
-    headerLayout->addWidget(m_chatSubtitleLabel);
-    headerLayout->addWidget(m_chatHintLabel);
+    headerLabelCol->addWidget(m_chatTitleLabel);
+    headerLabelCol->addWidget(m_chatSubtitleLabel);
+    headerLabelCol->addWidget(m_chatHintLabel);
+    headerTopRow->addLayout(headerLabelCol, 1);
+
+    // Group-only essence entry. MainWindow toggles visibility per session type.
+    m_essenceBtn = new QPushButton(QStringLiteral("精华"), header);
+    m_essenceBtn->setObjectName(QStringLiteral("chatEssenceBtn"));
+    m_essenceBtn->setCursor(Qt::PointingHandCursor);
+    m_essenceBtn->setVisible(false);
+    connect(m_essenceBtn, &QPushButton::clicked, this, &MessagesView::essenceRequested);
+    headerTopRow->addWidget(m_essenceBtn, 0, Qt::AlignVCenter);
+
+    headerLayout->addLayout(headerTopRow);
     chatLayout->addWidget(header);
 
     m_chatModel = new QStandardItemModel(this);
@@ -205,6 +225,13 @@ void MessagesView::setupUi()
 
     root->addWidget(sessionPanel);
     root->addWidget(chatPanel, 1);
+
+    // Group member sidebar. Hidden by default; MainWindow shows it for group
+    // sessions and drives its data/actions. Replaces the legacy (now-invisible)
+    // groupMemberListView from the pre-QQNT central widget.
+    m_groupMemberSidebar = new GroupMemberSidebar(this);
+    m_groupMemberSidebar->setVisible(false);
+    root->addWidget(m_groupMemberSidebar);
     mvLog("root layout done");
 
     setAcceptDrops(true);
@@ -293,6 +320,8 @@ void MessagesView::updateStyle()
         "QLabel#chatSubtitleLabel { color: %10; font-size: 12px; }"
         "QLabel#chatHintLabel { color: %10; font-size: 12px; }"
         "QLabel#emptyChatLabel, QLabel#loadingLabel { color: %10; font-size: 14px; }"
+        "QPushButton#chatEssenceBtn { background: %5; color: %7; border: 1px solid %2; border-radius: 6px; padding: 5px 14px; font-size: 13px; }"
+        "QPushButton#chatEssenceBtn:hover { background: %8; }"
         "QLabel#dropOverlay { background-color: %11; color: %7; border: 2px dashed %7; font-size: 18px; font-weight: 600; }"
         "QPushButton#sessionNewChatBtn { background: transparent; color: %7; border: none; font-size: 18px; }"
         "QPushButton#sessionNewChatBtn:hover { background: %9; border-radius: 6px; }"
@@ -407,6 +436,25 @@ void MessagesView::scrollChatToBottom()
 {
     if (m_chatListView) {
         m_chatListView->scrollToBottom();
+    }
+}
+
+void MessagesView::setEssenceButtonVisible(bool visible)
+{
+    if (m_essenceBtn) {
+        m_essenceBtn->setVisible(visible);
+    }
+}
+
+GroupMemberSidebar* MessagesView::groupMemberSidebar() const
+{
+    return m_groupMemberSidebar;
+}
+
+void MessagesView::setGroupMemberSidebarVisible(bool visible)
+{
+    if (m_groupMemberSidebar) {
+        m_groupMemberSidebar->setVisible(visible);
     }
 }
 

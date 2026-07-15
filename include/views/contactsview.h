@@ -6,10 +6,15 @@
 #include <QMap>
 #include <QWidget>
 
+class QAction;
 class QLineEdit;
+class QMenu;
+class QPushButton;
+class QStackedWidget;
 class QTabWidget;
 class QListView;
 class QStandardItemModel;
+class QLabel;
 class ContactListWidget;
 class ContactCard;
 class ContactNoticePanel;
@@ -43,7 +48,8 @@ private:
     void setupUi();
     void updateStyle();
     void onContactSelected(const QString& id, bool isGroup);
-    void onShowNoticePanel();
+    void onShowNoticePanel(bool groupNotice);
+    void setDetailMode(bool showCard);
 
     QLineEdit* m_searchEdit = nullptr;
     QTabWidget* m_tabWidget = nullptr;
@@ -55,6 +61,16 @@ private:
     ContactListWidget* m_contactList = nullptr;
     ContactCard* m_contactCard = nullptr;
     ContactNoticePanel* m_noticePanel = nullptr;
+    QStackedWidget* m_detailStack = nullptr;
+    QLabel* m_emptyLabel = nullptr;
+
+    QPushButton* m_plusButton = nullptr;
+    QMenu* m_plusMenu = nullptr;
+    QPushButton* m_friendManagerButton = nullptr;
+    QPushButton* m_friendNoticeButton = nullptr;
+    QPushButton* m_groupNoticeButton = nullptr;
+    QPushButton* m_friendModeButton = nullptr;
+    QPushButton* m_groupModeButton = nullptr;
 
     QMap<QString, ContactDisplayData> m_friendMap;
     QMap<QString, ContactDisplayData> m_groupMap;

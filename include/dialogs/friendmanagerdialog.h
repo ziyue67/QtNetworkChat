@@ -2,11 +2,16 @@
 #define FRIENDMANAGERDIALOG_H
 
 #include <QDialog>
+#include <QMap>
+#include <QString>
+#include <QStringList>
 
-class QListView;
-class QStandardItemModel;
+class QListWidget;
+class QTableWidget;
+class QCheckBox;
 class QPushButton;
 class QLineEdit;
+class QLabel;
 
 class FriendManagerDialog : public QDialog {
     Q_OBJECT
@@ -23,13 +28,23 @@ signals:
 private:
     void setupUi();
     void updateStyle();
+    void rebuildTable();
+    void updateSelectAllState();
 
-    QListView* m_listView = nullptr;
-    QStandardItemModel* m_model = nullptr;
+    // Left group rail
+    QListWidget* m_groupList = nullptr;
+
+    // Right table
+    QLabel* m_titleLabel = nullptr;
     QLineEdit* m_searchEdit = nullptr;
+    QCheckBox* m_selectAll = nullptr;
+    QTableWidget* m_table = nullptr;
     QPushButton* m_deleteBtn = nullptr;
     QPushButton* m_addBtn = nullptr;
+
+    QStringList m_friendIds;
+    QMap<QString, QString> m_friendNames;
+    QString m_filter;
 };
 
 #endif // FRIENDMANAGERDIALOG_H
-

@@ -36,6 +36,7 @@ class SettingsView;
 class ProfileView;
 class AppNav;
 class TitleBar;
+class AddFriendDialog;
 class QStackedWidget;
 class QAction;
 class QLabel;
@@ -242,6 +243,12 @@ private:
     void scrollActiveChatToBottom();
     void refreshContactsAndProfile();
     void refreshGroupMemberPanel();
+    // QQNT group member sidebar (right rail in MessagesView). connectGroupMemberSidebar
+    // wires its action signals to the same backend used by the legacy member menu;
+    // refreshGroupMemberSidebar feeds it the current group's members and toggles it
+    // on for group sessions only.
+    void connectGroupMemberSidebar();
+    void refreshGroupMemberSidebar();
     void refreshComposerState();
     void refreshWorkspaceChrome();
     void refreshSessionSummary();
@@ -336,6 +343,10 @@ private:
                                       const QModelIndex& index);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
+    void showMessagesView();
+    void showAddFriendDialog();
+    void showGlobalSearchDialog();
+    void showEssencePanel();
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
@@ -409,6 +420,9 @@ private:
     QStackedWidget* m_viewStack = nullptr;
     MessagesView* m_messagesView = nullptr;
     ContactsView* m_contactsView = nullptr;
+    // When a QQNT AddFriendDialog is open, friend-search results are routed to it
+    // (two-step search → confirm) instead of the legacy auto-send path.
+    AddFriendDialog* m_activeAddFriendDialog = nullptr;
     FavoritesView* m_favoritesView = nullptr;
     SettingsView* m_settingsView = nullptr;
     ProfileView* m_profileView = nullptr;

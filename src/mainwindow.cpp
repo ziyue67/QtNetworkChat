@@ -4,6 +4,13 @@
 #include "sessionlistbuilder.h"
 #include "chatbubbledelegate.h"
 #include "qqnt_backend_service.h"
+#include "dialogs/friendmanagerdialog.h"
+#include "dialogs/creategroupdialog.h"
+#include "dialogs/addfrienddialog.h"
+#include "dialogs/globalsearchdialog.h"
+#include "dialogs/memberprofilecard.h"
+#include "dialogs/groupnicknamedialog.h"
+#include "dialogs/essencepanel.h"
 #include <QFile>
 #include <QTextStream>
 #include <QTimer>
@@ -47,6 +54,7 @@ void qqntLog(const QString& tag, const QString& msg)
 #include "widgets/appnav.h"
 #include "widgets/titlebar.h"
 #include "widgets/composerwidget.h"
+#include "widgets/groupmembersidebar.h"
 #include "theme/thememanager.h"
 #include "windows/screenshotcapturewindow.h"
 #include "screenshotgeometry.h"
@@ -1389,6 +1397,12 @@ void MainWindow::openPrivateSession(const QString& userId) {
     setWindowTitle(appWindowTitle(privateState.windowSuffix));
     ui->chatTitleLabel->setText(privateState.titleText);
     ui->chatHintLabel->setText(privateState.hintText);
+    if (m_messagesView) {
+        // Essence messages and the member rail only exist for groups; hide both
+        // in private chats.
+        m_messagesView->setEssenceButtonVisible(false);
+        m_messagesView->setGroupMemberSidebarVisible(false);
+    }
     refreshComposerState();
 }
 
@@ -1471,21 +1485,29 @@ int MainWindow::appendMembersToLocalGroup(const QString& groupId, const QStringL
 
 bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
     if (commandId == QLatin1String("create-group")) {
-        bool ok = false;
-        QString groupName = promptTextValue(QStringLiteral("创建群聊"),
-                                            QStringLiteral("群聊名称:"),
-                                            QStringLiteral("我的群聊"),
-                                            &ok);
-        if (!ok) {
+        CreateGroupDialog dialog(this);
+        dialog.setCandidateMembers(m_friendIds, m_friendNames);
+        if (dialog.exec() != QDialog::Accepted) {
             return true;
         }
+        QString groupName = dialog.groupName().trimmed();
         if (groupName.isEmpty()) {
             groupName = QStringLiteral("我的群聊");
         }
+        const QStringList members = dialog.selectedMembers();
 
-        const QString groupId = createLocalGroupSession(groupName);
+        const QString groupId = members.isEmpty()
+            ? createLocalGroupSession(groupName)
+            : createLocalGroupSession(
+                  groupName,
+                  members,
+                  QStringLiteral("%1 已创建，已邀请 %2 位好友。").arg(groupName).arg(members.size()));
         switchToLocalGroup(groupId, groupName);
-        appendSystemMessage(QStringLiteral("已创建群聊: ") + groupName);
+        showMessagesView();
+        const QString created = members.isEmpty()
+            ? QStringLiteral("已创建群聊: %1").arg(groupName)
+            : QStringLiteral("已创建群聊: %1，并邀请 %2 位好友").arg(groupName).arg(members.size());
+        appendSystemMessage(created);
         return true;
     }
 
@@ -2796,6 +2818,8 @@ void MainWindow::setupUi() {
             m_serverGroupOwners,
             m_serverGroupMemberRoles);
         QAction* chatAction = menu.addAction("私聊");
+        QAction* viewProfileAction = menu.addAction("查看资料");
+        QAction* groupNicknameAction = menu.addAction("修改群昵称");
         QAction* copyAction = menu.addAction("复制QQ号");
         QAction* profileAction = menu.addAction("复制名片");
         QAction* copyAllAction = menu.addAction("复制群成员列表");
@@ -2834,6 +2858,54 @@ void MainWindow::setupUi() {
                                       QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
                                       true);
             openPrivateSession(memberId);
+        } else if (selected == viewProfileAction) {
+            const QString groupName = isLocalGroup
+                ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+                : m_serverGroupNames.value(QStringLiteral("public"), QStringLiteral("公共聊天室"));
+            QString role = QStringLiteral("成员");
+            if (isLocalGroup && groupOwnerId(m_privateChatTarget) == memberId) {
+                role = QStringLiteral("群主");
+            } else if (isServerPublicGroup) {
+                const QString serverRole = m_serverGroupMemberRoles.value(memberId);
+                if (m_serverGroupOwners.value(QStringLiteral("public")) == memberId) {
+                    role = QStringLiteral("群主");
+                } else if (serverRole == QStringLiteral("admin")) {
+                    role = QStringLiteral("管理员");
+                }
+            }
+            MemberProfileCard card(this);
+            card.setMemberInfo(memberId, contactDisplayName(memberId), role, groupName);
+            connect(&card, &MemberProfileCard::sendMessageRequested, this, [this](const QString& id) {
+                ensureFriendRequestQueued(id,
+                                          QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                          true);
+                openPrivateSession(id);
+                showMessagesView();
+            });
+            connect(&card, &MemberProfileCard::addFriendRequested, this, [this](const QString& id) {
+                ensureFriendRequestQueued(id,
+                                          QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                          true);
+            });
+            card.exec();
+        } else if (selected == groupNicknameAction) {
+            GroupNicknameDialog dlg(this);
+            dlg.setCurrentNickname(contactDisplayName(memberId));
+            connect(&dlg, &GroupNicknameDialog::nicknameConfirmed, this, [this, memberId](const QString& nick) {
+                const QString remark = nick.trimmed();
+                if (remark.isEmpty()) {
+                    return;
+                }
+                m_friendNames[memberId] = remark;
+                if (m_friendIds.contains(memberId)) {
+                    saveFriends();
+                }
+                refreshFriendList();
+                refreshGroupMemberPanel();
+                appendSystemMessage(QStringLiteral("已设置 %1 的群昵称为 %2").arg(memberId, remark));
+                ui->statusbar->showMessage(QStringLiteral("已设置群昵称：%1").arg(remark), 2200);
+            });
+            dlg.exec();
         } else if (selected == copyAction) {
             QApplication::clipboard()->setText(memberId);
             ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
@@ -4730,6 +4802,10 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     refreshComposerState();
     refreshSessionSummary();
     readLocalChatActions(groupId);
+    if (m_messagesView) {
+        m_messagesView->setEssenceButtonVisible(true);
+    }
+    refreshGroupMemberSidebar();
 }
 
 void MainWindow::readLocalChatActions(const QString& sessionId) {
@@ -6298,6 +6374,17 @@ void MainWindow::onFriendRequestReceived(const QString& senderId, const QString&
 }
 
 void MainWindow::onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason) {
+    // When the QQNT AddFriendDialog is open, it owns the search flow: show the
+    // result in-dialog and let the user confirm, rather than the legacy path that
+    // auto-sends a request on an exact online match. The user then clicks "加好友"
+    // which emits addFriendRequested → sendFriendRequest.
+    if (m_activeAddFriendDialog) {
+        if (found && !userName.isEmpty()) {
+            m_friendNames[userId] = userName;
+        }
+        m_activeAddFriendDialog->onSearchResult(account, userId, userName, found);
+        return;
+    }
     if (!found) {
         ui->statusbar->showMessage(QString("没有找到 QQ 或昵称：%1").arg(account), 3000);
         appendSystemMessage(QString("没有找到 QQ 或昵称: %1，可尝试输入更完整的 QQ 号或昵称关键词").arg(account));
@@ -8901,6 +8988,10 @@ void MainWindow::onContactSearchChanged(const QString& text) {
 }
 
 void MainWindow::refreshGroupMemberPanel() {
+    // Keep the visible QQNT sidebar in sync with every legacy-panel refresh
+    // (member snapshots, mute/role changes, kicks). The sidebar computes its own
+    // data and does not call back here, so this cannot recurse.
+    refreshGroupMemberSidebar();
     if (!ui->groupMemberListView || !m_groupMemberModel) return;
     QString filter = ui->memberSearchEdit ? ui->memberSearchEdit->text().trimmed() : QString();
     m_groupMemberModel->clear();
@@ -9153,6 +9244,276 @@ void MainWindow::refreshGroupMemberPanel() {
         ? QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
         : QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
     refreshSessionSummary();
+    // Keep the visible QQNT sidebar in sync with the same data.
+    refreshGroupMemberSidebar();
+}
+
+void MainWindow::refreshGroupMemberSidebar() {
+    // The QQNT sidebar is the visible group-member surface (the legacy
+    // ui->groupMemberListView lives in the hidden compatibility widget). Feed it
+    // the same local/server group data the legacy panel computes.
+    if (!m_messagesView) return;
+    GroupMemberSidebar* sidebar = m_messagesView->groupMemberSidebar();
+    if (!sidebar) return;
+
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty()
+        && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool isServerPublicGroup = m_privateChatTarget.isEmpty();
+    if (!isLocalGroup && !isServerPublicGroup) {
+        // Not a group session: hide the rail.
+        m_messagesView->setGroupMemberSidebarVisible(false);
+        return;
+    }
+
+    QList<GroupMemberDisplayData> members;
+    QString ownerId;
+    QString groupName;
+    QString announcement;
+
+    if (isLocalGroup) {
+        groupName = m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"));
+        announcement = m_localGroupAnnouncements.value(m_privateChatTarget);
+        QStringList ids = m_localGroupMembers.value(m_privateChatTarget);
+        if (ids.isEmpty()) ids << m_currentUserId;
+        ownerId = ids.first();
+        for (const QString& id : ids) {
+            if (id.trimmed().isEmpty()) continue;
+            GroupMemberDisplayData d;
+            d.id = id;
+            d.nickname = id == m_currentUserId ? m_currentUserName : contactDisplayName(id);
+            d.role = (id == ownerId) ? QStringLiteral("owner") : QStringLiteral("member");
+            d.isOnline = isContactOnline(id) || id == m_currentUserId;
+            members.append(d);
+        }
+    } else {
+        groupName = m_serverGroupNames.value(QStringLiteral("public"), QStringLiteral("公共聊天室"));
+        announcement = m_serverGroupAnnouncements.value(QStringLiteral("public"));
+        ownerId = m_serverGroupOwners.value(QStringLiteral("public"));
+        const QStringList ids = m_serverGroupMembers.value(QStringLiteral("public"));
+        for (const QString& id : ids) {
+            if (id.trimmed().isEmpty()) continue;
+            GroupMemberDisplayData d;
+            d.id = id;
+            d.nickname = id == m_currentUserId
+                ? m_currentUserName
+                : m_serverGroupMemberNames.value(QStringLiteral("public|") + id, contactDisplayName(id));
+            const QString serverRole =
+                m_serverGroupMemberRoles.value(QStringLiteral("public|") + id, QStringLiteral("member")).toLower();
+            if (id == ownerId) {
+                d.role = QStringLiteral("owner");
+            } else if (serverRole == QStringLiteral("admin")) {
+                d.role = QStringLiteral("admin");
+            } else {
+                d.role = QStringLiteral("member");
+            }
+            d.isOnline = id == m_currentUserId || isContactOnline(id);
+            members.append(d);
+        }
+        // Server group without a member snapshot yet: fall back to just showing self.
+        if (members.isEmpty() && !m_currentUserId.isEmpty()) {
+            GroupMemberDisplayData self;
+            self.id = m_currentUserId;
+            self.nickname = m_currentUserName;
+            self.role = (m_currentUserId == ownerId) ? QStringLiteral("owner") : QStringLiteral("member");
+            self.isOnline = true;
+            members.append(self);
+        }
+    }
+
+    sidebar->setGroupId(m_privateChatTarget);
+    sidebar->setGroupName(groupName);
+    sidebar->setAnnouncement(announcement);
+    sidebar->setMembers(members);
+    m_messagesView->setGroupMemberSidebarVisible(true);
+}
+
+void MainWindow::connectGroupMemberSidebar() {
+    if (!m_messagesView) return;
+    GroupMemberSidebar* sidebar = m_messagesView->groupMemberSidebar();
+    if (!sidebar) return;
+
+    // A member context action only applies to the current group session. These
+    // helpers mirror the legacy right-click handlers' permission checks so the
+    // sidebar and the (hidden) legacy list stay behaviourally identical.
+    auto isLocalGroup = [this]() {
+        return !m_privateChatTarget.isEmpty()
+            && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    };
+    auto isPublicGroup = [this]() { return m_privateChatTarget.isEmpty(); };
+
+    connect(sidebar, &GroupMemberSidebar::chatWithMember, this, [this](const QString& userId) {
+        if (userId.isEmpty() || userId == m_currentUserId) return;
+        ensureFriendRequestQueued(userId,
+                                  QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                  true);
+        openPrivateSession(userId);
+        showMessagesView();
+    });
+    connect(sidebar, &GroupMemberSidebar::atMember, this, [this](const QString& userId, const QString& displayName) {
+        Q_UNUSED(userId);
+        if (!m_messagesView || !m_messagesView->composer()) return;
+        QTextEdit* input = m_messagesView->composer()->inputEdit();
+        if (!input) return;
+        input->insertPlainText(QStringLiteral("@%1 ").arg(displayName));
+        input->setFocus();
+    });
+    connect(sidebar, &GroupMemberSidebar::viewProfile, this, [this](const QString& userId) {
+        if (userId.isEmpty()) return;
+        const bool local = !m_privateChatTarget.isEmpty()
+            && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+        const QString groupName = local
+            ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+            : m_serverGroupNames.value(QStringLiteral("public"), QStringLiteral("公共聊天室"));
+        QString role = QStringLiteral("成员");
+        if (userId == groupOwnerId(m_privateChatTarget)
+            || userId == m_serverGroupOwners.value(QStringLiteral("public"))) {
+            role = QStringLiteral("群主");
+        } else if (m_serverGroupMemberRoles.value(QStringLiteral("public|") + userId).toLower()
+                   == QStringLiteral("admin")) {
+            role = QStringLiteral("管理员");
+        }
+        MemberProfileCard card(this);
+        card.setMemberInfo(userId, contactDisplayName(userId), role, groupName);
+        connect(&card, &MemberProfileCard::sendMessageRequested, this, [this](const QString& id) {
+            ensureFriendRequestQueued(id,
+                                      QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                      true);
+            openPrivateSession(id);
+            showMessagesView();
+        });
+        connect(&card, &MemberProfileCard::addFriendRequested, this, [this](const QString& id) {
+            ensureFriendRequestQueued(id,
+                                      QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                      true);
+        });
+        card.exec();
+    });
+    connect(sidebar, &GroupMemberSidebar::addFriend, this, [this](const QString& userId) {
+        ensureFriendRequestQueued(userId,
+                                  QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                  true);
+    });
+    connect(sidebar, &GroupMemberSidebar::renameMember, this, [this](const QString& userId, const QString& currentName) {
+        GroupNicknameDialog dlg(this);
+        dlg.setCurrentNickname(currentName.isEmpty() ? contactDisplayName(userId) : currentName);
+        connect(&dlg, &GroupNicknameDialog::nicknameConfirmed, this, [this, userId](const QString& nick) {
+            const QString remark = nick.trimmed();
+            if (remark.isEmpty()) return;
+            m_friendNames[userId] = remark;
+            if (m_friendIds.contains(userId)) {
+                saveFriends();
+            }
+            refreshFriendList();
+            refreshGroupMemberPanel();
+            appendSystemMessage(QStringLiteral("已设置 %1 的群昵称为 %2").arg(userId, remark));
+        });
+        dlg.exec();
+    });
+    connect(sidebar, &GroupMemberSidebar::muteMember, this, [this, isLocalGroup, isPublicGroup](const QString& userId, int minutes) {
+        if (userId.isEmpty() || userId == m_currentUserId) {
+            ui->statusbar->showMessage(QStringLiteral("无法对该成员执行禁言"), 2000);
+            return;
+        }
+        if (isLocalGroup()) {
+            ui->statusbar->showMessage(QStringLiteral("本地群聊暂不支持服务端禁言"), 2400);
+            return;
+        }
+        if (!isPublicGroup()) {
+            ui->statusbar->showMessage(QStringLiteral("禁言仅在群聊会话中可用"), 2000);
+            return;
+        }
+        if (!canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+            ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以禁言成员"), 2400);
+            return;
+        }
+        int durationMinutes = minutes;
+        if (durationMinutes < 0) {
+            // Custom duration: reuse the mute dialog.
+            MuteDurationDialog dialog(this);
+            if (dialog.exec() != QDialog::Accepted) {
+                ui->statusbar->showMessage(QStringLiteral("已取消禁言操作"), 1600);
+                return;
+            }
+            durationMinutes = dialog.isPermanent() ? 30 * 24 * 60 : dialog.durationMinutes();
+        }
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        const qint64 mutedUntil = nowMs + static_cast<qint64>(durationMinutes) * 60 * 1000;
+        if (m_client && m_client->sendServerGroupMemberMute(QStringLiteral("public"), userId, mutedUntil, QString())) {
+            ui->statusbar->showMessage(QStringLiteral("已请求禁言 %1").arg(contactDisplayName(userId)), 2200);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("禁言失败：需要有效的服务器连接"), 3000);
+        }
+    });
+    connect(sidebar, &GroupMemberSidebar::unmuteMember, this, [this, isPublicGroup](const QString& userId) {
+        if (userId.isEmpty()) return;
+        if (!isPublicGroup() || !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+            ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以解除禁言"), 2400);
+            return;
+        }
+        // Unmute maps to a mute window that ends now.
+        if (m_client && m_client->sendServerGroupMemberMute(QStringLiteral("public"), userId,
+                                                            QDateTime::currentMSecsSinceEpoch(), QString())) {
+            ui->statusbar->showMessage(QStringLiteral("已请求解除禁言 %1").arg(contactDisplayName(userId)), 2200);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("解除禁言失败：需要有效的服务器连接"), 3000);
+        }
+    });
+    connect(sidebar, &GroupMemberSidebar::promoteAdmin, this, [this, isPublicGroup](const QString& userId) {
+        if (userId.isEmpty() || userId == m_currentUserId) return;
+        if (!isPublicGroup() || !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+            ui->statusbar->showMessage(QStringLiteral("只有群主可以设置管理员"), 2400);
+            return;
+        }
+        requestServerGroupMemberUpdate(userId, QStringLiteral("promote_admin"));
+    });
+    connect(sidebar, &GroupMemberSidebar::demoteAdmin, this, [this, isPublicGroup](const QString& userId) {
+        if (userId.isEmpty() || userId == m_currentUserId) return;
+        if (!isPublicGroup() || !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+            ui->statusbar->showMessage(QStringLiteral("只有群主可以取消管理员"), 2400);
+            return;
+        }
+        requestServerGroupMemberUpdate(userId, QStringLiteral("demote_admin"));
+    });
+    connect(sidebar, &GroupMemberSidebar::kickMember, this, [this, isLocalGroup, isPublicGroup](const QString& userId) {
+        if (userId.isEmpty() || userId == m_currentUserId) return;
+        const QString memberName = contactDisplayName(userId);
+        if (isLocalGroup()) {
+            if (!isCurrentUserGroupOwner(m_privateChatTarget)) {
+                ui->statusbar->showMessage(QStringLiteral("只有群主可以移出成员"), 2400);
+                return;
+            }
+            if (userId == groupOwnerId(m_privateChatTarget)) {
+                ui->statusbar->showMessage(QStringLiteral("不能移出群主"), 2200);
+                return;
+            }
+            if (QMessageBox::question(this, QStringLiteral("移出群成员"),
+                                      QStringLiteral("确定将“%1”移出当前群聊吗？").arg(memberName),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+                return;
+            }
+            m_localGroupMembers[m_privateChatTarget].removeAll(userId);
+            saveLocalGroups();
+            refreshGroupMemberPanel();
+            appendSystemMessage(QStringLiteral("已将 %1 移出群聊").arg(memberName));
+        } else if (isPublicGroup()) {
+            if (!canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+                ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以移出成员"), 2400);
+                return;
+            }
+            if (QMessageBox::question(this, QStringLiteral("移出群成员"),
+                                      QStringLiteral("确定将“%1”移出公共群吗？").arg(memberName),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+                return;
+            }
+            requestServerGroupMemberUpdate(userId, QStringLiteral("remove"));
+        }
+    });
+    connect(sidebar, &GroupMemberSidebar::reportMember, this, [this](const QString& userId) {
+        ui->statusbar->showMessage(QStringLiteral("已记录对 QQ:%1 的举报（仅本地）").arg(userId), 2400);
+    });
+    connect(sidebar, &GroupMemberSidebar::blockMember, this, [this](const QString& userId) {
+        ui->statusbar->showMessage(QStringLiteral("已屏蔽 QQ:%1 的发言（仅本地）").arg(userId), 2400);
+    });
 }
 
 void MainWindow::loadAvatar() {
@@ -9473,15 +9834,36 @@ void MainWindow::setupQQNT()
     connect(m_messagesView, &MessagesView::multiSelectForwardRequested, this, &MainWindow::onMultiSelectForwardRequested);
     connect(m_messagesView, &MessagesView::multiSelectDeleteRequested, this, &MainWindow::onMultiSelectDeleteRequested);
     connect(m_messagesView, &MessagesView::multiSelectFavoriteRequested, this, &MainWindow::onMultiSelectFavoriteRequested);
+    connect(m_messagesView, &MessagesView::essenceRequested, this, &MainWindow::showEssencePanel);
+    connectGroupMemberSidebar();
     connect(m_contactsView, &ContactsView::friendSelected, this, [this](const QString& userId) {
         openPrivateSession(userId);
+        showMessagesView();
     });
     connect(m_contactsView, &ContactsView::groupSelected, this, [this](const QString& groupId) {
         switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
+        showMessagesView();
     });
-    connect(m_contactsView, &ContactsView::addFriendRequested, this, &MainWindow::onShowQuickAddFriend);
+    connect(m_contactsView, &ContactsView::addFriendRequested, this, [this]() {
+        showAddFriendDialog();
+    });
     connect(m_contactsView, &ContactsView::createGroupRequested, this, [this]() {
         handleCreateMenuCommand(QStringLiteral("create-group"));
+    });
+    connect(m_contactsView, &ContactsView::friendManagerRequested, this, [this]() {
+        FriendManagerDialog dlg(this);
+        dlg.setFriendList(m_friendIds, m_friendNames);
+        connect(&dlg, &FriendManagerDialog::addFriendRequested, this, &MainWindow::onShowQuickAddFriend);
+        connect(&dlg, &FriendManagerDialog::deleteFriendRequested, this, [this](const QString& userId) {
+            // TODO: no delete-friend command exists in Client/protocol yet; the dialog
+            // only removes the row locally. Surface this so the state isn't misleading.
+            ui->statusbar->showMessage(
+                QStringLiteral("暂不支持删除好友（后端未实现该协议），仅本地移除 QQ:%1").arg(userId), 3000);
+        });
+        dlg.exec();
+    });
+    connect(m_contactsView, &ContactsView::globalSearchRequested, this, [this]() {
+        showGlobalSearchDialog();
     });
     if (m_contactsView->searchEdit()) {
         connect(m_contactsView->searchEdit(), &QLineEdit::textChanged, this, [this]() {
@@ -9793,6 +10175,145 @@ void MainWindow::onSettingsScreenshotShortcutChangeRequested()
     if (m_settingsView) {
         m_settingsView->setSyncStatus(QStringLiteral("截图快捷键已更新"));
     }
+}
+
+void MainWindow::showMessagesView()
+{
+    // Bring the messages view forward and keep the side nav highlight in sync.
+    // Used when a session is opened from another view (e.g. the contacts card).
+    if (m_viewStack) {
+        m_viewStack->setCurrentIndex(0);
+    }
+    if (m_appNav) {
+        m_appNav->setCurrentIndex(0);
+    }
+}
+
+void MainWindow::showAddFriendDialog()
+{
+    // QQNT add-friend flow: search a QQ/nickname, review the result card, then
+    // confirm. Search results arrive asynchronously via onFriendSearchResult,
+    // which routes to this dialog while m_activeAddFriendDialog is set.
+    AddFriendDialog dialog(this);
+    m_activeAddFriendDialog = &dialog;
+
+    connect(&dialog, &AddFriendDialog::searchRequested, this, [this](const QString& text) {
+        const QString account = text.trimmed();
+        if (account.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("请输入 QQ 号或昵称后再搜索"), 1800);
+            return;
+        }
+        if (!m_client->searchFriendByAccount(account)) {
+            ui->statusbar->showMessage(QStringLiteral("当前未连接，无法搜索账号"), 2500);
+        }
+    });
+    connect(&dialog, &AddFriendDialog::addFriendRequested, this, [this](const QString& userId) {
+        if (userId.isEmpty() || userId == m_currentUserId) {
+            return;
+        }
+        if (m_friendIds.contains(userId)) {
+            ui->statusbar->showMessage(QStringLiteral("QQ 账号 %1 已经是你的好友").arg(userId), 2500);
+            return;
+        }
+        if (!m_client->sendFriendRequest(userId)) {
+            ui->statusbar->showMessage(QStringLiteral("好友申请发送失败，请检查连接后重试"), 3000);
+            return;
+        }
+        if (!m_pendingOutgoingFriendRequests.contains(userId)) {
+            m_pendingOutgoingFriendRequests << userId;
+        }
+        saveFriends();
+        appendSystemMessage(QStringLiteral("已发送好友申请 QQ:%1，等待对方同意").arg(userId));
+        ui->statusbar->showMessage(
+            QStringLiteral("好友申请已发送给 %1").arg(contactDisplayName(userId)), 2500);
+        refreshFriendList();
+    });
+
+    dialog.exec();
+    m_activeAddFriendDialog = nullptr;
+}
+
+void MainWindow::showGlobalSearchDialog()
+{
+    // QQNT global search: filter the local friend/group lists by keyword and let
+    // the user activate a result. Contacts open a private session; groups switch
+    // to the group session. This replaces the legacy onShowGlobalSearch dialog for
+    // the contacts-view entry while keeping that flow available elsewhere.
+    GlobalSearchDialog dialog(this);
+
+    auto populate = [this, &dialog](const QString& keyword) {
+        dialog.clearResults();
+        const QString q = keyword.trimmed();
+        const auto matches = [&q](const QString& id, const QString& name) {
+            if (q.isEmpty()) return true;
+            return id.contains(q, Qt::CaseInsensitive) || name.contains(q, Qt::CaseInsensitive);
+        };
+        for (const QString& id : m_friendIds) {
+            const QString name = contactDisplayName(id);
+            if (matches(id, name)) {
+                dialog.addResult(QStringLiteral("contact"), id, name,
+                                 QStringLiteral("QQ:%1").arg(id));
+            }
+        }
+        for (const QString& id : m_localGroupIds) {
+            const QString name = m_localGroupNames.value(id, QStringLiteral("群聊"));
+            if (matches(id, name)) {
+                const int count = m_localGroupMembers.value(id).size();
+                dialog.addResult(QStringLiteral("group"), id, name,
+                                 QStringLiteral("%1 人").arg(count));
+            }
+        }
+    };
+
+    // Prime the list with everything, then refilter on each search.
+    populate(QString());
+    connect(&dialog, &GlobalSearchDialog::searchRequested, this,
+            [populate](const QString& text) { populate(text); });
+    connect(&dialog, &GlobalSearchDialog::resultActivated, this,
+            [this, &dialog](const QString& type, const QString& id) {
+        if (type == QStringLiteral("group")) {
+            switchToLocalGroup(id, m_localGroupNames.value(id, QStringLiteral("群聊")));
+        } else {
+            openPrivateSession(id);
+        }
+        showMessagesView();
+        dialog.accept();
+    });
+
+    dialog.exec();
+}
+
+void MainWindow::showEssencePanel()
+{
+    // QQNT essence view: enumerate the current chat's essence-flagged messages
+    // (marked via ChatBubbleForwardedRole by the essence/unessence command) and
+    // present them in a modal panel. Clicking a row could later scroll to the
+    // source message; for now it is display-only.
+    EssencePanel panel(this);
+    const int rowCount = m_chatModel ? m_chatModel->rowCount() : 0;
+    int essenceCount = 0;
+    for (int row = 0; row < rowCount; ++row) {
+        QStandardItem* item = m_chatModel->item(row);
+        if (!item || !item->data(ChatBubbleForwardedRole).toBool()) {
+            continue;
+        }
+        const QString text = item->data(Qt::DisplayRole).toString();
+        if (text.isEmpty()) {
+            continue;
+        }
+        const QString sender = item->data(ChatBubbleSenderNameRole).toString();
+        const QString timestamp = item->data(ChatBubbleTimestampRole).toString();
+        const QString messageId = item->data(ChatMessageIdRole).toString();
+        panel.addEssenceMessage(messageId.isEmpty() ? QString::number(row) : messageId,
+                                sender.isEmpty() ? QStringLiteral("未知") : sender,
+                                text,
+                                timestamp.isEmpty() ? QStringLiteral("--:--") : timestamp);
+        ++essenceCount;
+    }
+    if (essenceCount == 0) {
+        ui->statusbar->showMessage(QStringLiteral("当前会话暂无精华消息"), 2200);
+    }
+    panel.exec();
 }
 
 void MainWindow::onAppNavRouteActivated(const QString& route)

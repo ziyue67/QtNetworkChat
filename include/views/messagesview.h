@@ -18,6 +18,7 @@ class QStackedWidget;
 class ComposerWidget;
 class ChatBubbleDelegate;
 class ThemeManager;
+class GroupMemberSidebar;
 
 class MessagesView : public QWidget {
     Q_OBJECT
@@ -76,6 +77,15 @@ signals:
     void multiSelectForwardRequested();
     void multiSelectDeleteRequested();
     void multiSelectFavoriteRequested();
+    void essenceRequested();
+
+public:
+    // Show/hide the header "精华" button. Only groups have essence messages.
+    void setEssenceButtonVisible(bool visible);
+
+    // Group member sidebar (right rail). Shown only for group sessions.
+    GroupMemberSidebar* groupMemberSidebar() const;
+    void setGroupMemberSidebarVisible(bool visible);
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -100,11 +110,13 @@ private:
     QLabel* m_chatTitleLabel = nullptr;
     QLabel* m_chatSubtitleLabel = nullptr;
     QLabel* m_chatHintLabel = nullptr;
+    QPushButton* m_essenceBtn = nullptr;
     QLabel* m_emptyLabel = nullptr;
     QLabel* m_loadingLabel = nullptr;
     QLabel* m_dropOverlay = nullptr;
     QFrame* m_chatPanel = nullptr;
     ComposerWidget* m_composer = nullptr;
+    GroupMemberSidebar* m_groupMemberSidebar = nullptr;
 
     // Multi-select bottom action bar
     QFrame* m_multiSelectBar = nullptr;

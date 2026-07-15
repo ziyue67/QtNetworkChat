@@ -2,13 +2,16 @@
 #define GLOBALSEARCHDIALOG_H
 
 #include <QDialog>
+#include <QList>
 
 class QLineEdit;
 class QLabel;
 class QPushButton;
-class QTabWidget;
-class QListView;
-class QStandardItemModel;
+class QListWidget;
+class QListWidgetItem;
+class QStackedWidget;
+class QFrame;
+class AvatarLabel;
 
 class GlobalSearchDialog : public QDialog {
     Q_OBJECT
@@ -29,17 +32,32 @@ public slots:
 private:
     void setupUi();
     void updateStyle();
+    void setActiveTab(int tab);
+    void refreshVisibility();
+    void showGroupDetail(QListWidgetItem* item);
+    void hideGroupDetail();
+
+    enum Tab { TabAll = 0, TabUsers, TabGroups, TabMiniPrograms, TabBots };
 
     QLineEdit* m_searchEdit = nullptr;
     QPushButton* m_searchBtn = nullptr;
-    QTabWidget* m_tabWidget = nullptr;
-    QListView* m_messagesList = nullptr;
-    QListView* m_contactsList = nullptr;
-    QListView* m_groupsList = nullptr;
-    QStandardItemModel* m_messagesModel = nullptr;
-    QStandardItemModel* m_contactsModel = nullptr;
-    QStandardItemModel* m_groupsModel = nullptr;
+
+    QList<QPushButton*> m_tabButtons;
+    int m_activeTab = TabAll;
+
+    QStackedWidget* m_bodyStack = nullptr;   // 0 = results, 1 = placeholder
+    QLabel* m_usersHeading = nullptr;
+    QListWidget* m_usersList = nullptr;
+    QLabel* m_groupsHeading = nullptr;
+    QListWidget* m_groupsList = nullptr;
+    QLabel* m_placeholderLabel = nullptr;
+
+    // Group detail side panel
+    QFrame* m_detailPanel = nullptr;
+    AvatarLabel* m_detailAvatar = nullptr;
+    QLabel* m_detailName = nullptr;
+    QLabel* m_detailMeta = nullptr;
+    QString m_detailGroupId;
 };
 
 #endif // GLOBALSEARCHDIALOG_H
-

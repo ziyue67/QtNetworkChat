@@ -48,6 +48,7 @@ SOURCES += \
     src/objectstore.cpp \
     src/message.cpp \
     src/theme/thememanager.cpp \
+    src/theme/dialogstyle.cpp \
     src/widgets/avatarlabel.cpp \
     src/widgets/titlebar.cpp \
     src/widgets/dialogtitlebar.cpp \
@@ -114,6 +115,7 @@ HEADERS += \
     include/qtnetworkchat_e2e_crypto_config.h \
     include/qtnetworkchat_e2e_provider_api.h \
     include/theme/thememanager.h \
+    include/theme/dialogstyle.h \
     include/widgets/avatarlabel.h \
     include/widgets/titlebar.h \
     include/widgets/dialogtitlebar.h \
