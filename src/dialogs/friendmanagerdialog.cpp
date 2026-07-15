@@ -5,8 +5,10 @@
 #include "widgets/dialogtitlebar.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -21,8 +23,8 @@ constexpr int kColName = 1;
 constexpr int kColRemark = 2;
 constexpr int kColGroup = 3;
 constexpr int kColPermission = 4;
-// The "全部好友" rail entry is always present even without real group data.
 const QString kAllFriendsGroup = QStringLiteral("全部好友");
+const QString kDefaultGroup = QStringLiteral("我的好友");
 }
 
 FriendManagerDialog::FriendManagerDialog(QWidget* parent)
@@ -31,7 +33,7 @@ FriendManagerDialog::FriendManagerDialog(QWidget* parent)
     setObjectName(QStringLiteral("friendManagerDialog"));
     setWindowTitle(QStringLiteral("好友管理器"));
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    setMinimumSize(840, 600);
+    setMinimumSize(860, 600);
     setupUi();
     updateStyle();
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &FriendManagerDialog::updateStyle);
@@ -52,29 +54,88 @@ void FriendManagerDialog::setupUi()
     bodyLayout->setContentsMargins(0, 0, 0, 0);
     bodyLayout->setSpacing(0);
 
-    // Left group rail (fixed 200px, matches FriendManagerModal aside).
-    m_groupList = new QListWidget(body);
-    m_groupList->setObjectName(QStringLiteral("managerGroupList"));
-    m_groupList->setFixedWidth(200);
-    m_groupList->addItem(kAllFriendsGroup);
-    m_groupList->setCurrentRow(0);
-    connect(m_groupList, &QListWidget::currentRowChanged, this, [this]() { rebuildTable(); });
-    bodyLayout->addWidget(m_groupList);
+    // ---- Left group rail (200px) ----------------------------------------
+    QWidget* rail = new QWidget(body);
+    rail->setObjectName(QStringLiteral("managerRail"));
+    rail->setFixedWidth(200);
+    QVBoxLayout* railLayout = new QVBoxLayout(rail);
+    railLayout->setContentsMargins(8, 8, 8, 8);
+    railLayout->setSpacing(6);
 
-    // Right main panel.
+    m_groupList = new QListWidget(rail);
+    m_groupList->setObjectName(QStringLiteral("managerGroupList"));
+    connect(m_groupList, &QListWidget::currentRowChanged, this, [this]() {
+        // Enable delete only for a real custom group selection.
+        if (m_deleteGroupBtn) {
+            const QString g = currentGroup();
+            m_deleteGroupBtn->setEnabled(!g.isEmpty() && g != kAllFriendsGroup && g != kDefaultGroup);
+        }
+        rebuildTable();
+    });
+    railLayout->addWidget(m_groupList, 1);
+
+    // Add / delete group buttons.
+    QHBoxLayout* groupBtnRow = new QHBoxLayout();
+    groupBtnRow->setSpacing(6);
+    m_addGroupBtn = new QPushButton(QStringLiteral("＋ 添加分组"), rail);
+    m_addGroupBtn->setObjectName(QStringLiteral("managerGroupAddBtn"));
+    m_addGroupBtn->setCursor(Qt::PointingHandCursor);
+    connect(m_addGroupBtn, &QPushButton::clicked, this, [this]() {
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("添加分组"),
+                                                   QStringLiteral("分组名称:"), QLineEdit::Normal,
+                                                   QString(), &ok).trimmed();
+        if (!ok || name.isEmpty()) return;
+        if (name == kAllFriendsGroup || m_customGroups.contains(name) || name == kDefaultGroup) {
+            QMessageBox::information(this, QStringLiteral("添加分组"), QStringLiteral("该分组已存在"));
+            return;
+        }
+        m_customGroups.append(name);
+        emit createGroupRequested(name);
+        rebuildGroupRail();
+    });
+    groupBtnRow->addWidget(m_addGroupBtn);
+
+    m_deleteGroupBtn = new QPushButton(QStringLiteral("删除分组"), rail);
+    m_deleteGroupBtn->setObjectName(QStringLiteral("managerGroupDelBtn"));
+    m_deleteGroupBtn->setCursor(Qt::PointingHandCursor);
+    m_deleteGroupBtn->setEnabled(false);
+    connect(m_deleteGroupBtn, &QPushButton::clicked, this, [this]() {
+        const QString g = currentGroup();
+        if (g.isEmpty() || g == kAllFriendsGroup || g == kDefaultGroup) return;
+        if (QMessageBox::question(this, QStringLiteral("删除分组"),
+                                  QStringLiteral("确定删除分组“%1”吗？组内好友将回到「我的好友」。").arg(g),
+                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
+        // Move members back to default locally, then notify MainWindow.
+        for (auto it = m_friendGroups.begin(); it != m_friendGroups.end(); ++it) {
+            if (it.value() == g) {
+                it.value() = kDefaultGroup;
+                emit moveFriendToGroupRequested(it.key(), kDefaultGroup);
+            }
+        }
+        m_customGroups.removeAll(g);
+        emit deleteGroupRequested(g);
+        rebuildGroupRail();
+    });
+    groupBtnRow->addWidget(m_deleteGroupBtn);
+    railLayout->addLayout(groupBtnRow);
+
+    bodyLayout->addWidget(rail);
+
+    // ---- Right main panel ------------------------------------------------
     QWidget* main = new QWidget(body);
     QVBoxLayout* mainLayout = new QVBoxLayout(main);
     mainLayout->setContentsMargins(20, 18, 20, 16);
     mainLayout->setSpacing(14);
 
-    // Header row: title + search box.
     QHBoxLayout* headerRow = new QHBoxLayout();
     headerRow->setSpacing(12);
     m_titleLabel = new QLabel(QStringLiteral("好友管理器"), main);
     m_titleLabel->setObjectName(QStringLiteral("managerTitle"));
     headerRow->addWidget(m_titleLabel);
     headerRow->addStretch();
-
     m_searchEdit = new QLineEdit(main);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索"));
@@ -87,7 +148,6 @@ void FriendManagerDialog::setupUi()
     headerRow->addWidget(m_searchEdit);
     mainLayout->addLayout(headerRow);
 
-    // Table: checkbox / name / remark / group / permission.
     m_table = new QTableWidget(main);
     m_table->setObjectName(QStringLiteral("managerTable"));
     m_table->setColumnCount(5);
@@ -105,8 +165,6 @@ void FriendManagerDialog::setupUi()
     m_table->horizontalHeader()->setSectionResizeMode(kColGroup, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(kColPermission, QHeaderView::Stretch);
 
-    // "Select all" row above the table (QTableWidget has no natural header
-    // checkbox slot, so give it its own labelled control).
     QHBoxLayout* selectAllRow = new QHBoxLayout();
     selectAllRow->setContentsMargins(8, 0, 0, 0);
     m_selectAll = new QCheckBox(QStringLiteral("全选"), main);
@@ -123,7 +181,6 @@ void FriendManagerDialog::setupUi()
     mainLayout->addLayout(selectAllRow);
     mainLayout->addWidget(m_table, 1);
 
-    // Bottom action row.
     QHBoxLayout* btnLayout = new QHBoxLayout();
     m_addBtn = new QPushButton(QStringLiteral("添加好友"), main);
     m_addBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
@@ -140,14 +197,11 @@ void FriendManagerDialog::setupUi()
             auto* cb = qobject_cast<QCheckBox*>(m_table->cellWidget(row, kColCheck));
             if (cb && cb->isChecked()) {
                 QTableWidgetItem* nameItem = m_table->item(row, kColName);
-                if (nameItem) {
-                    selected << nameItem->data(Qt::UserRole).toString();
-                }
+                if (nameItem) selected << nameItem->data(Qt::UserRole).toString();
             }
         }
         if (selected.isEmpty()) {
-            QMessageBox::information(this, QStringLiteral("删除好友"),
-                                     QStringLiteral("请先勾选要删除的好友"));
+            QMessageBox::information(this, QStringLiteral("删除好友"), QStringLiteral("请先勾选要删除的好友"));
             return;
         }
         if (QMessageBox::question(this, QStringLiteral("删除好友"),
@@ -158,6 +212,7 @@ void FriendManagerDialog::setupUi()
         for (const QString& id : selected) {
             emit deleteFriendRequested(id);
             m_friendIds.removeAll(id);
+            m_friendGroups.remove(id);
         }
         rebuildTable();
     });
@@ -173,14 +228,86 @@ void FriendManagerDialog::setupUi()
 
     bodyLayout->addWidget(main, 1);
     root->addWidget(body, 1);
+
+    rebuildGroupRail();
+}
+QString FriendManagerDialog::currentGroup() const
+{
+    if (!m_groupList || !m_groupList->currentItem()) return kAllFriendsGroup;
+    return m_groupList->currentItem()->data(Qt::UserRole).toString();
+}
+
+void FriendManagerDialog::rebuildGroupRail()
+{
+    if (!m_groupList) return;
+    const QString prev = currentGroup();
+    QSignalBlocker blocker(m_groupList);
+    m_groupList->clear();
+
+    // Count members per group (missing assignment => 我的好友).
+    QMap<QString, int> counts;
+    for (const QString& id : m_friendIds) {
+        const QString g = m_friendGroups.value(id, kDefaultGroup);
+        counts[g] += 1;
+    }
+
+    auto addRow = [this](const QString& name, int count) {
+        auto* item = new QListWidgetItem(QStringLiteral("%1  (%2)").arg(name).arg(count), m_groupList);
+        item->setData(Qt::UserRole, name);
+    };
+
+    // 全部好友 first.
+    addRow(kAllFriendsGroup, m_friendIds.size());
+    // Default group, then custom groups (union of assigned + declared empty ones).
+    QStringList groups;
+    groups << kDefaultGroup;
+    for (const QString& g : m_customGroups) {
+        if (!groups.contains(g)) groups << g;
+    }
+    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it) {
+        if (!groups.contains(it.key())) groups << it.key();
+    }
+    for (const QString& g : groups) {
+        if (g == kAllFriendsGroup) continue;
+        addRow(g, counts.value(g, 0));
+    }
+
+    // Restore selection.
+    int restore = 0;
+    for (int i = 0; i < m_groupList->count(); ++i) {
+        if (m_groupList->item(i)->data(Qt::UserRole).toString() == prev) { restore = i; break; }
+    }
+    m_groupList->setCurrentRow(restore);
+    if (m_deleteGroupBtn) {
+        const QString g = currentGroup();
+        m_deleteGroupBtn->setEnabled(!g.isEmpty() && g != kAllFriendsGroup && g != kDefaultGroup);
+    }
+    rebuildTable();
 }
 
 void FriendManagerDialog::rebuildTable()
 {
     if (!m_table) return;
+    const QString group = currentGroup();
     m_table->setRowCount(0);
+
+    // Group options for the per-row combo.
+    QStringList groupOptions;
+    groupOptions << kDefaultGroup;
+    for (const QString& g : m_customGroups) {
+        if (!groupOptions.contains(g)) groupOptions << g;
+    }
+    for (const QString& id : m_friendIds) {
+        const QString g = m_friendGroups.value(id, kDefaultGroup);
+        if (!groupOptions.contains(g)) groupOptions << g;
+    }
+
     for (const QString& id : m_friendIds) {
         const QString name = m_friendNames.value(id, id);
+        const QString friendGroup = m_friendGroups.value(id, kDefaultGroup);
+        if (group != kAllFriendsGroup && friendGroup != group) {
+            continue;
+        }
         if (!m_filter.isEmpty()
             && !id.contains(m_filter, Qt::CaseInsensitive)
             && !name.contains(m_filter, Qt::CaseInsensitive)) {
@@ -189,7 +316,6 @@ void FriendManagerDialog::rebuildTable()
         const int row = m_table->rowCount();
         m_table->insertRow(row);
 
-        // Checkbox cell, centered.
         QWidget* checkHolder = new QWidget(m_table);
         QHBoxLayout* checkLayout = new QHBoxLayout(checkHolder);
         checkLayout->setContentsMargins(0, 0, 0, 0);
@@ -202,17 +328,22 @@ void FriendManagerDialog::rebuildTable()
         QTableWidgetItem* nameItem = new QTableWidgetItem(name);
         nameItem->setData(Qt::UserRole, id);
         m_table->setItem(row, kColName, nameItem);
-        m_table->setItem(row, kColRemark, new QTableWidgetItem(QStringLiteral("-")));
-        m_table->setItem(row, kColGroup, new QTableWidgetItem(kAllFriendsGroup));
+        m_table->setItem(row, kColRemark, new QTableWidgetItem(m_friendNames.value(id, QStringLiteral("-"))));
+
+        // Group column: editable combo so the user can move a friend.
+        QComboBox* groupCombo = new QComboBox(m_table);
+        groupCombo->addItems(groupOptions);
+        groupCombo->setCurrentText(friendGroup);
+        connect(groupCombo, &QComboBox::currentTextChanged, this, [this, id](const QString& newGroup) {
+            if (newGroup.isEmpty()) return;
+            m_friendGroups[id] = newGroup;
+            emit moveFriendToGroupRequested(id, newGroup);
+        });
+        m_table->setCellWidget(row, kColGroup, groupCombo);
+
         m_table->setItem(row, kColPermission, new QTableWidgetItem(QStringLiteral("正常")));
     }
     updateSelectAllState();
-
-    // Keep the rail count label in sync.
-    if (m_groupList->count() > 0) {
-        m_groupList->item(0)->setText(
-            QStringLiteral("%1  (%2)").arg(kAllFriendsGroup).arg(m_friendIds.size()));
-    }
 }
 
 void FriendManagerDialog::updateSelectAllState()
@@ -233,29 +364,40 @@ void FriendManagerDialog::updateSelectAllState()
 void FriendManagerDialog::updateStyle()
 {
     ThemeManager* tm = ThemeManager::instance();
-    // Shared input/button rules from DialogStyle::common(); only the manager
-    // layout (group rail, title, select-all, table, header) is defined here.
     setStyleSheet(DialogStyle::common() + QStringLiteral(
         "QDialog#friendManagerDialog { background-color: %1; }"
-        "QListWidget#managerGroupList { background-color: %3; border: none; border-right: 1px solid %4; color: %2; outline: none; padding: 8px; }"
+        "QWidget#managerRail { background-color: %3; border-right: 1px solid %4; }"
+        "QListWidget#managerGroupList { background-color: %3; border: none; color: %2; outline: none; }"
         "QListWidget#managerGroupList::item { padding: 8px 10px; border-radius: 6px; }"
         "QListWidget#managerGroupList::item:selected { background-color: %5; color: %2; }"
+        "QPushButton#managerGroupAddBtn, QPushButton#managerGroupDelBtn { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 6px 4px; font-size: 12px; }"
+        "QPushButton#managerGroupAddBtn:hover, QPushButton#managerGroupDelBtn:hover { border-color: %7; color: %7; }"
+        "QPushButton#managerGroupDelBtn:disabled { color: %6; border-color: %4; }"
         "QLabel#managerTitle { color: %2; font-size: 18px; font-weight: 600; }"
         "QCheckBox#managerSelectAll { color: %6; font-size: 12px; }"
         "QTableWidget#managerTable { background-color: %1; border: none; color: %2; }"
         "QTableWidget#managerTable::item { padding: 6px 8px; border-bottom: 1px solid %4; }"
+        "QComboBox { background: %3; color: %2; border: 1px solid %4; border-radius: 4px; padding: 2px 6px; }"
+        "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %5; }"
         "QHeaderView::section { background-color: %1; color: %2; border: none; border-bottom: 1px solid %4; padding: 6px 8px; font-weight: 600; }"
     ).arg(tm->backgroundColor().name())            // %1
      .arg(tm->textColor().name())                  // %2
      .arg(tm->backgroundSecondaryColor().name())    // %3
      .arg(tm->borderColor().name())                 // %4
      .arg(tm->primarySoftColor().name())            // %5
-     .arg(tm->textSecondaryColor().name()));        // %6
+     .arg(tm->textSecondaryColor().name())          // %6
+     .arg(tm->primaryColor().name()));              // %7
 }
 
-void FriendManagerDialog::setFriendList(const QStringList& friendIds, const QMap<QString, QString>& friendNames)
+void FriendManagerDialog::setFriendList(const QStringList& friendIds,
+                                        const QMap<QString, QString>& friendNames,
+                                        const QMap<QString, QString>& friendGroups,
+                                        const QStringList& customGroups)
 {
     m_friendIds = friendIds;
     m_friendNames = friendNames;
-    rebuildTable();
+    m_friendGroups = friendGroups;
+    m_customGroups = customGroups;
+    rebuildGroupRail();
 }
+

@@ -57,6 +57,10 @@ QString ClientStorage::groupFilePath() const {
     return QDir(appDataDirectory()).filePath(QStringLiteral("groups_%1.txt").arg(safeUserName()));
 }
 
+QString ClientStorage::friendGroupFilePath() const {
+    return QDir(appDataDirectory()).filePath(QStringLiteral("friend_groups_%1.txt").arg(safeUserName()));
+}
+
 QString ClientStorage::avatarFilePath() const {
     return QDir(appDataDirectory()).filePath(QStringLiteral("avatar_%1.png").arg(safeUserName()));
 }
@@ -180,6 +184,59 @@ bool ClientStorage::writeLegacyFriends(const QStringList& friendIds,
     for (const QString& id : friendIds) {
         if (!id.isEmpty()) {
             out << id << "|" << friendNames.value(id, id) << "\n";
+        }
+    }
+    return true;
+}
+
+bool ClientStorage::readFriendGroups(QMap<QString, QString>* friendGroups,
+                                     QStringList* customGroups) const {
+    QFile file(friendGroupFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+    QTextStream in(&file);
+    in.setEncoding(QStringConverter::Utf8);
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        if (line.isEmpty()) {
+            continue;
+        }
+        // "G|<groupName>"        -> a custom (possibly empty) group
+        // "<friendId>|<groupName>" -> a friend's group assignment
+        const int sep = line.indexOf(QLatin1Char('|'));
+        if (sep < 0) {
+            continue;
+        }
+        const QString key = line.left(sep);
+        const QString value = line.mid(sep + 1);
+        if (key == QLatin1String("G")) {
+            if (customGroups && !value.isEmpty() && !customGroups->contains(value)) {
+                customGroups->append(value);
+            }
+        } else if (friendGroups && !key.isEmpty() && !value.isEmpty()) {
+            friendGroups->insert(key, value);
+        }
+    }
+    return true;
+}
+
+bool ClientStorage::writeFriendGroups(const QMap<QString, QString>& friendGroups,
+                                      const QStringList& customGroups) const {
+    QFile file(friendGroupFilePath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return false;
+    }
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    for (const QString& name : customGroups) {
+        if (!name.isEmpty()) {
+            out << "G|" << name << "\n";
+        }
+    }
+    for (auto it = friendGroups.constBegin(); it != friendGroups.constEnd(); ++it) {
+        if (!it.key().isEmpty() && !it.value().isEmpty()) {
+            out << it.key() << "|" << it.value() << "\n";
         }
     }
     return true;

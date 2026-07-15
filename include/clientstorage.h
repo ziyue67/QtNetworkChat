@@ -19,6 +19,7 @@ public:
     static void resetAppDataRootDirectory();
 
     QString friendFilePath() const;
+    QString friendGroupFilePath() const;
     QString groupFilePath() const;
     QString avatarFilePath() const;
     QString peerAvatarFilePath(const QString& userId) const;
@@ -32,6 +33,14 @@ public:
     bool readLegacyFriends(QStringList* friendIds, QMap<QString, QString>* friendNames) const;
     bool writeLegacyFriends(const QStringList& friendIds,
                             const QMap<QString, QString>& friendNames) const;
+
+    // Friend groups are a local-only concept (no server protocol). Persist a
+    // friendId -> groupName map plus any custom empty group names to a per-user
+    // text file, mirroring the legacy-friends format.
+    bool readFriendGroups(QMap<QString, QString>* friendGroups,
+                          QStringList* customGroups) const;
+    bool writeFriendGroups(const QMap<QString, QString>& friendGroups,
+                           const QStringList& customGroups) const;
     bool readLegacyLocalGroups(const QString& currentUserId,
                                QStringList* groupIds,
                                QMap<QString, QString>* groupNames,

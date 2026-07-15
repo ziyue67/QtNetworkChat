@@ -362,6 +362,7 @@ private:
     QString getGroupFilePath() const;
     QString getAvatarFilePath() const;
     void saveFriends() const;
+    void saveFriendGroups() const;
     void saveLocalGroups() const;
     void updateUnreadState();
     void clearUnreadState();
@@ -386,6 +387,10 @@ private:
     QStringList m_pendingFriendRequests;
     QStringList m_pendingOutgoingFriendRequests;
     QMap<QString, QString> m_friendNames;
+    // Local-only friend groups: friendId -> group name, plus custom (possibly
+    // empty) group names. No server protocol; persisted via ClientStorage.
+    QMap<QString, QString> m_friendGroups;
+    QStringList m_customGroups;
     QMap<QString, QString> m_localGroupNames;
     QMap<QString, QString> m_localGroupAnnouncements;
     QMap<QString, QStringList> m_localGroupMembers;

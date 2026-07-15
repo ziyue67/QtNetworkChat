@@ -35,10 +35,11 @@ void DialogTitleBar::setupUi(bool showCloseButton)
         m_closeBtn->setObjectName(QStringLiteral("dialogTitleBarCloseBtn"));
         m_closeBtn->setFixedSize(32, 32);
         m_closeBtn->setFlat(true);
-        m_closeBtn->setStyleSheet(QStringLiteral(
-            "QPushButton { color: #f3f3f3; background: transparent; border: none; "
-            "font-family: 'Segoe UI'; font-size: 14px; font-weight: 700; text-align: center; padding: 0; }"
-            "QPushButton:hover { background-color: #ff4d4f; color: white; }"));
+        m_closeBtn->setCursor(Qt::PointingHandCursor);
+        // No inline stylesheet here: the theme-aware rule in updateStyle()
+        // (QPushButton#dialogTitleBarCloseBtn { color: <textColor> }) must win so
+        // the X stays visible on light backgrounds. A hardcoded near-white color
+        // previously made it invisible on the light title bar.
         m_closeBtn->setToolTip(QStringLiteral("关闭"));
         layout->addWidget(m_closeBtn);
         connect(m_closeBtn, &QPushButton::clicked, this, &DialogTitleBar::closeRequested);

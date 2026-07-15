@@ -8496,6 +8496,11 @@ void MainWindow::refreshFriendList() {
         saveFriends();
     }
 
+    // Load local-only friend groups (friendId -> group name + custom groups).
+    m_friendGroups.clear();
+    m_customGroups.clear();
+    m_clientStorage.readFriendGroups(&m_friendGroups, &m_customGroups);
+
     if (m_pendingFriendRequests.isEmpty() && m_pendingOutgoingFriendRequests.isEmpty() && ensureClientDatabase()) {
         const QString connectionName = "client_requests_read_" + QString::number(reinterpret_cast<quintptr>(this));
         {
@@ -9678,6 +9683,10 @@ void MainWindow::saveFriends() const {
     m_clientStorage.writeLegacyFriends(m_friendIds, m_friendNames);
 }
 
+void MainWindow::saveFriendGroups() const {
+    m_clientStorage.writeFriendGroups(m_friendGroups, m_customGroups);
+}
+
 void MainWindow::saveLocalGroups() const {
     if (ensureClientDatabase()) {
         m_clientStorage.saveLocalGroupsToSqlite(clientDbPath(),
@@ -9852,13 +9861,38 @@ void MainWindow::setupQQNT()
     });
     connect(m_contactsView, &ContactsView::friendManagerRequested, this, [this]() {
         FriendManagerDialog dlg(this);
-        dlg.setFriendList(m_friendIds, m_friendNames);
+        dlg.setFriendList(m_friendIds, m_friendNames, m_friendGroups, m_customGroups);
         connect(&dlg, &FriendManagerDialog::addFriendRequested, this, &MainWindow::onShowQuickAddFriend);
         connect(&dlg, &FriendManagerDialog::deleteFriendRequested, this, [this](const QString& userId) {
             // TODO: no delete-friend command exists in Client/protocol yet; the dialog
             // only removes the row locally. Surface this so the state isn't misleading.
             ui->statusbar->showMessage(
                 QStringLiteral("暂不支持删除好友（后端未实现该协议），仅本地移除 QQ:%1").arg(userId), 3000);
+        });
+        // Friend groups are local-only; persist changes so they survive restart.
+        connect(&dlg, &FriendManagerDialog::createGroupRequested, this, [this](const QString& name) {
+            if (!name.isEmpty() && !m_customGroups.contains(name)) {
+                m_customGroups.append(name);
+                saveFriendGroups();
+            }
+        });
+        connect(&dlg, &FriendManagerDialog::deleteGroupRequested, this, [this](const QString& name) {
+            m_customGroups.removeAll(name);
+            for (auto it = m_friendGroups.begin(); it != m_friendGroups.end(); ) {
+                if (it.value() == name) it = m_friendGroups.erase(it);
+                else ++it;
+            }
+            saveFriendGroups();
+        });
+        connect(&dlg, &FriendManagerDialog::moveFriendToGroupRequested, this,
+                [this](const QString& userId, const QString& group) {
+            if (userId.isEmpty()) return;
+            if (group.isEmpty() || group == QStringLiteral("我的好友")) {
+                m_friendGroups.remove(userId);
+            } else {
+                m_friendGroups[userId] = group;
+            }
+            saveFriendGroups();
         });
         dlg.exec();
     });
