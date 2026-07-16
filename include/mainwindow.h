@@ -37,6 +37,7 @@ class ProfileView;
 class AppNav;
 class TitleBar;
 class AddFriendDialog;
+class GlobalSearchDialog;
 class QStackedWidget;
 class QAction;
 class QLabel;
@@ -345,7 +346,7 @@ private:
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void showMessagesView();
     void showAddFriendDialog();
-    void showGlobalSearchDialog();
+    void showGlobalSearchDialog(bool contactGroupMode = false);
     void showEssencePanel();
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
@@ -429,6 +430,7 @@ private:
     // When a QQNT AddFriendDialog is open, friend-search results are routed to it
     // (two-step search → confirm) instead of the legacy auto-send path.
     AddFriendDialog* m_activeAddFriendDialog = nullptr;
+    GlobalSearchDialog* m_activeContactGroupSearchDialog = nullptr;
     FavoritesView* m_favoritesView = nullptr;
     SettingsView* m_settingsView = nullptr;
     ProfileView* m_profileView = nullptr;

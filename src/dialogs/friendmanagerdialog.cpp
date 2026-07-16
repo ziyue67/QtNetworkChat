@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QMenu>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -64,20 +65,18 @@ void FriendManagerDialog::setupUi()
 
     m_groupList = new QListWidget(rail);
     m_groupList->setObjectName(QStringLiteral("managerGroupList"));
+    m_groupList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_groupList, &QListWidget::currentRowChanged, this, [this]() {
-        // Enable delete only for a real custom group selection.
-        if (m_deleteGroupBtn) {
-            const QString g = currentGroup();
-            m_deleteGroupBtn->setEnabled(!g.isEmpty() && g != kAllFriendsGroup && g != kDefaultGroup);
-        }
         rebuildTable();
     });
+    connect(m_groupList, &QListWidget::customContextMenuRequested,
+            this, &FriendManagerDialog::showGroupContextMenu);
     railLayout->addWidget(m_groupList, 1);
 
-    // Add / delete group buttons.
+    // Adding is an explicit command; editing/removing a group lives in its context menu.
     QHBoxLayout* groupBtnRow = new QHBoxLayout();
     groupBtnRow->setSpacing(6);
-    m_addGroupBtn = new QPushButton(QStringLiteral("＋ 添加分组"), rail);
+    m_addGroupBtn = new QPushButton(QStringLiteral("＋ 新增分组"), rail);
     m_addGroupBtn->setObjectName(QStringLiteral("managerGroupAddBtn"));
     m_addGroupBtn->setCursor(Qt::PointingHandCursor);
     connect(m_addGroupBtn, &QPushButton::clicked, this, [this]() {
@@ -95,31 +94,6 @@ void FriendManagerDialog::setupUi()
         rebuildGroupRail();
     });
     groupBtnRow->addWidget(m_addGroupBtn);
-
-    m_deleteGroupBtn = new QPushButton(QStringLiteral("删除分组"), rail);
-    m_deleteGroupBtn->setObjectName(QStringLiteral("managerGroupDelBtn"));
-    m_deleteGroupBtn->setCursor(Qt::PointingHandCursor);
-    m_deleteGroupBtn->setEnabled(false);
-    connect(m_deleteGroupBtn, &QPushButton::clicked, this, [this]() {
-        const QString g = currentGroup();
-        if (g.isEmpty() || g == kAllFriendsGroup || g == kDefaultGroup) return;
-        if (QMessageBox::question(this, QStringLiteral("删除分组"),
-                                  QStringLiteral("确定删除分组“%1”吗？组内好友将回到「我的好友」。").arg(g),
-                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
-            return;
-        }
-        // Move members back to default locally, then notify MainWindow.
-        for (auto it = m_friendGroups.begin(); it != m_friendGroups.end(); ++it) {
-            if (it.value() == g) {
-                it.value() = kDefaultGroup;
-                emit moveFriendToGroupRequested(it.key(), kDefaultGroup);
-            }
-        }
-        m_customGroups.removeAll(g);
-        emit deleteGroupRequested(g);
-        rebuildGroupRail();
-    });
-    groupBtnRow->addWidget(m_deleteGroupBtn);
     railLayout->addLayout(groupBtnRow);
 
     bodyLayout->addWidget(rail);
@@ -278,11 +252,60 @@ void FriendManagerDialog::rebuildGroupRail()
         if (m_groupList->item(i)->data(Qt::UserRole).toString() == prev) { restore = i; break; }
     }
     m_groupList->setCurrentRow(restore);
-    if (m_deleteGroupBtn) {
-        const QString g = currentGroup();
-        m_deleteGroupBtn->setEnabled(!g.isEmpty() && g != kAllFriendsGroup && g != kDefaultGroup);
-    }
     rebuildTable();
+}
+
+bool FriendManagerDialog::isCustomGroup(const QString& groupName) const
+{
+    return !groupName.isEmpty()
+        && groupName != kAllFriendsGroup
+        && groupName != kDefaultGroup
+        && m_customGroups.contains(groupName);
+}
+
+void FriendManagerDialog::showGroupContextMenu(const QPoint& position)
+{
+    QListWidgetItem* item = m_groupList ? m_groupList->itemAt(position) : nullptr;
+    if (!item) return;
+
+    const QString groupName = item->data(Qt::UserRole).toString();
+    if (!isCustomGroup(groupName)) return;
+    m_groupList->setCurrentItem(item);
+
+    QMenu menu(this);
+    QAction* renameAction = menu.addAction(QStringLiteral("重命名"));
+    QAction* deleteAction = menu.addAction(QStringLiteral("删除"));
+    QAction* chosen = menu.exec(m_groupList->viewport()->mapToGlobal(position));
+    if (chosen == renameAction) {
+        bool ok = false;
+        const QString newName = QInputDialog::getText(this, QStringLiteral("重命名分组"),
+                                                       QStringLiteral("分组名称:"), QLineEdit::Normal,
+                                                       groupName, &ok).trimmed();
+        if (!ok || newName.isEmpty() || newName == groupName) return;
+        if (newName == kAllFriendsGroup || newName == kDefaultGroup || m_customGroups.contains(newName)) {
+            QMessageBox::information(this, QStringLiteral("重命名分组"), QStringLiteral("该分组已存在"));
+            return;
+        }
+        m_customGroups.replace(m_customGroups.indexOf(groupName), newName);
+        for (auto it = m_friendGroups.begin(); it != m_friendGroups.end(); ++it) {
+            if (it.value() == groupName) it.value() = newName;
+        }
+        emit renameGroupRequested(groupName, newName);
+        rebuildGroupRail();
+    } else if (chosen == deleteAction) {
+        if (QMessageBox::question(this, QStringLiteral("删除分组"),
+                                  QStringLiteral("确定删除分组“%1”吗？组内好友将回到「我的好友」。").arg(groupName),
+                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+        for (auto it = m_friendGroups.begin(); it != m_friendGroups.end(); ++it) {
+            if (it.value() == groupName) {
+                it.value() = kDefaultGroup;
+                emit moveFriendToGroupRequested(it.key(), kDefaultGroup);
+            }
+        }
+        m_customGroups.removeAll(groupName);
+        emit deleteGroupRequested(groupName);
+        rebuildGroupRail();
+    }
 }
 
 void FriendManagerDialog::rebuildTable()
@@ -370,9 +393,8 @@ void FriendManagerDialog::updateStyle()
         "QListWidget#managerGroupList { background-color: %3; border: none; color: %2; outline: none; }"
         "QListWidget#managerGroupList::item { padding: 8px 10px; border-radius: 6px; }"
         "QListWidget#managerGroupList::item:selected { background-color: %5; color: %2; }"
-        "QPushButton#managerGroupAddBtn, QPushButton#managerGroupDelBtn { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 6px 4px; font-size: 12px; }"
-        "QPushButton#managerGroupAddBtn:hover, QPushButton#managerGroupDelBtn:hover { border-color: %7; color: %7; }"
-        "QPushButton#managerGroupDelBtn:disabled { color: %6; border-color: %4; }"
+        "QPushButton#managerGroupAddBtn { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 6px 4px; font-size: 12px; }"
+        "QPushButton#managerGroupAddBtn:hover { border-color: %7; color: %7; }"
         "QLabel#managerTitle { color: %2; font-size: 18px; font-weight: 600; }"
         "QCheckBox#managerSelectAll { color: %6; font-size: 12px; }"
         "QTableWidget#managerTable { background-color: %1; border: none; color: %2; }"

@@ -36,6 +36,7 @@ private:
     QWidget* buildSelectPage();
     QWidget* buildCategoryPage();
     QWidget* buildInfoPage();
+    QWidget* buildPageHeader(const QString& title, int backPage);
     void setupUi();
     void updateStyle();
     void showPage(int page);
@@ -44,6 +45,8 @@ private:
     void toggleMember(const QString& id);
     QWidget* buildMemberRow(const QString& id, QWidget* parent);
     void chooseCategory(const QString& category);
+    void updateAvatarSelection(int selectedId);
+    void updateCategorySelection();
     void finishDirect();
     void finishCategorized();
     QString defaultGroupName() const;
@@ -59,6 +62,8 @@ private:
     QLineEdit* m_nameEdit = nullptr;
     QLabel* m_categoryLabel = nullptr;
     QButtonGroup* m_avatarGroup = nullptr;
+    QList<QLabel*> m_avatarChecks;
+    QList<QPushButton*> m_categoryTags;
     QCheckBox* m_agreeCheck = nullptr;
     QPushButton* m_createBtn = nullptr;
     QStringList m_memberIds;

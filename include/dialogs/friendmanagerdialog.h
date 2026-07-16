@@ -13,8 +13,8 @@ class QPushButton;
 class QLineEdit;
 class QLabel;
 
-// QQNT friend manager. Left rail lists 全部好友 + groups (with add/delete group
-// buttons); right side is a grouped/filterable friend table. Friend groups are
+// QQNT friend manager. Left rail lists 全部好友 + groups (with an add button and
+// a group context menu); right side is a grouped/filterable friend table. Friend groups are
 // a local-only concept persisted by MainWindow, so the dialog only emits intent
 // signals and MainWindow does the persistence + re-feeds via setFriendList.
 class FriendManagerDialog : public QDialog {
@@ -34,6 +34,7 @@ signals:
     void deleteFriendRequested(const QString& userId);
     void addFriendRequested();
     void createGroupRequested(const QString& groupName);
+    void renameGroupRequested(const QString& oldName, const QString& newName);
     void deleteGroupRequested(const QString& groupName);
     void moveFriendToGroupRequested(const QString& userId, const QString& groupName);
 
@@ -44,11 +45,12 @@ private:
     void rebuildTable();
     void updateSelectAllState();
     QString currentGroup() const;
+    bool isCustomGroup(const QString& groupName) const;
+    void showGroupContextMenu(const QPoint& position);
 
     // Left group rail
     QListWidget* m_groupList = nullptr;
     QPushButton* m_addGroupBtn = nullptr;
-    QPushButton* m_deleteGroupBtn = nullptr;
 
     // Right table
     QLabel* m_titleLabel = nullptr;

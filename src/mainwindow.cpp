@@ -2919,7 +2919,8 @@ void MainWindow::setupUi() {
                 }
             }
             MemberProfileCard card(this);
-            card.setMemberInfo(memberId, contactDisplayName(memberId), role, groupName);
+            card.setMemberInfo(memberId, contactDisplayName(memberId), role, groupName,
+                               memberId == m_currentUserId || isContactOnline(memberId));
             connect(&card, &MemberProfileCard::sendMessageRequested, this, [this](const QString& id) {
                 ensureFriendRequestQueued(id,
                                           QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
@@ -5605,6 +5606,11 @@ void MainWindow::onCaptureScreenshot(bool hideCurrentWindow) {
 }
 
 void MainWindow::onShowQuickAddFriend() {
+    // Keep legacy toolbar/friend-manager entry points on the same compact
+    // QQNT add-friend flow used by ContactsView.
+    showAddFriendDialog();
+    return;
+
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("好友申请");
@@ -6428,6 +6434,15 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
             m_friendNames[userId] = userName;
         }
         m_activeAddFriendDialog->onSearchResult(account, userId, userName, found);
+        return;
+    }
+    if (m_activeContactGroupSearchDialog) {
+        if (found && !userId.isEmpty()) {
+            const QString displayName = userName.isEmpty() ? account : userName;
+            m_activeContactGroupSearchDialog->setContactKnown(userId, m_friendIds.contains(userId));
+            m_activeContactGroupSearchDialog->addResult(QStringLiteral("contact"), userId, displayName,
+                                                        QStringLiteral("QQ:%1").arg(account));
+        }
         return;
     }
     if (!found) {
@@ -9441,7 +9456,8 @@ void MainWindow::connectGroupMemberSidebar() {
             role = QStringLiteral("管理员");
         }
         MemberProfileCard card(this);
-        card.setMemberInfo(userId, contactDisplayName(userId), role, groupName);
+        card.setMemberInfo(userId, contactDisplayName(userId), role, groupName,
+                           userId == m_currentUserId || isContactOnline(userId));
         connect(&card, &MemberProfileCard::sendMessageRequested, this, [this](const QString& id) {
             ensureFriendRequestQueued(id,
                                       QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
@@ -9920,7 +9936,7 @@ void MainWindow::setupQQNT()
         showMessagesView();
     });
     connect(m_contactsView, &ContactsView::addFriendRequested, this, [this]() {
-        showAddFriendDialog();
+        showGlobalSearchDialog(true);
     });
     connect(m_contactsView, &ContactsView::createGroupRequested, this, [this]() {
         handleCreateMenuCommand(QStringLiteral("create-group"));
@@ -9941,6 +9957,15 @@ void MainWindow::setupQQNT()
                 m_customGroups.append(name);
                 saveFriendGroups();
             }
+        });
+        connect(&dlg, &FriendManagerDialog::renameGroupRequested, this,
+                [this](const QString& oldName, const QString& newName) {
+            const int index = m_customGroups.indexOf(oldName);
+            if (index >= 0) m_customGroups[index] = newName;
+            for (auto it = m_friendGroups.begin(); it != m_friendGroups.end(); ++it) {
+                if (it.value() == oldName) it.value() = newName;
+            }
+            saveFriendGroups();
         });
         connect(&dlg, &FriendManagerDialog::deleteGroupRequested, this, [this](const QString& name) {
             m_customGroups.removeAll(name);
@@ -10333,13 +10358,15 @@ void MainWindow::showAddFriendDialog()
     m_activeAddFriendDialog = nullptr;
 }
 
-void MainWindow::showGlobalSearchDialog()
+void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
 {
     // QQNT global search: filter the local friend/group lists by keyword and let
     // the user activate a result. Contacts open a private session; groups switch
     // to the group session. This replaces the legacy onShowGlobalSearch dialog for
     // the contacts-view entry while keeping that flow available elsewhere.
     GlobalSearchDialog dialog(this);
+    dialog.setContactGroupMode(contactGroupMode);
+    if (contactGroupMode) m_activeContactGroupSearchDialog = &dialog;
 
     auto populate = [this, &dialog](const QString& keyword) {
         dialog.clearResults();
@@ -10353,6 +10380,7 @@ void MainWindow::showGlobalSearchDialog()
             if (matches(id, name)) {
                 dialog.addResult(QStringLiteral("contact"), id, name,
                                  QStringLiteral("QQ:%1").arg(id));
+                dialog.setContactKnown(id, true);
             }
         }
         for (const QString& id : m_localGroupIds) {
@@ -10361,6 +10389,16 @@ void MainWindow::showGlobalSearchDialog()
                 const int count = m_localGroupMembers.value(id).size();
                 dialog.addResult(QStringLiteral("group"), id, name,
                                  QStringLiteral("%1 人").arg(count));
+                dialog.setGroupEnterable(id, true);
+            }
+        }
+        for (const QString& id : m_serverGroupNames.keys()) {
+            if (id == QStringLiteral("public") || m_localGroupIds.contains(id)) continue;
+            const QString name = m_serverGroupNames.value(id, QStringLiteral("群聊"));
+            if (matches(id, name)) {
+                const int count = m_serverGroupMembers.value(id).size();
+                dialog.addResult(QStringLiteral("group"), id, name, QStringLiteral("%1 人").arg(count));
+                dialog.setGroupEnterable(id, false);
             }
         }
     };
@@ -10368,11 +10406,35 @@ void MainWindow::showGlobalSearchDialog()
     // Prime the list with everything, then refilter on each search.
     populate(QString());
     connect(&dialog, &GlobalSearchDialog::searchRequested, this,
-            [populate](const QString& text) { populate(text); });
+            [this, populate, contactGroupMode](const QString& text) {
+        populate(text);
+        if (contactGroupMode && !text.trimmed().isEmpty() && m_client) {
+            m_client->searchFriendByAccount(text.trimmed());
+        }
+    });
+    connect(&dialog, &GlobalSearchDialog::addFriendRequested, this, [this, &dialog](const QString& userId) {
+        if (userId.isEmpty() || userId == m_currentUserId) {
+            ui->statusbar->showMessage(QStringLiteral("不能添加当前账号"), 2200);
+            return;
+        }
+        if (m_friendIds.contains(userId)) {
+            dialog.setContactKnown(userId, true);
+            ui->statusbar->showMessage(QStringLiteral("该账号已经是你的好友"), 2200);
+            return;
+        }
+        if (m_client && m_client->sendFriendRequest(userId)) {
+            if (!m_pendingOutgoingFriendRequests.contains(userId)) m_pendingOutgoingFriendRequests << userId;
+            saveFriends();
+            ui->statusbar->showMessage(QStringLiteral("好友申请已发送"), 2200);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("好友申请发送失败，请检查连接"), 2600);
+        }
+    });
     connect(&dialog, &GlobalSearchDialog::resultActivated, this,
             [this, &dialog](const QString& type, const QString& id) {
         if (type == QStringLiteral("group")) {
-            switchToLocalGroup(id, m_localGroupNames.value(id, QStringLiteral("群聊")));
+            const QString name = m_localGroupNames.value(id, m_serverGroupNames.value(id, QStringLiteral("群聊")));
+            switchToLocalGroup(id, name);
         } else {
             openPrivateSession(id);
         }
@@ -10381,6 +10443,7 @@ void MainWindow::showGlobalSearchDialog()
     });
 
     dialog.exec();
+    if (contactGroupMode) m_activeContactGroupSearchDialog = nullptr;
 }
 
 void MainWindow::showEssencePanel()

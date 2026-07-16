@@ -46,6 +46,11 @@ void MemberProfileCard::setupUi()
     m_idLabel->setAlignment(Qt::AlignCenter);
     root->addWidget(m_idLabel);
 
+    m_statusLabel = new QLabel(this);
+    m_statusLabel->setObjectName(QStringLiteral("profileStatusLabel"));
+    m_statusLabel->setAlignment(Qt::AlignCenter);
+    root->addWidget(m_statusLabel);
+
     // Role
     m_roleLabel = new QLabel(QStringLiteral("身份: 成员"), this);
     m_roleLabel->setObjectName(QStringLiteral("profileRoleLabel"));
@@ -92,6 +97,7 @@ void MemberProfileCard::updateStyle()
         "QDialog#memberProfileCard { background-color: %1; }"
         "QLabel#profileNameLabel { color: %2; font-size: 18px; font-weight: 600; }"
         "QLabel#profileIdLabel { color: %3; font-size: 13px; }"
+        "QLabel#profileStatusLabel { color: %8; font-size: 13px; font-weight: 600; }"
         "QLabel#profileRoleLabel { color: %3; font-size: 13px; }"
         "QLabel#profileDateLabel { color: %3; font-size: 13px; }"
         "QPushButton#dialogPrimaryBtn { background-color: %6; color: white; border: none; border-radius: 6px; padding: 8px 16px; }"
@@ -104,14 +110,16 @@ void MemberProfileCard::updateStyle()
      .arg(tm->backgroundSecondaryColor().name())
      .arg(tm->borderColor().name())
      .arg(tm->primaryColor().name())
-     .arg(tm->primaryHoverColor().name()));
+     .arg(tm->primaryHoverColor().name())
+     .arg(tm->successColor().name()));
 }
 
-void MemberProfileCard::setMemberInfo(const QString& userId, const QString& userName, const QString& role, const QString& joinDate)
+void MemberProfileCard::setMemberInfo(const QString& userId, const QString& userName, const QString& role, const QString& joinDate, bool online)
 {
     m_currentUserId = userId;
     m_nameLabel->setText(userName);
     m_idLabel->setText(QStringLiteral("QQ: %1").arg(userId));
+    setOnlineStatus(online);
     m_avatar->setTextAvatar(userName.left(1).toUpper(), QColor(QStringLiteral("#0099ff")));
     if (!role.isEmpty()) {
         m_roleLabel->setText(QStringLiteral("身份: %1").arg(role));
@@ -119,5 +127,15 @@ void MemberProfileCard::setMemberInfo(const QString& userId, const QString& user
     if (!joinDate.isEmpty()) {
         m_joinDateLabel->setText(QStringLiteral("加入时间: %1").arg(joinDate));
     }
+}
+
+void MemberProfileCard::setOnlineStatus(bool online)
+{
+    if (!m_statusLabel) return;
+    m_statusLabel->setText(online ? QStringLiteral("● 在线") : QStringLiteral("● 离线"));
+    m_statusLabel->setProperty("online", online);
+    m_statusLabel->setStyleSheet(QStringLiteral("color: %1;")
+        .arg(online ? ThemeManager::instance()->successColor().name()
+                    : ThemeManager::instance()->textSecondaryColor().name()));
 }
 

@@ -13,7 +13,8 @@ class MemberProfileCard : public QDialog {
 public:
     explicit MemberProfileCard(QWidget* parent = nullptr);
 
-    void setMemberInfo(const QString& userId, const QString& userName, const QString& role = QString(), const QString& joinDate = QString());
+    void setMemberInfo(const QString& userId, const QString& userName, const QString& role = QString(), const QString& joinDate = QString(), bool online = false);
+    void setOnlineStatus(bool online);
 
 signals:
     void sendMessageRequested(const QString& userId);
@@ -26,6 +27,7 @@ private:
     AvatarLabel* m_avatar = nullptr;
     QLabel* m_nameLabel = nullptr;
     QLabel* m_idLabel = nullptr;
+    QLabel* m_statusLabel = nullptr;
     QLabel* m_roleLabel = nullptr;
     QLabel* m_joinDateLabel = nullptr;
     QPushButton* m_messageBtn = nullptr;

@@ -39,9 +39,9 @@ void GlobalSearchDialog::setupUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    DialogTitleBar* titleBar = new DialogTitleBar(this, QStringLiteral("综合搜索"));
-    connect(titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
-    root->addWidget(titleBar);
+    m_titleBar = new DialogTitleBar(this, QStringLiteral("综合搜索"));
+    connect(m_titleBar, &DialogTitleBar::closeRequested, this, &QDialog::reject);
+    root->addWidget(m_titleBar);
 
     QWidget* body = new QWidget(this);
     QVBoxLayout* bodyLayout = new QVBoxLayout(body);
@@ -55,14 +55,19 @@ void GlobalSearchDialog::setupUi()
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("输入搜索关键词"));
     m_searchEdit->setClearButtonEnabled(true);
-    searchLayout->addWidget(m_searchEdit, 1);
     m_searchBtn = new QPushButton(QStringLiteral("搜索"), body);
     m_searchBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
     m_searchBtn->setCursor(Qt::PointingHandCursor);
+    m_searchBtn->setEnabled(false);
+    connect(m_searchEdit, &QLineEdit::textChanged, m_searchBtn, [this](const QString& text) {
+        m_searchBtn->setEnabled(!text.trimmed().isEmpty());
+    });
+    searchLayout->addWidget(m_searchEdit, 1);
     searchLayout->addWidget(m_searchBtn);
     bodyLayout->addLayout(searchLayout);
 
     auto triggerSearch = [this]() {
+        if (m_searchEdit->text().trimmed().isEmpty()) return;
         clearResults();
         emit searchRequested(m_searchEdit->text());
     };
@@ -153,15 +158,19 @@ void GlobalSearchDialog::setupUi()
     detailLayout->addWidget(m_detailMeta);
     detailLayout->addStretch();
 
-    QPushButton* joinBtn = new QPushButton(QStringLiteral("申请加群"), m_detailPanel);
-    joinBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    joinBtn->setCursor(Qt::PointingHandCursor);
-    connect(joinBtn, &QPushButton::clicked, this, [this]() {
+    m_detailActionBtn = new QPushButton(QStringLiteral("进入群聊"), m_detailPanel);
+    m_detailActionBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
+    m_detailActionBtn->setCursor(Qt::PointingHandCursor);
+    connect(m_detailActionBtn, &QPushButton::clicked, this, [this]() {
         if (!m_detailGroupId.isEmpty()) {
-            emit resultActivated(QStringLiteral("group"), m_detailGroupId);
+            if (m_detailType == QStringLiteral("contact")) {
+                emit addFriendRequested(m_detailGroupId);
+            } else {
+                emit resultActivated(QStringLiteral("group"), m_detailGroupId);
+            }
         }
     });
-    detailLayout->addWidget(joinBtn);
+    detailLayout->addWidget(m_detailActionBtn);
 
     QPushButton* detailCloseBtn = new QPushButton(QStringLiteral("关闭"), m_detailPanel);
     detailCloseBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
@@ -173,10 +182,10 @@ void GlobalSearchDialog::setupUi()
     bodyLayout->addLayout(contentRow, 1);
     root->addWidget(body, 1);
 
-    // Single-click a user opens the session; a group opens its detail panel.
     connect(m_usersList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
         if (item) {
-            emit resultActivated(QStringLiteral("contact"), item->data(kIdRole).toString());
+            if (m_contactGroupMode) showUserDetail(item);
+            else emit resultActivated(QStringLiteral("contact"), item->data(kIdRole).toString());
         }
     });
     connect(m_groupsList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
@@ -184,6 +193,30 @@ void GlobalSearchDialog::setupUi()
     });
 
     setActiveTab(TabAll);
+}
+
+void GlobalSearchDialog::setContactGroupMode(bool enabled)
+{
+    m_contactGroupMode = enabled;
+    setWindowTitle(enabled ? QStringLiteral("加好友/群") : QStringLiteral("综合搜索"));
+    if (m_titleBar) m_titleBar->setTitle(enabled ? QStringLiteral("加好友/群") : QStringLiteral("综合搜索"));
+    if (enabled) {
+        for (int i = 0; i < m_tabButtons.size(); ++i) {
+            m_tabButtons.at(i)->setVisible(i == TabUsers || i == TabGroups);
+        }
+        m_searchEdit->setPlaceholderText(QStringLiteral("输入 QQ 号、昵称、群名或群号"));
+        setActiveTab(TabUsers);
+    }
+}
+
+void GlobalSearchDialog::setContactKnown(const QString& id, bool known)
+{
+    m_knownContacts[id] = known;
+}
+
+void GlobalSearchDialog::setGroupEnterable(const QString& id, bool enterable)
+{
+    m_enterableGroups[id] = enterable;
 }
 
 void GlobalSearchDialog::setActiveTab(int tab)
@@ -213,11 +246,30 @@ void GlobalSearchDialog::showGroupDetail(QListWidgetItem* item)
 {
     if (!item) return;
     m_detailGroupId = item->data(kIdRole).toString();
+    m_detailType = QStringLiteral("group");
     const QString name = item->data(Qt::DisplayRole).toString();
     m_detailName->setText(name);
     m_detailMeta->setText(QStringLiteral("群号: %1 · %2")
                               .arg(m_detailGroupId, item->data(kSubtitleRole).toString()));
     m_detailAvatar->setTextAvatar(name.left(1).toUpper(), ThemeManager::instance()->primaryColor());
+    const bool enterable = m_enterableGroups.value(m_detailGroupId, true);
+    m_detailActionBtn->setText(enterable ? QStringLiteral("进入群聊") : QStringLiteral("群资料（只读）"));
+    m_detailActionBtn->setEnabled(enterable);
+    m_detailPanel->setVisible(true);
+}
+
+void GlobalSearchDialog::showUserDetail(QListWidgetItem* item)
+{
+    if (!item) return;
+    m_detailGroupId = item->data(kIdRole).toString();
+    m_detailType = QStringLiteral("contact");
+    const QString name = item->data(Qt::DisplayRole).toString().section(QStringLiteral("  ·  "), 0, 0);
+    m_detailName->setText(name);
+    m_detailMeta->setText(QStringLiteral("QQ: %1\n%2").arg(m_detailGroupId, item->data(kSubtitleRole).toString()));
+    m_detailAvatar->setTextAvatar(name.left(1).toUpper(), ThemeManager::instance()->primaryColor());
+    const bool known = m_knownContacts.value(m_detailGroupId, false);
+    m_detailActionBtn->setText(known ? QStringLiteral("已是好友") : QStringLiteral("加好友"));
+    m_detailActionBtn->setEnabled(!known);
     m_detailPanel->setVisible(true);
 }
 
@@ -225,6 +277,7 @@ void GlobalSearchDialog::hideGroupDetail()
 {
     m_detailPanel->setVisible(false);
     m_detailGroupId.clear();
+    m_detailType.clear();
 }
 
 void GlobalSearchDialog::addResult(const QString& type, const QString& id, const QString& title, const QString& subtitle)

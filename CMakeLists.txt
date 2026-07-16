@@ -272,6 +272,17 @@ if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
 endif()
 
 set(QTNETWORKCHAT_QSQLITE_PLUGIN "$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins/sqldrivers/qsqlite.dll")
+if(WIN32)
+    set(QTNETWORKCHAT_WINDEPLOYQT "$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/windeployqt.exe")
+    add_custom_command(TARGET QtNetworkChat POST_BUILD
+        COMMAND "${QTNETWORKCHAT_WINDEPLOYQT}"
+            --no-translations
+            --compiler-runtime
+            "$<TARGET_FILE:QtNetworkChat>"
+        COMMENT "Deploying Qt runtime and compiler libraries"
+        VERBATIM
+    )
+endif()
 add_custom_command(TARGET QtNetworkChat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:QtNetworkChat>/sqldrivers"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
