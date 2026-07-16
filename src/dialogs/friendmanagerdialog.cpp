@@ -15,6 +15,7 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
+#include <QStyle>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -63,6 +64,10 @@ void FriendManagerDialog::setupUi()
     railLayout->setContentsMargins(8, 8, 8, 8);
     railLayout->setSpacing(6);
 
+    QLabel* groupCaption = new QLabel(QStringLiteral("好友分组"), rail);
+    groupCaption->setObjectName(QStringLiteral("managerGroupCaption"));
+    railLayout->addWidget(groupCaption);
+
     m_groupList = new QListWidget(rail);
     m_groupList->setObjectName(QStringLiteral("managerGroupList"));
     m_groupList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -73,12 +78,12 @@ void FriendManagerDialog::setupUi()
             this, &FriendManagerDialog::showGroupContextMenu);
     railLayout->addWidget(m_groupList, 1);
 
-    // Adding is an explicit command; editing/removing a group lives in its context menu.
-    QHBoxLayout* groupBtnRow = new QHBoxLayout();
-    groupBtnRow->setSpacing(6);
+    // Adding is explicit; editing/removing stays on the selected group's context menu.
     m_addGroupBtn = new QPushButton(QStringLiteral("＋ 新增分组"), rail);
     m_addGroupBtn->setObjectName(QStringLiteral("managerGroupAddBtn"));
     m_addGroupBtn->setCursor(Qt::PointingHandCursor);
+    m_addGroupBtn->setFixedHeight(34);
+    m_addGroupBtn->setToolTip(QStringLiteral("创建一个新的好友分组"));
     connect(m_addGroupBtn, &QPushButton::clicked, this, [this]() {
         bool ok = false;
         const QString name = QInputDialog::getText(this, QStringLiteral("添加分组"),
@@ -93,8 +98,7 @@ void FriendManagerDialog::setupUi()
         emit createGroupRequested(name);
         rebuildGroupRail();
     });
-    groupBtnRow->addWidget(m_addGroupBtn);
-    railLayout->addLayout(groupBtnRow);
+    railLayout->addWidget(m_addGroupBtn);
 
     bodyLayout->addWidget(rail);
 
@@ -273,8 +277,12 @@ void FriendManagerDialog::showGroupContextMenu(const QPoint& position)
     m_groupList->setCurrentItem(item);
 
     QMenu menu(this);
+    menu.setObjectName(QStringLiteral("managerGroupContextMenu"));
     QAction* renameAction = menu.addAction(QStringLiteral("重命名"));
     QAction* deleteAction = menu.addAction(QStringLiteral("删除"));
+    renameAction->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    deleteAction->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+    deleteAction->setProperty("destructive", true);
     QAction* chosen = menu.exec(m_groupList->viewport()->mapToGlobal(position));
     if (chosen == renameAction) {
         bool ok = false;
@@ -390,11 +398,19 @@ void FriendManagerDialog::updateStyle()
     setStyleSheet(DialogStyle::common() + QStringLiteral(
         "QDialog#friendManagerDialog { background-color: %1; }"
         "QWidget#managerRail { background-color: %3; border-right: 1px solid %4; }"
+        "QLabel#managerGroupCaption { color: %6; font-size: 12px; font-weight: 600; padding: 4px 8px 2px; }"
         "QListWidget#managerGroupList { background-color: %3; border: none; color: %2; outline: none; }"
-        "QListWidget#managerGroupList::item { padding: 8px 10px; border-radius: 6px; }"
+        "QListWidget#managerGroupList::item { padding: 9px 10px; margin: 1px 0; border-radius: 6px; }"
+        "QListWidget#managerGroupList::item:hover { background-color: %1; }"
         "QListWidget#managerGroupList::item:selected { background-color: %5; color: %2; }"
-        "QPushButton#managerGroupAddBtn { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 6px 4px; font-size: 12px; }"
-        "QPushButton#managerGroupAddBtn:hover { border-color: %7; color: %7; }"
+        "QPushButton#managerGroupAddBtn { background: %5; color: %7; border: none; border-radius: 6px; padding: 0 10px; font-size: 13px; font-weight: 600; text-align: left; }"
+        "QPushButton#managerGroupAddBtn:hover { background: %7; color: white; }"
+        "QPushButton#managerGroupAddBtn:pressed { padding-top: 1px; }"
+        "QMenu#managerGroupContextMenu { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 4px; }"
+        "QMenu#managerGroupContextMenu::item { padding: 7px 30px 7px 10px; border-radius: 4px; }"
+        "QMenu#managerGroupContextMenu::item:selected { background: %5; }"
+        "QMenu#managerGroupContextMenu::item[destructive=\"true\"] { color: %8; }"
+        "QMenu#managerGroupContextMenu::item[destructive=\"true\"]:selected { background: %9; color: %8; }"
         "QLabel#managerTitle { color: %2; font-size: 18px; font-weight: 600; }"
         "QCheckBox#managerSelectAll { color: %6; font-size: 12px; }"
         "QTableWidget#managerTable { background-color: %1; border: none; color: %2; }"
@@ -408,7 +424,9 @@ void FriendManagerDialog::updateStyle()
      .arg(tm->borderColor().name())                 // %4
      .arg(tm->primarySoftColor().name())            // %5
      .arg(tm->textSecondaryColor().name())          // %6
-     .arg(tm->primaryColor().name()));              // %7
+     .arg(tm->primaryColor().name())                // %7
+     .arg(tm->dangerColor().name())                 // %8
+     .arg(tm->dangerColor().lighter(185).name()));  // %9
 }
 
 void FriendManagerDialog::setFriendList(const QStringList& friendIds,
