@@ -28,8 +28,11 @@ public:
         connect(this, &QCheckBox::toggled, this, [this](bool checked) {
             m_animation.stop();
             m_animation.setStartValue(m_thumbOffset);
-            m_animation.setEndValue(checked ? 22.0 : 2.0);
+            m_animation.setEndValue(checked ? checkedThumbX() : uncheckedThumbX());
             m_animation.start();
+        });
+        connect(&m_animation, &QVariantAnimation::finished, this, [this]() {
+            setThumbOffset(isChecked() ? checkedThumbX() : uncheckedThumbX());
         });
     }
     qreal thumbOffset() const { return m_thumbOffset; }
@@ -40,13 +43,24 @@ protected:
         const QColor blue = ThemeManager::instance()->primaryColor();
         p.setPen(Qt::NoPen);
         p.setBrush(isChecked() ? blue : ThemeManager::instance()->backgroundTertiaryColor());
-        p.drawRoundedRect(QRectF(1, 3, 44, 20), 10, 10);
+        p.drawRoundedRect(trackRect(), 10, 10);
         p.setBrush(Qt::white);
-        p.drawEllipse(QRectF(m_thumbOffset, 5, 16, 16));
+        p.drawEllipse(QRectF(m_thumbOffset, 5, kThumbSize, kThumbSize));
     }
 private:
+    static constexpr qreal kTrackLeft = 1.0;
+    static constexpr qreal kTrackWidth = 44.0;
+    static constexpr qreal kThumbSize = 16.0;
+    static constexpr qreal kThumbInset = 2.0;
+
+    static QRectF trackRect() { return QRectF(kTrackLeft, 3, kTrackWidth, 20); }
+    static qreal uncheckedThumbX() { return kTrackLeft + kThumbInset; }
+    static qreal checkedThumbX() {
+        return kTrackLeft + kTrackWidth - kThumbSize - kThumbInset;
+    }
+
     QVariantAnimation m_animation;
-    qreal m_thumbOffset = 2.0;
+    qreal m_thumbOffset = uncheckedThumbX();
 };
 
 QCheckBox* makeSwitch(QWidget* parent) { return new AnimatedSwitch(parent); }
@@ -170,11 +184,9 @@ QWidget* SettingsView::buildGeneralTab()
 
     connect(m_lightBtn, &QPushButton::clicked, this, [this]() {
         emit themeModeChanged(0);
-        emit themeToggled();
     });
     connect(m_darkBtn, &QPushButton::clicked, this, [this]() {
         emit themeModeChanged(1);
-        emit themeToggled();
     });
     connect(m_systemThemeBtn, &QPushButton::clicked, this, [this]() {
         emit themeModeChanged(2);
@@ -457,7 +469,11 @@ void SettingsView::updateStyle()
     const QString textSec = tm->textSecondaryColor().name();
     const QString textTer = tm->textTertiaryColor().name();
     const QString bg = tm->backgroundColor().name();
-    const QString bgSec = tm->backgroundSecondaryColor().name();
+    // Keep the compact raised surface in dark mode, but avoid a large grey
+    // slab inside the otherwise white light-theme workspace.
+    const QString settingsCanvas = (tm->isDark()
+                                        ? tm->backgroundSecondaryColor()
+                                        : tm->backgroundColor()).name();
     const QString bgTer = tm->backgroundTertiaryColor().name();
     const QString border = tm->borderColor().name();
     const QString primary = tm->primaryColor().name();
@@ -469,7 +485,12 @@ void SettingsView::updateStyle()
 
     setStyleSheet(QStringLiteral(
         // Tab widget
-        "QWidget#settingsView { background: %2; }"
+        "QWidget#settingsView { background: %2; color: %5; }"
+        "QWidget#settingsView QLabel { background: transparent; color: %5; }"
+        "QWidget#settingsView QPushButton { color: %5; }"
+        "QWidget#settingsGeneralPage, QWidget#settingsAccountPage, QWidget#settingsNotifyPage, "
+        "QWidget#settingsShortcutPage, QWidget#settingsFilePage, QWidget#settingsE2EPage, "
+        "QWidget#settingsAboutPage { background: %2; color: %5; }"
         "QTabWidget#settingsTabWidget::pane { background: %2; border: none; top: 0; }"
         "QTabBar { background: %1; border-bottom: 1px solid %8; padding-left: 24px; }"
         "QTabBar::tab { background: transparent; color: %6; padding: 13px 18px 11px; border: none; "
@@ -482,7 +503,7 @@ void SettingsView::updateStyle()
         "QLabel#settingsSyncStatus { color: %6; font-size: 12px; }"
 
         // Row
-        "QFrame#settingsRow { border-bottom: 1px solid %8; min-height: 48px; }"
+        "QFrame#settingsRow { background: transparent; border: none; border-bottom: 1px solid %8; min-height: 48px; }"
         "QLabel#settingsRowLabel { color: %5; font-size: 13px; font-weight: 500; }"
 
         // Panel card
@@ -494,10 +515,11 @@ void SettingsView::updateStyle()
         "QCheckBox#settingsCheck::indicator:checked { background: %9; border: 1px solid %9; }"
 
         // Theme buttons
-        "QPushButton#settingsThemeBtn { background: %4; color: %3; border: 1px solid %8;"
+        "QPushButton#settingsThemeBtn { background: %4; color: %6; border: 1px solid %8;"
         "  border-radius: %7px; padding: 5px 12px; }"
-        "QPushButton#settingsThemeBtn:checked { background: %10; color: %5; border: 1px solid %5; }"
-        "QPushButton#settingsThemeBtn:hover:!checked { background: %9; }"
+        "QPushButton#settingsThemeBtn:checked { background: %10; color: %12; border: 1px solid %12; font-weight: 600; }"
+        "QPushButton#settingsThemeBtn:hover:!checked { background: %4; color: %12; border-color: %12; }"
+        "QPushButton#settingsThemeBtn:disabled { color: %3; }"
 
         // Shortcut / path buttons
         "QPushButton#settingsShortcutBtn, QPushButton#settingsPathBtn {"
@@ -509,7 +531,7 @@ void SettingsView::updateStyle()
         "QLabel#settingsStaticText { color: %6; font-size: 13px; }"
         "QLabel#settingsOnlineText { color: %11; font-size: 13px; }"
     ).arg(bg)            // %1
-     .arg(bgSec)         // %2
+     .arg(settingsCanvas) // %2
      .arg(textTer)       // %3
      .arg(bgTer)         // %4
      .arg(text)          // %5
@@ -519,6 +541,7 @@ void SettingsView::updateStyle()
      .arg(primaryHover)   // %9
      .arg(primarySoft)    // %10
      .arg(success)        // %11
+     .arg(primary)        // %12
     );
 }
 

@@ -7,6 +7,7 @@
 #include <QListView>
 #include <QMenu>
 #include <QPainter>
+#include <QPalette>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QStyledItemDelegate>
@@ -34,13 +35,14 @@ public:
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
+        ThemeManager* tm = ThemeManager::instance();
         const QRect rect = option.rect.adjusted(0, 1, 0, -1);
         if (index.data(FavoriteGroupHeaderRole).toBool()) {
             QFont font = option.font;
             font.setPixelSize(12);
             font.setWeight(QFont::Medium);
             painter->setFont(font);
-            painter->setPen(QColor(QStringLiteral("#0099ff")));
+            painter->setPen(tm->primaryColor());
             painter->drawText(rect, Qt::AlignLeft | Qt::AlignVCenter,
                               index.data(FavoriteSessionNameRole).toString());
             painter->restore();
@@ -50,20 +52,21 @@ public:
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         painter->setPen(Qt::NoPen);
-        painter->setBrush(selected ? QColor(QStringLiteral("#e6f4ff"))
-                                  : (hovered ? QColor(QStringLiteral("#ebedf0")) : QColor(QStringLiteral("#f5f6f7"))));
-        painter->drawRoundedRect(rect, 8, 8);
+        painter->setBrush(selected ? tm->primarySoftColor()
+                                  : (hovered ? tm->backgroundTertiaryColor()
+                                             : tm->backgroundSecondaryColor()));
+        painter->drawRoundedRect(rect, 6, 6);
 
         const QString sender = index.data(FavoriteSenderRole).toString().trimmed();
         const QString initials = sender.isEmpty() ? QStringLiteral("?") : sender.left(1).toUpper();
         const QRect avatarRect(rect.left() + 12, rect.top() + 18, 36, 36);
-        painter->setBrush(QColor(QStringLiteral("#e6f4ff")));
+        painter->setBrush(tm->primarySoftColor());
         painter->drawEllipse(avatarRect);
         QFont avatarFont = option.font;
         avatarFont.setPixelSize(14);
         avatarFont.setWeight(QFont::Medium);
         painter->setFont(avatarFont);
-        painter->setPen(QColor(QStringLiteral("#0099ff")));
+        painter->setPen(tm->primaryColor());
         painter->drawText(avatarRect, Qt::AlignCenter, initials);
 
         const int contentLeft = avatarRect.right() + 12;
@@ -79,18 +82,18 @@ public:
                               qMax(0, timeRect.left() - contentLeft - 12), 18);
         const QRect contentRect(contentLeft, rect.top() + 33, rect.right() - contentLeft - 12, 28);
         painter->setFont(titleFont);
-        painter->setPen(QColor(QStringLiteral("#1f2329")));
+        painter->setPen(tm->textColor());
         painter->drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(titleFont).elidedText(sender.isEmpty() ? QStringLiteral("未知用户") : sender,
                                                               Qt::ElideRight, titleRect.width()));
         painter->setFont(timeFont);
-        painter->setPen(QColor(QStringLiteral("#8f959e")));
+        painter->setPen(tm->textTertiaryColor());
         painter->drawText(timeRect, Qt::AlignRight | Qt::AlignVCenter,
                           time);
         QFont contentFont = option.font;
         contentFont.setPixelSize(12);
         painter->setFont(contentFont);
-        painter->setPen(QColor(QStringLiteral("#5f6672")));
+        painter->setPen(tm->textSecondaryColor());
         painter->drawText(contentRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
                           QFontMetrics(contentFont).elidedText(index.data(FavoriteContentRole).toString(), Qt::ElideRight, contentRect.width()));
         painter->restore();
@@ -174,9 +177,11 @@ void FavoritesView::updateStyle()
     setStyleSheet(QStringLiteral(
         "QWidget#favoritesView { background-color: %1; }"
         "QFrame#favoritesHeader { background-color: %1; border: none; border-bottom: 1px solid %2; }"
-        "QLineEdit#favoritesSearchEdit { background-color: %1; color: %3; border: none; border-radius: 8px; padding: 8px 12px; }"
+        "QLineEdit#favoritesSearchEdit { background-color: %4; color: %3; border: 1px solid transparent; border-radius: 6px; padding: 8px 12px; }"
         "QLineEdit#favoritesSearchEdit:focus { border-color: %6; }"
+        "QLineEdit#favoritesSearchEdit::placeholder { color: %5; }"
         "QListView#favoritesListView { background: %1; border: none; outline: none; padding: 12px 16px; }"
+        "QListView#favoritesListView QWidget { background: %1; color: %3; }"
         "QListView#favoritesListView::item { border: none; }"
         "QLabel#favoritesHintLabel { color: %5; font-size: 14px; padding: 20px; }"
     ).arg(tm->backgroundColor().name())
@@ -185,6 +190,15 @@ void FavoritesView::updateStyle()
      .arg(tm->color(QStringLiteral("session-hover")).name())
      .arg(tm->textSecondaryColor().name())
      .arg(tm->primaryColor().name()));
+
+    if (m_listView && m_listView->viewport()) {
+        m_listView->viewport()->setAutoFillBackground(true);
+        QPalette palette = m_listView->viewport()->palette();
+        palette.setColor(QPalette::Window, tm->backgroundColor());
+        palette.setColor(QPalette::Base, tm->backgroundColor());
+        m_listView->viewport()->setPalette(palette);
+        m_listView->viewport()->update();
+    }
 }
 
 QListView* FavoritesView::listView() const { return m_listView; }

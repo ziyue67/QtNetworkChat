@@ -132,16 +132,16 @@ public:
         if (m_active) {
             setStyleSheet(QStringLiteral(
                 "QFrame#appNavItem { background-color: %1; border-radius: 6px; }"
-                "QLabel#appNavIcon { color: %2; }"
-                "QLabel#appNavLabel { color: %2; }"
+                "QLabel#appNavIcon { background: transparent; color: %2; }"
+                "QLabel#appNavLabel { background: transparent; color: %2; }"
             ).arg(activeBg.name()).arg(activeFg.name()));
         } else {
             QColor fg = m_mock ? mockFg : inactiveFg;
             setStyleSheet(QStringLiteral(
                 "QFrame#appNavItem { background-color: transparent; }"
                 "QFrame#appNavItem:hover { background-color: %1; border-radius: 6px; }"
-                "QLabel#appNavIcon { color: %2; }"
-                "QLabel#appNavLabel { color: %2; }"
+                "QLabel#appNavIcon { background: transparent; color: %2; }"
+                "QLabel#appNavLabel { background: transparent; color: %2; }"
             ).arg(tm->backgroundTertiaryColor().name()).arg(fg.name()));
         }
     }

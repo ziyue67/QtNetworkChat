@@ -117,6 +117,7 @@ void qqntLog(const QString& tag, const QString& msg)
 #include <QScrollArea>
 #include <QStackedWidget>
 #include <QScreen>
+#include <QStyleHints>
 #include <QWindow>
 #include <functional>
 #include <algorithm>
@@ -9829,6 +9830,8 @@ void MainWindow::setupQQNT()
     qqntLog("MainWindow", "setupQQNT start");
     m_qqntRoot = new QWidget(this);
     m_qqntRoot->setObjectName(QStringLiteral("qqntRoot"));
+    m_qqntRoot->setAttribute(Qt::WA_StyledBackground, true);
+    m_qqntRoot->setAutoFillBackground(true);
 
     QWidget* legacyCentralWidget = takeCentralWidget();
     if (legacyCentralWidget && legacyCentralWidget != m_qqntRoot) {
@@ -9867,6 +9870,7 @@ void MainWindow::setupQQNT()
 
     m_viewStack = new QStackedWidget(m_qqntRoot);
     m_viewStack->setObjectName(QStringLiteral("qqntViewStack"));
+    m_viewStack->setAttribute(Qt::WA_StyledBackground, true);
     qqntLog("MainWindow", "viewStack created");
 
     m_messagesView = new MessagesView(m_qqntRoot);
@@ -10021,7 +10025,6 @@ void MainWindow::setupQQNT()
         refreshFavoritesView();
         ui->statusbar->showMessage(QStringLiteral("已取消收藏"), 1800);
     });
-    connect(m_settingsView, &SettingsView::themeToggled, this, &MainWindow::onThemeToggled);
     connect(m_settingsView, &SettingsView::themeModeChanged, this, &MainWindow::onSettingsThemeModeChanged);
     connect(m_settingsView, &SettingsView::notificationsToggled, this, &MainWindow::onSettingsNotificationsToggled);
     connect(m_settingsView, &SettingsView::soundToggled, this, &MainWindow::onSettingsSoundToggled);
@@ -10119,7 +10122,7 @@ void MainWindow::updateStyleSheet()
 
     ThemeManager* tm = ThemeManager::instance();
     QString style = QStringLiteral(
-        "QWidget#qqntRoot { background-color: %1; }"
+        "QWidget#qqntRoot { background-color: %1; border: none; }"
         "QStackedWidget#qqntViewStack { background-color: %1; border: none; }"
         "QScrollBar:vertical { background: transparent; width: 6px; margin: 2px; }"
         "QScrollBar::handle:vertical { background: %2; border-radius: 3px; min-height: 20px; }"
@@ -10128,6 +10131,13 @@ void MainWindow::updateStyleSheet()
      .arg(tm->borderColor().name());
 
     m_qqntRoot->setStyleSheet(style);
+
+    QPalette windowPalette = palette();
+    windowPalette.setColor(QPalette::Window, tm->backgroundColor());
+    setPalette(windowPalette);
+    setAutoFillBackground(true);
+    m_qqntRoot->setPalette(windowPalette);
+    m_qqntRoot->update();
 }
 
 void MainWindow::loadStyleSheet()
@@ -10169,9 +10179,11 @@ void MainWindow::onSettingsThemeModeChanged(int mode)
     if (mode == 1) {
         target = ThemeManager::Theme::Dark;
     } else if (mode == 2) {
-        // Follow system: use palette lightness heuristic.
-        const QColor windowColor = palette().color(QPalette::Window);
-        target = windowColor.lightness() < 128 ? ThemeManager::Theme::Dark : ThemeManager::Theme::Light;
+        // Read the OS color scheme. The application palette may already have
+        // been overridden by ThemeManager, so it is not a reliable system signal.
+        target = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark
+            ? ThemeManager::Theme::Dark
+            : ThemeManager::Theme::Light;
     }
     ThemeManager::instance()->setTheme(target);
     loadStyleSheet();

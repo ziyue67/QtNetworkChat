@@ -13,10 +13,39 @@
 }
 
 QMainWindow,
-QWidget,
 QDialog {
     background-color: #1e1e1e;
     color: #e8e8e8;
+    border: none;
+}
+
+QMainWindow,
+QMainWindow > QWidget,
+QWidget#qt_scrollarea_viewport,
+QWidget#qqntRoot,
+QStackedWidget#qqntViewStack,
+QWidget#messagesView,
+QWidget#contactsView,
+QWidget#favoritesView,
+QWidget#settingsView,
+QWidget#profileView {
+    background-color: #1e1e1e;
+    color: #e8e8e8;
+    border: none;
+}
+
+QLabel,
+QCheckBox,
+QRadioButton,
+QFrame#appNavItem,
+QWidget#settingsGeneralPage QLabel,
+QWidget#settingsAccountPage QLabel,
+QWidget#settingsNotifyPage QLabel,
+QWidget#settingsShortcutPage QLabel,
+QWidget#settingsFilePage QLabel,
+QWidget#settingsE2EPage QLabel,
+QWidget#settingsAboutPage QLabel {
+    background-color: transparent;
 }
 
 QFrame#titleBar {

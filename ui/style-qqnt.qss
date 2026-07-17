@@ -18,6 +18,7 @@ QMainWindow,
 QDialog {
     background-color: #f3f5f8;
     color: #1f2329;
+    border: none;
 }
 
 QWidget#qqntRoot,
@@ -27,6 +28,12 @@ QWidget#favoritesView,
 QWidget#settingsView,
 QWidget#profileView {
     background-color: #f3f5f8;
+    border: none;
+}
+
+QStackedWidget#qqntViewStack {
+    background-color: #f3f5f8;
+    border: none;
 }
 
 QFrame#titleBar {

@@ -20,7 +20,6 @@ public:
     void setSyncStatus(const QString& text);
 
 signals:
-    void themeToggled();
     void themeModeChanged(int mode); // 0=light, 1=dark, 2=system
     void notificationsToggled(bool enabled);
     void soundToggled(bool enabled);
