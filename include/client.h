@@ -62,6 +62,8 @@ public:
     bool requestAccountDeactivation(const QString& reason = QString());
     bool cancelAccountDeactivation();
     bool sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement);
+    bool sendServerGroupSettingsUpdate(const QString& groupId, const QJsonObject& settings);
+    bool sendServerGroupUserSettingsUpdate(const QString& groupId, const QJsonObject& settings);
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
     bool sendServerGroupEssenceUpdate(const QString& groupId, const QString& messageId, bool enabled);
     bool sendMessageFavoriteUpdate(const QString& sessionId, const QString& messageId, bool favorite, const QJsonObject& message = QJsonObject());
@@ -69,6 +71,11 @@ public:
     bool sendServerGroupMemberMute(const QString& groupId, const QString& memberId, qint64 mutedUntil, const QString& reason = QString());
     bool sendServerGroupMemberUnmute(const QString& groupId, const QString& memberId);
     bool requestServerGroupMemberProfile(const QString& groupId, const QString& memberId);
+    bool searchServerGroups(const QString& keyword);
+    bool requestServerGroupJoin(const QString& groupId, const QString& message = QString());
+    bool respondServerGroupJoinRequest(const QString& requestId, bool accepted);
+    bool leaveServerGroup(const QString& groupId);
+    bool dissolveServerGroup(const QString& groupId);
     bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString(), const QStringList& initialMemberIds = QStringList());
     bool sendServerGroupMessage(const QString& groupId, const QString& content, const QString& clientMessageId = QString());
     bool sendServerGroupFile(const QString& groupId, const QString& filePath);
@@ -177,6 +184,11 @@ signals:
     void serverGroupMemberMuted(const QJsonObject& payload);
     void serverGroupMemberUnmuted(const QJsonObject& payload);
     void serverGroupMemberProfileReceived(const QJsonObject& payload);
+    void serverGroupSearchResults(const QString& keyword, const QJsonArray& groups);
+    void serverGroupJoinApplicationReceived(const QJsonObject& application);
+    void serverGroupJoinRequestStatusReceived(const QJsonObject& status);
+    void serverGroupLeaveStatusReceived(const QJsonObject& status);
+    void serverGroupDissolveStatusReceived(const QJsonObject& status);
     void e2eSessionStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eIdentityStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eSessionRotationRequested(const QString& peerId, const QJsonObject& agreement);

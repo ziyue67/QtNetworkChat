@@ -12,6 +12,7 @@ class QCheckBox;
 class QPushButton;
 class QLineEdit;
 class QLabel;
+class QWidget;
 
 // QQNT friend manager. Left rail lists 全部好友 + groups (with an add button and
 // a group context menu); right side is a grouped/filterable friend table. Friend groups are
@@ -28,11 +29,11 @@ public:
     void setFriendList(const QStringList& friendIds,
                        const QMap<QString, QString>& friendNames,
                        const QMap<QString, QString>& friendGroups = {},
-                       const QStringList& customGroups = {});
+                       const QStringList& customGroups = {},
+                       const QMap<QString, QString>& avatarPaths = {});
 
 signals:
     void deleteFriendRequested(const QString& userId);
-    void addFriendRequested();
     void createGroupRequested(const QString& groupName);
     void renameGroupRequested(const QString& oldName, const QString& newName);
     void deleteGroupRequested(const QString& groupName);
@@ -44,6 +45,9 @@ private:
     void rebuildGroupRail();
     void rebuildTable();
     void updateSelectAllState();
+    QStringList selectedFriendIds() const;
+    void deleteSelectedFriends();
+    void moveSelectedFriendsToGroup();
     QString currentGroup() const;
     bool isCustomGroup(const QString& groupName) const;
     void showGroupContextMenu(const QPoint& position);
@@ -57,12 +61,15 @@ private:
     QLineEdit* m_searchEdit = nullptr;
     QCheckBox* m_selectAll = nullptr;
     QTableWidget* m_table = nullptr;
+    QLabel* m_emptyLabel = nullptr;
+    QWidget* m_actionBar = nullptr;
+    QLabel* m_selectedLabel = nullptr;
     QPushButton* m_deleteBtn = nullptr;
-    QPushButton* m_addBtn = nullptr;
 
     QStringList m_friendIds;
     QMap<QString, QString> m_friendNames;
     QMap<QString, QString> m_friendGroups;
+    QMap<QString, QString> m_avatarPaths;
     QStringList m_customGroups;
     QString m_filter;
 };

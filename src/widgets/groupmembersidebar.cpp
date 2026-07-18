@@ -138,7 +138,7 @@ void GroupMemberSidebar::setupUi()
     root->setSpacing(0);
 
     QWidget* header = new QWidget(this);
-    header->setFixedHeight(54);
+    header->setFixedHeight(52);
     QHBoxLayout* headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(14, 0, 8, 0);
     m_titleLabel = new QLabel(QStringLiteral("群成员"), header);
@@ -162,22 +162,23 @@ void GroupMemberSidebar::setupUi()
 
     QWidget* searchArea = new QWidget(this);
     QHBoxLayout* searchLayout = new QHBoxLayout(searchArea);
-    searchLayout->setContentsMargins(12, 8, 12, 8);
+    searchLayout->setContentsMargins(12, 10, 12, 8);
     m_searchEdit = new QLineEdit(searchArea);
     m_searchEdit->setObjectName(QStringLiteral("sidebarSearch"));
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索成员"));
     searchLayout->addWidget(m_searchEdit);
     root->addWidget(searchArea);
 
-    QWidget* announceArea = new QWidget(this);
+    QFrame* announceArea = new QFrame(this);
+    announceArea->setObjectName(QStringLiteral("sidebarAnnouncementCard"));
     QVBoxLayout* announceLayout = new QVBoxLayout(announceArea);
-    announceLayout->setContentsMargins(14, 8, 14, 8);
-    announceLayout->setSpacing(4);
+    announceLayout->setContentsMargins(13, 11, 13, 11);
+    announceLayout->setSpacing(6);
     QLabel* announceTitle = new QLabel(QStringLiteral("群公告"), announceArea);
     announceTitle->setObjectName(QStringLiteral("sidebarSectionTitle"));
     announceLayout->addWidget(announceTitle);
     m_announcementLabel = new QLabel(QStringLiteral("暂无公告"), announceArea);
-    m_announcementLabel->setObjectName(QStringLiteral("sidebarHint"));
+    m_announcementLabel->setObjectName(QStringLiteral("sidebarAnnouncementBody"));
     m_announcementLabel->setWordWrap(true);
     announceLayout->addWidget(m_announcementLabel);
     root->addWidget(announceArea);
@@ -225,11 +226,13 @@ void GroupMemberSidebar::updateStyle()
         "QLabel#sidebarTitle { color: %2; font-size: 15px; font-weight: 600; }"
         "QLabel#sidebarSectionTitle { color: %2; font-size: 13px; font-weight: 600; }"
         "QLabel#sidebarHint { color: %3; font-size: 12px; }"
+        "QFrame#sidebarAnnouncementCard { background-color: %4; border: 1px solid %5; border-radius: 7px; margin: 2px 10px 10px 10px; }"
+        "QLabel#sidebarAnnouncementBody { color: %3; font-size: 12px; line-height: 1.45; }"
         "QLineEdit#sidebarSearch { background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 6px 10px; }"
         "QLineEdit#sidebarSearch:focus { border: 1px solid %6; }"
-        "QPushButton#sidebarCloseBtn { color: %3; background-color: transparent; border: none; font-size: 18px; }"
-        "QPushButton#sidebarCloseBtn:hover { color: %2; }"
-        "QFrame#sidebarDivider { color: %5; }"
+        "QPushButton#sidebarCloseBtn { color: %3; background-color: transparent; border: none; border-radius: 5px; font-size: 18px; }"
+        "QPushButton#sidebarCloseBtn:hover { color: %2; background-color: %4; }"
+        "QFrame#sidebarDivider { color: %5; margin: 0 10px; }"
         "QListView#memberListView { background-color: %1; border: none; color: %2; outline: none; }"
         "QListView#memberListView::item { border-radius: 6px; }"
     ).arg(tm->backgroundColor().name())
@@ -273,6 +276,11 @@ void GroupMemberSidebar::setOnlineUsers(const QSet<QString>& onlineIds)
     refreshRows();
 }
 
+void GroupMemberSidebar::setManagementEnabled(bool enabled)
+{
+    m_managementEnabled = enabled;
+}
+
 void GroupMemberSidebar::refreshRows()
 {
     m_model->clear();
@@ -311,23 +319,24 @@ void GroupMemberSidebar::showContextMenu(const QPoint& pos)
     });
     menu.addAction(QStringLiteral("查看资料"), this, [this, data]() { emit viewProfile(data.id); });
     menu.addAction(QStringLiteral("添加好友"), this, [this, data]() { emit addFriend(data.id); });
-    menu.addSeparator();
-    QMenu* muteMenu = menu.addMenu(QStringLiteral("设置禁言"));
-    muteMenu->addAction(QStringLiteral("10分钟"), this, [this, data]() { emit muteMember(data.id, 10); });
-    muteMenu->addAction(QStringLiteral("1小时"), this, [this, data]() { emit muteMember(data.id, 60); });
-    muteMenu->addAction(QStringLiteral("12小时"), this, [this, data]() { emit muteMember(data.id, 720); });
-    muteMenu->addAction(QStringLiteral("1天"), this, [this, data]() { emit muteMember(data.id, 1440); });
-    muteMenu->addAction(QStringLiteral("自定义"), this, [this, data]() { emit muteMember(data.id, -1); });
-    menu.addAction(QStringLiteral("解除禁言"), this, [this, data]() { emit unmuteMember(data.id); });
     menu.addAction(QStringLiteral("修改群昵称"), this, [this, data]() {
         emit renameMember(data.id, data.groupNickname);
     });
-    menu.addSeparator();
-    QMenu* adminMenu = menu.addMenu(QStringLiteral("群管理"));
-    adminMenu->addAction(QStringLiteral("设为管理员"), this, [this, data]() { emit promoteAdmin(data.id); });
-    adminMenu->addAction(QStringLiteral("取消管理员"), this, [this, data]() { emit demoteAdmin(data.id); });
-    adminMenu->addSeparator();
-    adminMenu->addAction(QStringLiteral("移出本群"), this, [this, data]() { emit kickMember(data.id); });
+    if (m_managementEnabled && data.role != QStringLiteral("owner")) {
+        menu.addSeparator();
+        QMenu* muteMenu = menu.addMenu(QStringLiteral("设置禁言"));
+        muteMenu->addAction(QStringLiteral("10分钟"), this, [this, data]() { emit muteMember(data.id, 10); });
+        muteMenu->addAction(QStringLiteral("1小时"), this, [this, data]() { emit muteMember(data.id, 60); });
+        muteMenu->addAction(QStringLiteral("12小时"), this, [this, data]() { emit muteMember(data.id, 720); });
+        muteMenu->addAction(QStringLiteral("1天"), this, [this, data]() { emit muteMember(data.id, 1440); });
+        muteMenu->addAction(QStringLiteral("自定义"), this, [this, data]() { emit muteMember(data.id, -1); });
+        menu.addAction(QStringLiteral("解除禁言"), this, [this, data]() { emit unmuteMember(data.id); });
+        QMenu* adminMenu = menu.addMenu(QStringLiteral("群管理"));
+        adminMenu->addAction(QStringLiteral("设为管理员"), this, [this, data]() { emit promoteAdmin(data.id); });
+        adminMenu->addAction(QStringLiteral("取消管理员"), this, [this, data]() { emit demoteAdmin(data.id); });
+        adminMenu->addSeparator();
+        adminMenu->addAction(QStringLiteral("移出本群"), this, [this, data]() { emit kickMember(data.id); });
+    }
     menu.addSeparator();
     menu.addAction(QStringLiteral("举报"), this, [this, data]() { emit reportMember(data.id); });
     menu.addAction(QStringLiteral("屏蔽"), this, [this, data]() { emit blockMember(data.id); });

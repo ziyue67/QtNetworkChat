@@ -25,6 +25,7 @@ struct LocalGroupInput {
     QString id;
     QString name;
     QString announcement;
+    bool pinned = false;
 };
 
 struct FriendInput {
@@ -59,9 +60,11 @@ inline QList<SessionEntry> build(const QString& publicRoomName,
         entry.name = group.name;
         entry.lastMessage = group.announcement;
         entry.isGroup = true;
+        entry.pinned = group.pinned;
         groupEntries.append(entry);
     }
     std::sort(groupEntries.begin(), groupEntries.end(), [](const SessionEntry& a, const SessionEntry& b) {
+        if (a.pinned != b.pinned) return a.pinned && !b.pinned;
         return a.name.localeAwareCompare(b.name) < 0;
     });
 

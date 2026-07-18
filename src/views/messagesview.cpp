@@ -160,6 +160,16 @@ void MessagesView::setupUi()
     connect(m_essenceBtn, &QPushButton::clicked, this, &MessagesView::essenceRequested);
     headerTopRow->addWidget(m_essenceBtn, 0, Qt::AlignVCenter);
 
+    m_groupMoreBtn = new QPushButton(QStringLiteral("⋯"), header);
+    m_groupMoreBtn->setObjectName(QStringLiteral("chatGroupMoreBtn"));
+    m_groupMoreBtn->setCursor(Qt::PointingHandCursor);
+    m_groupMoreBtn->setFixedSize(32, 30);
+    m_groupMoreBtn->setToolTip(QStringLiteral("群资料与设置"));
+    m_groupMoreBtn->setAccessibleName(QStringLiteral("更多群设置"));
+    m_groupMoreBtn->setVisible(false);
+    connect(m_groupMoreBtn, &QPushButton::clicked, this, &MessagesView::groupMoreRequested);
+    headerTopRow->addWidget(m_groupMoreBtn, 0, Qt::AlignVCenter);
+
     headerLayout->addLayout(headerTopRow);
     chatLayout->addWidget(header);
 
@@ -322,6 +332,8 @@ void MessagesView::updateStyle()
         "QLabel#emptyChatLabel, QLabel#loadingLabel { color: %10; font-size: 14px; }"
         "QPushButton#chatEssenceBtn { background: %5; color: %7; border: 1px solid %2; border-radius: 6px; padding: 5px 14px; font-size: 13px; }"
         "QPushButton#chatEssenceBtn:hover { background: %8; }"
+        "QPushButton#chatGroupMoreBtn { background: transparent; color: %6; border: 1px solid %2; border-radius: 6px; font-size: 20px; font-weight:600; padding:0; text-align:center; }"
+        "QPushButton#chatGroupMoreBtn:hover { background: %5; border-color: %7; color: %7; }"
         "QLabel#dropOverlay { background-color: %11; color: %7; border: 2px dashed %7; font-size: 18px; font-weight: 600; }"
         "QPushButton#sessionNewChatBtn { background: transparent; color: %7; border: none; font-size: 18px; }"
         "QPushButton#sessionNewChatBtn:hover { background: %9; border-radius: 6px; }"
@@ -444,6 +456,11 @@ void MessagesView::setEssenceButtonVisible(bool visible)
     if (m_essenceBtn) {
         m_essenceBtn->setVisible(visible);
     }
+}
+
+void MessagesView::setGroupMoreButtonVisible(bool visible)
+{
+    if (m_groupMoreBtn) m_groupMoreBtn->setVisible(visible);
 }
 
 GroupMemberSidebar* MessagesView::groupMemberSidebar() const
@@ -622,7 +639,11 @@ void MessagesView::onChatContextMenu(const QPoint& pos)
         QAction* multiSelect = createLocalAction(&menu, QStringLiteral("多选"), QStringLiteral("multi_select"), m_localActionStates);
         menu.addSeparator();
         QAction* quote = createLocalAction(&menu, QStringLiteral("引用"), QStringLiteral("quote"), m_localActionStates);
-        QAction* essence = createLocalAction(&menu, QStringLiteral("精华"), QStringLiteral("essence"), m_localActionStates);
+        const bool isEssence = index.data(ChatBubbleForwardedRole).toBool();
+        QAction* essence = createLocalAction(&menu,
+                                             isEssence ? QStringLiteral("取消精华") : QStringLiteral("精华"),
+                                             isEssence ? QStringLiteral("unessence") : QStringLiteral("essence"),
+                                             m_localActionStates);
         QAction* recall = createLocalAction(&menu, QStringLiteral("撤回"), QStringLiteral("recall"), m_localActionStates);
         QAction* deleteMsg = createLocalAction(&menu, QStringLiteral("删除"), QStringLiteral("delete"), m_localActionStates);
 
@@ -631,7 +652,7 @@ void MessagesView::onChatContextMenu(const QPoint& pos)
         if (favorite) connect(favorite, &QAction::triggered, this, [this, index]() { emit messageActionRequested(index, QStringLiteral("favorite")); });
         if (multiSelect) connect(multiSelect, &QAction::triggered, this, [this, index]() { emit messageActionRequested(index, QStringLiteral("multiSelect")); });
         if (quote) connect(quote, &QAction::triggered, this, [this, index]() { emit messageActionRequested(index, QStringLiteral("quote")); });
-        if (essence) connect(essence, &QAction::triggered, this, [this, index]() { emit messageActionRequested(index, QStringLiteral("essence")); });
+        if (essence) connect(essence, &QAction::triggered, this, [this, index, isEssence]() { emit messageActionRequested(index, isEssence ? QStringLiteral("unessence") : QStringLiteral("essence")); });
         if (recall) connect(recall, &QAction::triggered, this, [this, index]() { emit messageActionRequested(index, QStringLiteral("recall")); });
         if (deleteMsg) connect(deleteMsg, &QAction::triggered, this, [this, index]() { emit messageActionRequested(index, QStringLiteral("delete")); });
         menu.exec(m_chatListView->viewport()->mapToGlobal(pos));

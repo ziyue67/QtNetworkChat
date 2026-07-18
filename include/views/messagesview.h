@@ -78,10 +78,12 @@ signals:
     void multiSelectDeleteRequested();
     void multiSelectFavoriteRequested();
     void essenceRequested();
+    void groupMoreRequested();
 
 public:
     // Show/hide the header "精华" button. Only groups have essence messages.
     void setEssenceButtonVisible(bool visible);
+    void setGroupMoreButtonVisible(bool visible);
 
     // Group member sidebar (right rail). Shown only for group sessions.
     GroupMemberSidebar* groupMemberSidebar() const;
@@ -111,6 +113,7 @@ private:
     QLabel* m_chatSubtitleLabel = nullptr;
     QLabel* m_chatHintLabel = nullptr;
     QPushButton* m_essenceBtn = nullptr;
+    QPushButton* m_groupMoreBtn = nullptr;
     QLabel* m_emptyLabel = nullptr;
     QLabel* m_loadingLabel = nullptr;
     QLabel* m_dropOverlay = nullptr;

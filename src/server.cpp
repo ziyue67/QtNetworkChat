@@ -1607,6 +1607,10 @@ void Server::onClientReadyRead() {
             handleServerGroupMessage(obj, socket);
         } else if (type == "server_group_announcement_update") {
             handleServerGroupAnnouncementUpdate(obj, socket);
+        } else if (type == "server_group_settings_update") {
+            handleServerGroupSettingsUpdate(obj, socket);
+        } else if (type == "server_group_user_settings_update") {
+            handleServerGroupUserSettingsUpdate(obj, socket);
         } else if (type == "server_group_member_update") {
             handleServerGroupMemberUpdate(obj, socket);
         } else if (type == "server_group_essence_update") {
@@ -1621,6 +1625,16 @@ void Server::onClientReadyRead() {
             handleServerGroupMemberUnmute(obj, socket);
         } else if (type == "server_group_member_profile_request") {
             handleServerGroupMemberProfileRequest(obj, socket);
+        } else if (type == "server_group_search") {
+            handleServerGroupSearch(obj, socket);
+        } else if (type == "server_group_join_request") {
+            handleServerGroupJoinRequest(obj, socket);
+        } else if (type == "server_group_join_response") {
+            handleServerGroupJoinResponse(obj, socket);
+        } else if (type == "server_group_leave") {
+            handleServerGroupLeave(obj, socket);
+        } else if (type == "server_group_dissolve") {
+            handleServerGroupDissolve(obj, socket);
         } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
             handleFriendEvent(obj, socket);
         } else if (type == "heartbeat") {
@@ -2425,6 +2439,59 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
             : QStringLiteral("私有群消息发送失败：你不在该群组或已被移出。"));
         return;
     }
+    bool allMuted = false;
+    QString speakingRule;
+    qint64 joinedAtMs = 0;
+    const QString settingsConnection = "server_group_message_settings_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(settingsConnection);
+        if (openAccountDatabaseConnection(db, settingsConnection)) {
+            QSqlQuery groupSettings(db);
+            groupSettings.prepare("SELECT COALESCE(g.all_muted, 0), COALESCE(g.speaking_rule, 'unrestricted'), "
+                                  "COALESCE(m.joined_at, '') FROM server_groups g JOIN server_group_members m ON m.group_id = g.group_id "
+                                  "WHERE g.group_id = ? AND m.user_id = ?");
+            groupSettings.addBindValue(groupId);
+            groupSettings.addBindValue(sender->id);
+            if (groupSettings.exec() && groupSettings.next()) {
+                allMuted = groupSettings.value(0).toInt() != 0;
+                speakingRule = groupSettings.value(1).toString();
+                const QString joinedAtText = groupSettings.value(2).toString();
+                QDateTime joinedAt = QDateTime::fromString(joinedAtText, Qt::ISODate);
+                if (!joinedAt.isValid()) joinedAt = QDateTime::fromString(joinedAtText, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+                joinedAtMs = joinedAt.isValid() ? joinedAt.toMSecsSinceEpoch() : 0;
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(settingsConnection);
+    const bool manager = [&]() {
+        const QString ownerId = [&]() {
+            QString value;
+            const QString ownerConnection = "server_group_message_owner_" + QString::number(reinterpret_cast<quintptr>(socket));
+            QSqlDatabase db = openAccountDatabase(ownerConnection);
+            if (openAccountDatabaseConnection(db, ownerConnection)) {
+                QSqlQuery ownerQuery(db);
+                ownerQuery.prepare("SELECT COALESCE(g.owner_id, ''), COALESCE(m.role, '') FROM server_groups g "
+                                   "JOIN server_group_members m ON m.group_id = g.group_id WHERE g.group_id = ? AND m.user_id = ?");
+                ownerQuery.addBindValue(groupId); ownerQuery.addBindValue(sender->id);
+                if (ownerQuery.exec() && ownerQuery.next()) {
+                    if (ownerQuery.value(0).toString() == sender->id || ownerQuery.value(1).toString().toLower() == QLatin1String("admin")
+                        || ownerQuery.value(1).toString().toLower() == QLatin1String("owner")) value = sender->id;
+                }
+                db.close();
+            }
+            releaseAccountDatabase(ownerConnection);
+            return value;
+        }();
+        return !ownerId.isEmpty();
+    }();
+    if ((allMuted && !manager)
+        || (speakingRule == QLatin1String("new_members_24h") && !manager && joinedAtMs > 0
+            && QDateTime::currentMSecsSinceEpoch() - joinedAtMs < 24LL * 60 * 60 * 1000)) {
+        sendSystemNotice(socket, allMuted ? QStringLiteral("群消息发送失败：当前群已开启全员禁言")
+                                          : QStringLiteral("群消息发送失败：新成员需在入群 24 小时后发言"));
+        return;
+    }
     qint64 mutedUntil = 0;
     if (isServerGroupMemberMuted(groupId, sender->id, &mutedUntil)) {
         QJsonObject notice;
@@ -2622,6 +2689,522 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
         sendSystemNotice(memberSocket, notice);
         sendServerGroupSnapshot(memberId, memberSocket);
     }
+}
+
+void Server::handleServerGroupSearch(const QJsonObject& obj, QTcpSocket* socket) {
+    if (!findUserBySocket(socket)) return;
+    const QString keyword = obj.value("keyword").toString().trimmed();
+    if (keyword.isEmpty() || !ensureAccountDatabase()) return;
+
+    QJsonArray groups;
+    const QString connectionName = "server_group_search_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, ''), COUNT(m.user_id) "
+                          "FROM server_groups g LEFT JOIN server_group_members m ON m.group_id = g.group_id "
+                          "WHERE g.group_id <> 'public' AND COALESCE(g.searchable, 1) = 1 AND (g.group_id LIKE ? OR g.group_name LIKE ?) "
+                          "GROUP BY g.group_id, g.group_name, g.announcement, g.owner_id "
+                          "ORDER BY g.updated_at DESC LIMIT 30");
+            const QString pattern = QStringLiteral("%%1%").arg(keyword);
+            query.addBindValue(pattern);
+            query.addBindValue(pattern);
+            if (query.exec()) {
+                while (query.next()) {
+                    QJsonObject group;
+                    group["groupId"] = query.value(0).toString();
+                    group["groupName"] = query.value(1).toString();
+                    group["announcement"] = query.value(2).toString();
+                    group["ownerId"] = query.value(3).toString();
+                    group["memberCount"] = query.value(4).toInt();
+                    groups.append(group);
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    QJsonObject reply;
+    reply["type"] = "server_group_search_results";
+    reply["keyword"] = keyword;
+    reply["groups"] = groups;
+    socket->write(QJsonDocument(reply).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
+
+void Server::handleServerGroupSettingsUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString());
+    const QJsonObject requested = obj.value("settings").toObject();
+    if (!requester || groupId.isEmpty() || requested.isEmpty() || !ensureAccountDatabase()) return;
+
+    QString error;
+    QStringList recipients;
+    const QString connectionName = "server_group_settings_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            error = QStringLiteral("群设置保存失败：群组数据库不可用");
+        } else {
+            QSqlQuery permission(db);
+            permission.prepare("SELECT COALESCE(g.owner_id, ''), COALESCE(m.role, '') FROM server_groups g "
+                               "JOIN server_group_members m ON m.group_id = g.group_id WHERE g.group_id = ? AND m.user_id = ?");
+            permission.addBindValue(groupId);
+            permission.addBindValue(requester->id);
+            if (!permission.exec() || !permission.next()) {
+                error = QStringLiteral("群设置保存失败：你不在该群聊");
+            } else if (permission.value(0).toString() != requester->id
+                       && permission.value(1).toString().toLower() != QLatin1String("owner")
+                       && permission.value(1).toString().toLower() != QLatin1String("admin")) {
+                error = QStringLiteral("群设置保存失败：只有群主或管理员可以修改");
+            }
+
+            const QStringList allowedKeys = {"groupName", "avatar", "allMuted", "speakingRule", "joinPolicy", "searchable"};
+            for (auto it = requested.begin(); error.isEmpty() && it != requested.end(); ++it) {
+                if (!allowedKeys.contains(it.key())) error = QStringLiteral("群设置保存失败：存在不支持的设置项");
+            }
+            const QString speakingRule = requested.value("speakingRule").toString();
+            const QString joinPolicy = requested.value("joinPolicy").toString();
+            if (error.isEmpty() && requested.contains("groupName")
+                && requested.value("groupName").toString().trimmed().isEmpty()) {
+                error = QStringLiteral("群设置保存失败：群名称不能为空");
+            }
+            if (error.isEmpty() && !speakingRule.isEmpty()
+                && speakingRule != QLatin1String("unrestricted") && speakingRule != QLatin1String("new_members_24h")) {
+                error = QStringLiteral("群设置保存失败：发言限制无效");
+            }
+            if (error.isEmpty() && !joinPolicy.isEmpty()
+                && joinPolicy != QLatin1String("approval") && joinPolicy != QLatin1String("open")
+                && joinPolicy != QLatin1String("disabled")) {
+                error = QStringLiteral("群设置保存失败：加群方式无效");
+            }
+            if (error.isEmpty()) {
+                QStringList assignments;
+                QList<QVariant> values;
+                if (requested.contains("groupName")) { assignments << "group_name = ?"; values << requested.value("groupName").toString().trimmed().left(80); }
+                if (requested.contains("avatar")) { assignments << "avatar = ?"; values << requested.value("avatar").toString().left(1024 * 1024); }
+                if (requested.contains("allMuted")) { assignments << "all_muted = ?"; values << (requested.value("allMuted").toBool() ? 1 : 0); }
+                if (requested.contains("speakingRule")) { assignments << "speaking_rule = ?"; values << (speakingRule.isEmpty() ? QStringLiteral("unrestricted") : speakingRule); }
+                if (requested.contains("joinPolicy")) { assignments << "join_policy = ?"; values << (joinPolicy.isEmpty() ? QStringLiteral("approval") : joinPolicy); }
+                if (requested.contains("searchable")) { assignments << "searchable = ?"; values << (requested.value("searchable").toBool() ? 1 : 0); }
+                if (assignments.isEmpty()) error = QStringLiteral("群设置保存失败：没有可更新的内容");
+                else {
+                    QSqlQuery update(db);
+                    update.prepare("UPDATE server_groups SET " + assignments.join(", ") + ", updated_at = CURRENT_TIMESTAMP WHERE group_id = ?");
+                    for (const QVariant& value : values) update.addBindValue(value);
+                    update.addBindValue(groupId);
+                    if (!update.exec()) error = QStringLiteral("群设置保存失败：数据库写入失败");
+                }
+            }
+            if (error.isEmpty()) {
+                QSqlQuery members(db);
+                members.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+                members.addBindValue(groupId);
+                if (members.exec()) while (members.next()) recipients << members.value(0).toString();
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    if (!error.isEmpty()) { sendSystemNotice(socket, error); return; }
+    recordServerGroupAuditEvent(groupId, QStringLiteral("settings_update"), requester->id, requester->name,
+                                QString(), QString(), requested);
+    for (const QString& userId : recipients) {
+        if (QTcpSocket* target = m_userSockets.value(userId)) sendServerGroupSnapshot(userId, target);
+    }
+}
+
+void Server::handleServerGroupUserSettingsUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString());
+    const QJsonObject settings = obj.value("settings").toObject();
+    if (!requester || groupId.isEmpty() || settings.isEmpty() || !ensureAccountDatabase()) return;
+    const QStringList allowedKeys = {QStringLiteral("nickname"), QStringLiteral("remark"),
+                                     QStringLiteral("muteNotifications"), QStringLiteral("receiveWithoutNotify")};
+    QString error;
+    const QString connectionName = "server_group_user_settings_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) error = QStringLiteral("个人群设置保存失败：群组数据库不可用");
+        else {
+            for (auto it = settings.begin(); error.isEmpty() && it != settings.end(); ++it) {
+                if (!allowedKeys.contains(it.key())) error = QStringLiteral("个人群设置保存失败：存在不支持的设置项");
+            }
+            QSqlQuery membership(db);
+            membership.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ?");
+            membership.addBindValue(groupId); membership.addBindValue(requester->id);
+            if (!membership.exec() || !membership.next() || membership.value(0).toInt() == 0) {
+                error = QStringLiteral("个人群设置保存失败：你不在该群聊");
+            } else if (error.isEmpty()) {
+                QStringList assignments;
+                QList<QVariant> values;
+                if (settings.contains("nickname")) { assignments << "nickname = ?"; values << settings.value("nickname").toString().trimmed().left(40); }
+                if (settings.contains("remark")) { assignments << "remark = ?"; values << settings.value("remark").toString().trimmed().left(80); }
+                if (settings.contains("muteNotifications")) { assignments << "mute_notifications = ?"; values << (settings.value("muteNotifications").toBool() ? 1 : 0); }
+                if (settings.contains("receiveWithoutNotify")) { assignments << "receive_without_notify = ?"; values << (settings.value("receiveWithoutNotify").toBool() ? 1 : 0); }
+                QSqlQuery update(db);
+                update.prepare(insertIgnoreSql(QStringLiteral("server_group_user_settings"),
+                    {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("updated_at")},
+                    {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("group_id"), QStringLiteral("user_id")}));
+                update.addBindValue(groupId); update.addBindValue(requester->id);
+                if (!update.exec()) error = QStringLiteral("个人群设置保存失败：初始化失败");
+                if (error.isEmpty()) {
+                    update.prepare("UPDATE server_group_user_settings SET " + assignments.join(", ") + ", updated_at = CURRENT_TIMESTAMP WHERE group_id = ? AND user_id = ?");
+                    for (const QVariant& value : values) update.addBindValue(value);
+                    update.addBindValue(groupId); update.addBindValue(requester->id);
+                    if (!update.exec()) error = QStringLiteral("个人群设置保存失败：数据库写入失败");
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    if (!error.isEmpty()) { sendSystemNotice(socket, error); return; }
+    sendServerGroupSnapshot(requester->id, socket);
+}
+
+void Server::handleServerGroupJoinRequest(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester || !ensureAccountDatabase()) return;
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString());
+    if (groupId == QLatin1String("public")) {
+        sendSystemNotice(socket, QStringLiteral("公共聊天室无需申请，登录后自动加入"));
+        return;
+    }
+
+    QString requestId;
+    QString groupName;
+    QString error;
+    QStringList reviewers;
+    QStringList affectedMembers;
+    bool joinedImmediately = false;
+    const QString connectionName = "server_group_join_request_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery groupQuery(db);
+            groupQuery.prepare("SELECT COALESCE(group_name, ''), COALESCE(join_policy, 'approval') FROM server_groups WHERE group_id = ?");
+            groupQuery.addBindValue(groupId);
+            if (!groupQuery.exec() || !groupQuery.next()) {
+                error = QStringLiteral("群不存在或已解散");
+            } else {
+                groupName = groupQuery.value(0).toString();
+                const QString joinPolicy = groupQuery.value(1).toString().toLower();
+                if (joinPolicy == QLatin1String("disabled")) {
+                    error = QStringLiteral("该群暂不允许加入");
+                }
+                QSqlQuery memberQuery(db);
+                memberQuery.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ?");
+                memberQuery.addBindValue(groupId);
+                memberQuery.addBindValue(requester->id);
+                if (!memberQuery.exec() || !memberQuery.next()) {
+                    error = QStringLiteral("无法校验群成员状态");
+                } else if (!error.isEmpty()) {
+                    // Join policy already rejected the request.
+                } else if (memberQuery.value(0).toInt() > 0) {
+                    error = QStringLiteral("你已经是该群成员");
+                } else {
+                    if (joinPolicy == QLatin1String("open")) {
+                        QSqlQuery nameQuery(db);
+                        nameQuery.prepare("SELECT COALESCE(user_name, '') FROM accounts WHERE account = ?");
+                        nameQuery.addBindValue(requester->id);
+                        QString memberName = requester->name;
+                        if (nameQuery.exec() && nameQuery.next() && !nameQuery.value(0).toString().trimmed().isEmpty()) memberName = nameQuery.value(0).toString().trimmed();
+                        QSqlQuery addQuery(db);
+                        addQuery.prepare("INSERT INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) VALUES(?, ?, ?, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+                        addQuery.addBindValue(groupId); addQuery.addBindValue(requester->id); addQuery.addBindValue(memberName);
+                        if (!addQuery.exec()) error = QStringLiteral("加入群聊失败");
+                        else {
+                            requestId = QStringLiteral("open-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+                            joinedImmediately = true;
+                            QSqlQuery recipientsQuery(db);
+                            recipientsQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+                            recipientsQuery.addBindValue(groupId);
+                            if (recipientsQuery.exec()) while (recipientsQuery.next()) affectedMembers << recipientsQuery.value(0).toString();
+                        }
+                    } else {
+                    QSqlQuery pendingQuery(db);
+                    pendingQuery.prepare("SELECT request_id FROM server_group_join_requests WHERE group_id = ? AND applicant_id = ? AND state = 'pending'");
+                    pendingQuery.addBindValue(groupId);
+                    pendingQuery.addBindValue(requester->id);
+                    if (pendingQuery.exec() && pendingQuery.next()) {
+                        requestId = pendingQuery.value(0).toString();
+                    } else {
+                        requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                        QSqlQuery insertQuery(db);
+                        insertQuery.prepare("INSERT INTO server_group_join_requests(request_id, group_id, applicant_id, applicant_name, message, state, created_at, updated_at) "
+                                            "VALUES(?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+                        insertQuery.addBindValue(requestId);
+                        insertQuery.addBindValue(groupId);
+                        insertQuery.addBindValue(requester->id);
+                        insertQuery.addBindValue(requester->name);
+                        insertQuery.addBindValue(obj.value("message").toString().trimmed().left(120));
+                        if (!insertQuery.exec()) error = QStringLiteral("入群申请保存失败");
+                    }
+                    if (error.isEmpty()) {
+                        QSqlQuery reviewerQuery(db);
+                        reviewerQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ? AND role IN ('owner', 'admin')");
+                        reviewerQuery.addBindValue(groupId);
+                        if (reviewerQuery.exec()) while (reviewerQuery.next()) reviewers << reviewerQuery.value(0).toString();
+                    }
+                    }
+                }
+            }
+            db.close();
+        } else {
+            error = QStringLiteral("群组数据库不可用");
+        }
+    }
+    releaseAccountDatabase(connectionName);
+
+    QJsonObject status;
+    status["type"] = "server_group_join_request_status";
+    status["groupId"] = groupId;
+    status["groupName"] = groupName;
+    status["requestId"] = requestId;
+    status["state"] = error.isEmpty() ? (joinedImmediately ? QStringLiteral("approved") : QStringLiteral("pending")) : QStringLiteral("rejected");
+    status["reason"] = error;
+    socket->write(QJsonDocument(status).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+    if (!error.isEmpty()) return;
+
+    if (joinedImmediately) {
+        recordServerGroupAuditEvent(groupId, QStringLiteral("join_open"), requester->id, requester->name,
+                                    requester->id, requester->name);
+        for (const QString& userId : affectedMembers) {
+            if (QTcpSocket* target = m_userSockets.value(userId)) sendServerGroupSnapshot(userId, target);
+        }
+        return;
+    }
+
+    QJsonObject application;
+    application["type"] = "server_group_join_application";
+    application["requestId"] = requestId;
+    application["groupId"] = groupId;
+    application["groupName"] = groupName;
+    application["applicantId"] = requester->id;
+    application["applicantName"] = requester->name;
+    application["message"] = obj.value("message").toString().trimmed().left(120);
+    for (const QString& reviewerId : reviewers) {
+        QTcpSocket* reviewerSocket = m_userSockets.value(reviewerId);
+        if (!reviewerSocket || reviewerSocket->state() != QAbstractSocket::ConnectedState) continue;
+        reviewerSocket->write(QJsonDocument(application).toJson(QJsonDocument::Compact));
+        reviewerSocket->write("\n");
+        reviewerSocket->flush();
+    }
+    recordServerGroupAuditEvent(groupId, QStringLiteral("join_requested"), requester->id, requester->name,
+                                requester->id, requester->name, QJsonObject{{QStringLiteral("requestId"), requestId}});
+}
+
+void Server::handleServerGroupJoinResponse(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* reviewer = findUserBySocket(socket);
+    const QString requestId = obj.value("requestId").toString().trimmed();
+    if (!reviewer || requestId.isEmpty() || !ensureAccountDatabase()) return;
+
+    QString groupId, groupName, applicantId, applicantName, error;
+    bool approved = false;
+    QStringList affected;
+    const QString connectionName = "server_group_join_response_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery requestQuery(db);
+            requestQuery.prepare("SELECT r.group_id, COALESCE(g.group_name, ''), r.applicant_id, COALESCE(r.applicant_name, '') "
+                                 "FROM server_group_join_requests r JOIN server_groups g ON g.group_id = r.group_id "
+                                 "WHERE r.request_id = ? AND r.state = 'pending'");
+            requestQuery.addBindValue(requestId);
+            if (!requestQuery.exec() || !requestQuery.next()) {
+                error = QStringLiteral("入群申请不存在或已处理");
+            } else {
+                groupId = requestQuery.value(0).toString(); groupName = requestQuery.value(1).toString();
+                applicantId = requestQuery.value(2).toString(); applicantName = requestQuery.value(3).toString();
+                QSqlQuery permissionQuery(db);
+                permissionQuery.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ? AND role IN ('owner', 'admin')");
+                permissionQuery.addBindValue(groupId); permissionQuery.addBindValue(reviewer->id);
+                if (!permissionQuery.exec() || !permissionQuery.next() || permissionQuery.value(0).toInt() == 0) {
+                    error = QStringLiteral("只有群主或管理员可以处理入群申请");
+                } else {
+                    approved = obj.value("accepted").toBool(false);
+                    if (approved) {
+                        QSqlQuery addQuery(db);
+                        addQuery.prepare("INSERT OR IGNORE INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) VALUES(?, ?, ?, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+                        addQuery.addBindValue(groupId); addQuery.addBindValue(applicantId); addQuery.addBindValue(applicantName);
+                        if (!addQuery.exec()) error = QStringLiteral("批准入群失败");
+                    }
+                    if (error.isEmpty()) {
+                        QSqlQuery updateQuery(db);
+                        updateQuery.prepare("UPDATE server_group_join_requests SET state = ?, reviewed_by = ?, reviewed_by_name = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE request_id = ?");
+                        updateQuery.addBindValue(approved ? QStringLiteral("approved") : QStringLiteral("rejected"));
+                        updateQuery.addBindValue(reviewer->id); updateQuery.addBindValue(reviewer->name); updateQuery.addBindValue(requestId);
+                        if (!updateQuery.exec()) error = QStringLiteral("入群申请状态更新失败");
+                    }
+                    if (error.isEmpty() && approved) affected = serverGroupMemberIds(groupId);
+                }
+            }
+            db.close();
+        } else error = QStringLiteral("群组数据库不可用");
+    }
+    releaseAccountDatabase(connectionName);
+    if (!error.isEmpty()) { sendSystemNotice(socket, error); return; }
+    QJsonObject status;
+    status["type"] = "server_group_join_request_status"; status["requestId"] = requestId;
+    status["groupId"] = groupId; status["groupName"] = groupName;
+    status["state"] = approved ? QStringLiteral("approved") : QStringLiteral("rejected");
+    status["reviewerName"] = reviewer->name;
+    if (QTcpSocket* applicantSocket = m_userSockets.value(applicantId)) {
+        applicantSocket->write(QJsonDocument(status).toJson(QJsonDocument::Compact)); applicantSocket->write("\n"); applicantSocket->flush();
+    }
+    socket->write(QJsonDocument(status).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+    sendSystemNotice(socket, approved ? QStringLiteral("已同意入群申请") : QStringLiteral("已拒绝入群申请"));
+    recordServerGroupAuditEvent(groupId, approved ? QStringLiteral("join_approved") : QStringLiteral("join_rejected"), reviewer->id, reviewer->name, applicantId, applicantName);
+    if (approved) {
+        for (const QString& userId : affected) {
+            if (QTcpSocket* memberSocket = m_userSockets.value(userId)) sendServerGroupSnapshot(userId, memberSocket);
+        }
+        publishRedisServerGroupSnapshotRefresh(affected, groupId, QStringLiteral("新的入群申请已批准"), applicantId, QStringLiteral("add"));
+    }
+}
+
+void Server::handleServerGroupLeave(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString());
+    if (!requester || groupId == QLatin1String("public") || !ensureAccountDatabase()) return;
+
+    QString groupName, error;
+    QStringList affected;
+    const QString connectionName = "server_group_leave_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery memberQuery(db);
+            memberQuery.prepare("SELECT COALESCE(g.group_name, ''), COALESCE(g.owner_id, ''), COALESCE(m.role, '') "
+                                "FROM server_groups g JOIN server_group_members m ON m.group_id = g.group_id "
+                                "WHERE g.group_id = ? AND m.user_id = ?");
+            memberQuery.addBindValue(groupId); memberQuery.addBindValue(requester->id);
+            if (!memberQuery.exec() || !memberQuery.next()) {
+                error = QStringLiteral("你不在该群聊中");
+            } else {
+                groupName = memberQuery.value(0).toString();
+                const QString ownerId = memberQuery.value(1).toString();
+                const QString role = memberQuery.value(2).toString().toLower();
+                if (ownerId == requester->id || role == QLatin1String("owner")) {
+                    error = QStringLiteral("群主不能直接退群，请先转让群主或解散群聊");
+                } else {
+                    QSqlQuery deleteQuery(db);
+                    deleteQuery.prepare("DELETE FROM server_group_members WHERE group_id = ? AND user_id = ?");
+                    deleteQuery.addBindValue(groupId); deleteQuery.addBindValue(requester->id);
+                    if (!deleteQuery.exec()) error = QStringLiteral("退出群聊失败");
+                    else {
+                        QSqlQuery removedQuery(db);
+                        removedQuery.prepare(insertReplaceSql(
+                            QStringLiteral("server_group_removed_members"),
+                            {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("removed_by"), QStringLiteral("removed_by_name"), QStringLiteral("removed_at")},
+                            {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                            {QStringLiteral("group_id"), QStringLiteral("user_id")},
+                            {QStringLiteral("removed_by = EXCLUDED.removed_by"), QStringLiteral("removed_by_name = EXCLUDED.removed_by_name"), QStringLiteral("removed_at = EXCLUDED.removed_at")}));
+                        removedQuery.addBindValue(groupId); removedQuery.addBindValue(requester->id);
+                        removedQuery.addBindValue(requester->id); removedQuery.addBindValue(requester->name);
+                        if (!removedQuery.exec()) error = QStringLiteral("退出群聊记录失败");
+                    }
+                    if (error.isEmpty()) affected = serverGroupMemberIds(groupId);
+                }
+            }
+            db.close();
+        } else error = QStringLiteral("群组数据库不可用");
+    }
+    releaseAccountDatabase(connectionName);
+    QJsonObject status;
+    status["type"] = "server_group_leave_status";
+    status["groupId"] = groupId; status["groupName"] = groupName;
+    status["success"] = error.isEmpty(); status["reason"] = error;
+    socket->write(QJsonDocument(status).toJson(QJsonDocument::Compact)); socket->write("\n"); socket->flush();
+    if (!error.isEmpty()) return;
+    affected << requester->id;
+    recordServerGroupAuditEvent(groupId, QStringLiteral("member_left"), requester->id, requester->name, requester->id, requester->name);
+    for (const QString& userId : affected) {
+        if (QTcpSocket* memberSocket = m_userSockets.value(userId)) sendServerGroupSnapshot(userId, memberSocket);
+    }
+    publishRedisServerGroupSnapshotRefresh(affected, groupId, QStringLiteral("成员已退出群聊"), requester->id, QStringLiteral("remove"));
+}
+
+void Server::handleServerGroupDissolve(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    const QString groupId = normalizeServerGroupId(obj.value("groupId").toString());
+    if (!requester || groupId.isEmpty() || groupId == QLatin1String("public") || !ensureAccountDatabase()) return;
+
+    QString groupName;
+    QString error;
+    QStringList members;
+    const QString connectionName = "server_group_dissolve_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            error = QStringLiteral("解散群聊失败：群组数据库不可用");
+        } else {
+            QSqlQuery groupQuery(db);
+            groupQuery.prepare("SELECT COALESCE(group_name, ''), COALESCE(owner_id, '') FROM server_groups WHERE group_id = ?");
+            groupQuery.addBindValue(groupId);
+            if (!groupQuery.exec() || !groupQuery.next()) {
+                error = QStringLiteral("解散群聊失败：群不存在");
+            } else if (groupQuery.value(1).toString() != requester->id) {
+                error = QStringLiteral("解散群聊失败：只有群主可以解散群聊");
+            } else {
+                groupName = groupQuery.value(0).toString();
+                QSqlQuery memberQuery(db);
+                memberQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+                memberQuery.addBindValue(groupId);
+                if (memberQuery.exec()) while (memberQuery.next()) members << memberQuery.value(0).toString();
+                if (!db.transaction()) error = QStringLiteral("解散群聊失败：无法开始事务");
+                if (error.isEmpty()) {
+                    const QStringList tables = {QStringLiteral("server_group_members"), QStringLiteral("server_group_removed_members"),
+                                                QStringLiteral("server_group_join_requests"), QStringLiteral("server_group_announcements"),
+                                                QStringLiteral("server_group_audit_events"), QStringLiteral("server_group_essence_messages"),
+                                                QStringLiteral("server_group_member_mutes"), QStringLiteral("server_group_user_settings"),
+                                                QStringLiteral("server_group_recalled_messages")};
+                    for (const QString& table : tables) {
+                        QSqlQuery deleteRelated(db);
+                        deleteRelated.prepare(QStringLiteral("DELETE FROM %1 WHERE group_id = ?").arg(table));
+                        deleteRelated.addBindValue(groupId);
+                        if (!deleteRelated.exec()) { error = QStringLiteral("解散群聊失败：无法清理群资料"); break; }
+                    }
+                }
+                if (error.isEmpty()) {
+                    QSqlQuery deleteGroup(db);
+                    deleteGroup.prepare("DELETE FROM server_groups WHERE group_id = ?");
+                    deleteGroup.addBindValue(groupId);
+                    if (!deleteGroup.exec()) error = QStringLiteral("解散群聊失败：无法删除群聊");
+                }
+                if (error.isEmpty()) {
+                    if (!db.commit()) error = QStringLiteral("解散群聊失败：无法提交操作");
+                } else {
+                    db.rollback();
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    QJsonObject status;
+    status["type"] = "server_group_dissolve_status";
+    status["groupId"] = groupId;
+    status["groupName"] = groupName;
+    status["success"] = error.isEmpty();
+    status["reason"] = error;
+    for (const QString& userId : members) {
+        if (QTcpSocket* target = m_userSockets.value(userId)) {
+            target->write(QJsonDocument(status).toJson(QJsonDocument::Compact));
+            target->write("\n");
+            target->flush();
+            sendServerGroupSnapshot(userId, target);
+        }
+    }
+    if (!error.isEmpty()) sendSystemNotice(socket, error);
 }
 
 void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* socket) {
@@ -5692,6 +6275,11 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("ALTER TABLE server_groups ADD COLUMN group_type TEXT DEFAULT 'public'");
                 query.exec("ALTER TABLE server_groups ADD COLUMN history_policy TEXT DEFAULT 'public-removed-readonly'");
                 query.exec("ALTER TABLE server_groups ADD COLUMN file_policy TEXT DEFAULT 'public-members-only'");
+                query.exec("ALTER TABLE server_groups ADD COLUMN avatar TEXT DEFAULT ''");
+                query.exec("ALTER TABLE server_groups ADD COLUMN all_muted INTEGER DEFAULT 0");
+                query.exec("ALTER TABLE server_groups ADD COLUMN speaking_rule TEXT DEFAULT 'unrestricted'");
+                query.exec("ALTER TABLE server_groups ADD COLUMN join_policy TEXT DEFAULT 'approval'");
+                query.exec("ALTER TABLE server_groups ADD COLUMN searchable INTEGER DEFAULT 1");
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_members ("
@@ -5711,6 +6299,31 @@ bool Server::ensureAccountDatabase() const {
                                 "removed_by_name TEXT, "
                                 "removed_at TEXT DEFAULT CURRENT_TIMESTAMP, "
                                 "PRIMARY KEY(group_id, user_id))");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_user_settings ("
+                                "group_id TEXT NOT NULL, "
+                                "user_id TEXT NOT NULL, "
+                                "nickname TEXT, "
+                                "remark TEXT, "
+                                "mute_notifications INTEGER NOT NULL DEFAULT 0, "
+                                "receive_without_notify INTEGER NOT NULL DEFAULT 0, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(group_id, user_id))");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_join_requests ("
+                                "request_id TEXT PRIMARY KEY, "
+                                "group_id TEXT NOT NULL, "
+                                "applicant_id TEXT NOT NULL, "
+                                "applicant_name TEXT, "
+                                "message TEXT, "
+                                "state TEXT NOT NULL DEFAULT 'pending', "
+                                "reviewed_by TEXT, "
+                                "reviewed_by_name TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "reviewed_at TEXT, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
             if (ok) {
                 ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS server_group_announcements (")
@@ -5792,6 +6405,7 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_friends_user ON server_friends(user_id, friend_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_members_user ON server_group_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_removed_members_user ON server_group_removed_members(user_id, group_id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_join_requests_pending ON server_group_join_requests(group_id, state, applicant_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_announcements_group ON server_group_announcements(group_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_audit_group ON server_group_audit_events(group_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_essence_group ON server_group_essence_messages(group_id, message_id)");
@@ -7250,7 +7864,9 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
         if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery groupQuery(db);
             groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, ''), "
-                               "COALESCE(g.group_type, ''), COALESCE(g.history_policy, ''), COALESCE(g.file_policy, '') "
+                               "COALESCE(g.group_type, ''), COALESCE(g.history_policy, ''), COALESCE(g.file_policy, ''), "
+                               "COALESCE(g.avatar, ''), COALESCE(g.all_muted, 0), COALESCE(g.speaking_rule, 'unrestricted'), "
+                               "COALESCE(g.join_policy, 'approval'), COALESCE(g.searchable, 1) "
                                "FROM server_groups g "
                                "JOIN server_group_members m ON m.group_id = g.group_id "
                                "WHERE m.user_id = ? "
@@ -7277,6 +7893,11 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groupObj["membershipState"] = "active";
                     groupObj["historyPolicy"] = historyPolicy;
                     groupObj["filePolicy"] = filePolicy;
+                    groupObj["avatar"] = groupQuery.value(7).toString();
+                    groupObj["allMuted"] = groupQuery.value(8).toInt() != 0;
+                    groupObj["speakingRule"] = groupQuery.value(9).toString();
+                    groupObj["joinPolicy"] = groupQuery.value(10).toString();
+                    groupObj["searchable"] = groupQuery.value(11).toInt() != 0;
                     groupObj["canSend"] = true;
                     groupObj["canSendFiles"] = true;
                     groupObj["canReadHistory"] = true;
@@ -7326,6 +7947,21 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     }
                     groupObj["members"] = members;
                     groupObj["memberCount"] = members.size();
+
+                    QSqlQuery userSettingsQuery(db);
+                    userSettingsQuery.prepare("SELECT COALESCE(nickname, ''), COALESCE(remark, ''), "
+                                              "COALESCE(mute_notifications, 0), COALESCE(receive_without_notify, 0) "
+                                              "FROM server_group_user_settings WHERE group_id = ? AND user_id = ?");
+                    userSettingsQuery.addBindValue(groupId);
+                    userSettingsQuery.addBindValue(userId);
+                    QJsonObject userSettings;
+                    if (userSettingsQuery.exec() && userSettingsQuery.next()) {
+                        userSettings["nickname"] = userSettingsQuery.value(0).toString();
+                        userSettings["remark"] = userSettingsQuery.value(1).toString();
+                        userSettings["muteNotifications"] = userSettingsQuery.value(2).toInt() != 0;
+                        userSettings["receiveWithoutNotify"] = userSettingsQuery.value(3).toInt() != 0;
+                    }
+                    groupObj["userSettings"] = userSettings;
 
                     QJsonArray essenceMessages;
                     QSqlQuery essenceQuery(db);
@@ -7434,4 +8070,69 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
     socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();
+
+    // Pending applications are a management-only feed. Do not expose them to
+    // ordinary members, and resend them after owner/admin reconnects.
+    const QString applicationConnection = "server_group_join_application_snapshot_"
+        + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase applicationDb = openAccountDatabase(applicationConnection);
+        if (openAccountDatabaseConnection(applicationDb, applicationConnection)) {
+            QSqlQuery applications(applicationDb);
+            applications.prepare("SELECT r.request_id, r.group_id, COALESCE(g.group_name, ''), r.applicant_id, "
+                                 "COALESCE(r.applicant_name, ''), COALESCE(r.message, '') "
+                                 "FROM server_group_join_requests r "
+                                 "JOIN server_group_members m ON m.group_id = r.group_id AND m.user_id = ? "
+                                 "JOIN server_groups g ON g.group_id = r.group_id "
+                                 "WHERE r.state = 'pending' AND m.role IN ('owner', 'admin') "
+                                 "ORDER BY r.created_at ASC LIMIT 100");
+            applications.addBindValue(userId);
+            if (applications.exec()) {
+                while (applications.next()) {
+                    QJsonObject application;
+                    application["type"] = "server_group_join_application";
+                    application["requestId"] = applications.value(0).toString();
+                    application["groupId"] = applications.value(1).toString();
+                    application["groupName"] = applications.value(2).toString();
+                    application["applicantId"] = applications.value(3).toString();
+                    application["applicantName"] = applications.value(4).toString();
+                    application["message"] = applications.value(5).toString();
+                    socket->write(QJsonDocument(application).toJson(QJsonDocument::Compact));
+                    socket->write("\n");
+                }
+                socket->flush();
+            }
+            applicationDb.close();
+        }
+    }
+    releaseAccountDatabase(applicationConnection);
+
+    const QString outgoingApplicationConnection = "server_group_join_outgoing_snapshot_"
+        + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase outgoingDb = openAccountDatabase(outgoingApplicationConnection);
+        if (openAccountDatabaseConnection(outgoingDb, outgoingApplicationConnection)) {
+            QSqlQuery applications(outgoingDb);
+            applications.prepare("SELECT r.request_id, r.group_id, COALESCE(g.group_name, ''), COALESCE(r.message, '') "
+                                 "FROM server_group_join_requests r JOIN server_groups g ON g.group_id = r.group_id "
+                                 "WHERE r.applicant_id = ? AND r.state = 'pending' ORDER BY r.created_at ASC LIMIT 100");
+            applications.addBindValue(userId);
+            if (applications.exec()) {
+                while (applications.next()) {
+                    QJsonObject application;
+                    application["type"] = "server_group_join_request_status";
+                    application["requestId"] = applications.value(0).toString();
+                    application["groupId"] = applications.value(1).toString();
+                    application["groupName"] = applications.value(2).toString();
+                    application["message"] = applications.value(3).toString();
+                    application["state"] = "pending";
+                    socket->write(QJsonDocument(application).toJson(QJsonDocument::Compact));
+                    socket->write("\n");
+                }
+                socket->flush();
+            }
+            outgoingDb.close();
+        }
+    }
+    releaseAccountDatabase(outgoingApplicationConnection);
 }

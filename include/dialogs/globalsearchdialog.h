@@ -24,16 +24,21 @@ public:
     QString searchText() const;
     void setContactGroupMode(bool enabled);
     void setContactKnown(const QString& id, bool known);
-    void setGroupEnterable(const QString& id, bool enterable);
+    void setGroupJoined(const QString& id, bool joined);
+    void setGroupJoinPending(const QString& id, bool pending);
+    void setSearching(bool searching);
 
 signals:
     void searchRequested(const QString& text);
     void resultActivated(const QString& type, const QString& id);
     void addFriendRequested(const QString& userId);
+    void joinGroupRequested(const QString& groupId);
 
 public slots:
-    void addResult(const QString& type, const QString& id, const QString& title, const QString& subtitle);
+    void addResult(const QString& type, const QString& id, const QString& title,
+                   const QString& subtitle, const QString& avatarPath = QString());
     void clearResults();
+    void showSearchState(const QString& message);
 
 private:
     void setupUi();
@@ -43,6 +48,7 @@ private:
     void showGroupDetail(QListWidgetItem* item);
     void showUserDetail(QListWidgetItem* item);
     void hideGroupDetail();
+    void refreshResultSections();
 
     enum Tab { TabAll = 0, TabUsers, TabGroups, TabMiniPrograms, TabBots };
 
@@ -54,10 +60,14 @@ private:
     int m_activeTab = TabAll;
 
     QStackedWidget* m_bodyStack = nullptr;   // 0 = results, 1 = placeholder
+    QFrame* m_usersSection = nullptr;
+    QFrame* m_groupsSection = nullptr;
     QLabel* m_usersHeading = nullptr;
     QListWidget* m_usersList = nullptr;
+    QPushButton* m_usersMoreButton = nullptr;
     QLabel* m_groupsHeading = nullptr;
     QListWidget* m_groupsList = nullptr;
+    QPushButton* m_groupsMoreButton = nullptr;
     QLabel* m_placeholderLabel = nullptr;
 
     // Group detail side panel
@@ -70,7 +80,10 @@ private:
     QString m_detailType;
     bool m_contactGroupMode = false;
     QMap<QString, bool> m_knownContacts;
-    QMap<QString, bool> m_enterableGroups;
+    QMap<QString, bool> m_joinedGroups;
+    QMap<QString, bool> m_pendingGroupJoins;
+    bool m_searching = false;
+    QString m_resultKeyword;
 };
 
 #endif // GLOBALSEARCHDIALOG_H

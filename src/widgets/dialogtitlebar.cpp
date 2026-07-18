@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QStyle>
 
 DialogTitleBar::DialogTitleBar(QWidget* parent, const QString& title, bool showCloseButton)
     : QFrame(parent)
@@ -54,6 +55,7 @@ void DialogTitleBar::updateStyle()
     setStyleSheet(QStringLiteral(
         "QFrame#dialogTitleBar { background-color: %1; border-bottom: 1px solid %2; }"
         "QLabel#dialogTitleBarLabel { color: %3; font-size: 14px; font-weight: 600; }"
+        "QLabel#dialogTitleBarLabel[centered=\"true\"] { font-size: 16px; font-weight: 700; }"
         "QPushButton#dialogTitleBarCloseBtn { color: %3; border: none; background: transparent; font-size: 14px; font-weight: 700; border-radius: 4px; padding: 0; }"
         "QPushButton#dialogTitleBarCloseBtn:hover { background-color: #ff4d4f; color: white; }"
     ).arg(tm->backgroundSecondaryColor().name())
@@ -71,6 +73,23 @@ void DialogTitleBar::setCloseButtonVisible(bool visible)
     if (m_closeBtn) {
         m_closeBtn->setVisible(visible);
     }
+}
+
+void DialogTitleBar::setTitleCentered(bool centered)
+{
+    if (!m_titleLabel) return;
+    if (centered && !m_leftBalance) {
+        m_leftBalance = new QWidget(this);
+        m_leftBalance->setFixedSize(32, 32);
+        if (QHBoxLayout* layout = qobject_cast<QHBoxLayout*>(this->layout())) {
+            layout->insertWidget(0, m_leftBalance);
+        }
+    }
+    if (m_leftBalance) m_leftBalance->setVisible(centered);
+    m_titleLabel->setAlignment(centered ? Qt::AlignCenter : Qt::AlignLeft | Qt::AlignVCenter);
+    m_titleLabel->setProperty("centered", centered);
+    m_titleLabel->style()->unpolish(m_titleLabel);
+    m_titleLabel->style()->polish(m_titleLabel);
 }
 
 void DialogTitleBar::mousePressEvent(QMouseEvent* event)

@@ -55,7 +55,9 @@ void qqntLog(const QString& tag, const QString& msg)
 #include "widgets/titlebar.h"
 #include "widgets/composerwidget.h"
 #include "widgets/groupmembersidebar.h"
+#include "widgets/avatarlabel.h"
 #include "theme/thememanager.h"
+#include "theme/dialogstyle.h"
 #include "windows/screenshotcapturewindow.h"
 #include "screenshotgeometry.h"
 #include "windows/imagepreviewwindow.h"
@@ -76,6 +78,7 @@ void qqntLog(const QString& tag, const QString& msg)
 #include <QIcon>
 #include <QTextEdit>
 #include <QPushButton>
+#include <QToolButton>
 #include <QListView>
 #include <QStatusBar>
 #include <QPixmap>
@@ -108,6 +111,11 @@ void qqntLog(const QString& tag, const QString& msg)
 #include <QJsonObject>
 #include <QSettings>
 #include <QProgressDialog>
+#include <QCheckBox>
+#include <QButtonGroup>
+#include <QRadioButton>
+#include <QComboBox>
+#include <QFrame>
 #include <QDateEdit>
 #include <QDialogButtonBox>
 #include <QCryptographicHash>
@@ -703,6 +711,108 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendRequestSent, this, &MainWindow::onFriendRequestSent);
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
     connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
+    connect(m_client, &Client::serverGroupJoinApplicationReceived, this, [this](const QJsonObject& application) {
+        const QString requestId = application.value("requestId").toString();
+        if (requestId.isEmpty()) return;
+        const QString groupName = application.value("groupName").toString(QStringLiteral("群聊"));
+        const QString applicant = application.value("applicantName").toString(application.value("applicantId").toString());
+        m_pendingGroupJoinApplications.insert(requestId, application);
+        appendSystemMessage(QStringLiteral("收到入群申请：%1 申请加入“%2”，请在群通知中处理").arg(applicant, groupName));
+        ui->statusbar->showMessage(QStringLiteral("新的入群申请 · 请在群通知中同意或拒绝"), 3500);
+        ui->groupNoticeBtn->setText(QStringLiteral("群通知 %1").arg(m_pendingGroupJoinApplications.size()));
+        ui->groupNoticeBtn->setToolTip(QStringLiteral("有 %1 条入群申请待处理").arg(m_pendingGroupJoinApplications.size()));
+    });
+    connect(m_client, &Client::serverGroupJoinRequestStatusReceived, this, [this](const QJsonObject& status) {
+        const QString requestId = status.value("requestId").toString();
+        const QString groupId = status.value("groupId").toString();
+        const QString groupName = status.value("groupName").toString(QStringLiteral("群聊"));
+        const QString state = status.value("state").toString();
+        const QString reason = status.value("reason").toString();
+        if (m_activeContactGroupSearchDialog && !groupId.isEmpty()) {
+            m_activeContactGroupSearchDialog->setGroupJoinPending(groupId, state == QLatin1String("pending"));
+            if (state == QLatin1String("approved")) m_activeContactGroupSearchDialog->setGroupJoined(groupId, true);
+        }
+        if (state == QLatin1String("pending")) {
+            if (!requestId.isEmpty()) m_pendingOutgoingGroupJoinApplications.insert(requestId, status);
+            ui->statusbar->showMessage(QStringLiteral("已提交入群申请，等待群主或管理员同意"), 3200);
+        } else if (state == QLatin1String("approved")) {
+            appendSystemMessage(QStringLiteral("入群申请已通过：%1").arg(groupName));
+            ui->statusbar->showMessage(QStringLiteral("已通过“%1”的入群申请").arg(groupName), 3200);
+        } else {
+            ui->statusbar->showMessage(reason.isEmpty() ? QStringLiteral("入群申请被拒绝") : reason, 3200);
+        }
+        if (!requestId.isEmpty() && m_pendingGroupJoinApplications.contains(requestId)
+            && (state == QLatin1String("approved") || state == QLatin1String("rejected"))) {
+            m_pendingGroupJoinApplications.remove(requestId);
+            ui->groupNoticeBtn->setText(m_pendingGroupJoinApplications.isEmpty()
+                ? QStringLiteral("群通知")
+                : QStringLiteral("群通知 %1").arg(m_pendingGroupJoinApplications.size()));
+        }
+        if (!requestId.isEmpty() && state == QLatin1String("approved")) {
+            m_pendingOutgoingGroupJoinApplications.remove(requestId);
+        }
+        if (!requestId.isEmpty() && state == QLatin1String("rejected")) {
+            QJsonObject rejected = status;
+            rejected["reviewerName"] = status.value("reviewerName").toString(QStringLiteral("群主或管理员"));
+            m_pendingOutgoingGroupJoinApplications.remove(requestId);
+            m_rejectedOutgoingGroupJoinApplications.insert(requestId, rejected);
+        }
+    });
+    connect(m_client, &Client::serverGroupLeaveStatusReceived, this, [this](const QJsonObject& status) {
+        const QString groupId = status.value("groupId").toString();
+        const QString groupName = status.value("groupName").toString(QStringLiteral("群聊"));
+        if (!status.value("success").toBool(false)) {
+            ui->statusbar->showMessage(status.value("reason").toString(QStringLiteral("退出群聊失败")), 3000);
+            return;
+        }
+        const QString localId = m_joinedServerSearchGroups.take(groupId);
+        if (!localId.isEmpty()) {
+            m_localGroupIds.removeAll(localId);
+            m_localGroupNames.remove(localId);
+            m_localGroupMembers.remove(localId);
+            m_localGroupAnnouncements.remove(localId);
+            m_localGroupAvatarPaths.remove(localId);
+            saveLocalGroups();
+        }
+        refreshFriendList();
+        ui->statusbar->showMessage(QStringLiteral("已退出群聊：%1").arg(groupName), 2600);
+    });
+    connect(m_client, &Client::serverGroupDissolveStatusReceived, this, [this](const QJsonObject& status) {
+        const QString groupId = status.value("groupId").toString();
+        const QString groupName = status.value("groupName").toString(QStringLiteral("群聊"));
+        if (!status.value("success").toBool(false)) {
+            ui->statusbar->showMessage(status.value("reason").toString(QStringLiteral("解散群聊失败")), 3000);
+            return;
+        }
+        const QString localId = m_joinedServerSearchGroups.take(groupId);
+        if (!localId.isEmpty()) {
+            m_localGroupIds.removeAll(localId);
+            m_localGroupNames.remove(localId);
+            m_localGroupMembers.remove(localId);
+            m_localGroupAnnouncements.remove(localId);
+            m_localGroupAvatarPaths.remove(localId);
+            saveLocalGroups();
+        }
+        if (m_privateChatTarget == localId) {
+            m_privateChatTarget.clear();
+            showMessagesView();
+        }
+        refreshFriendList();
+        ui->statusbar->showMessage(QStringLiteral("群聊已解散：%1").arg(groupName), 2800);
+    });
+    connect(m_client, &Client::serverGroupSearchResults, this, [this](const QString&, const QJsonArray& groups) {
+        if (!m_activeContactGroupSearchDialog) return;
+        m_activeContactGroupSearchDialog->setSearching(false);
+        for (const QJsonValue& value : groups) {
+            const QJsonObject group = value.toObject();
+            const QString id = group.value("groupId").toString();
+            if (id.isEmpty() || m_serverGroupNames.contains(id) || m_localGroupIds.contains(id)) continue;
+            const QString name = group.value("groupName").toString(id);
+            const int count = group.value("memberCount").toInt();
+            m_activeContactGroupSearchDialog->addResult(QStringLiteral("group"), id, name,
+                QStringLiteral("群号:%1 · %2 人").arg(id).arg(count));
+        }
+    });
     connect(m_client, &Client::e2eSessionStateChanged, this, &MainWindow::onE2ESessionStateChanged);
     connect(m_client, &Client::e2eIdentityStateChanged, this, &MainWindow::onE2EIdentityStateChanged);
     connect(m_client, &Client::e2eSessionRotationRequested, this, &MainWindow::onE2ESessionRotationRequested);
@@ -1402,6 +1512,7 @@ void MainWindow::openPrivateSession(const QString& userId) {
         // Essence messages and the member rail only exist for groups; hide both
         // in private chats.
         m_messagesView->setEssenceButtonVisible(false);
+        m_messagesView->setGroupMoreButtonVisible(false);
         m_messagesView->setGroupMemberSidebarVisible(false);
     }
     refreshComposerState();
@@ -3681,7 +3792,12 @@ void MainWindow::onNewMessage(const Message& msg) {
         m_chatModel->removeRows(0, rowCount - MAX_HISTORY_LINES);
     }
 
-    if (!isActiveWindow()) {
+    const QString messageGroupId = msg.isPrivate() ? QString() : msg.receiverId;
+    const QJsonObject messageGroupUserSettings = m_serverGroupUserSettings.value(messageGroupId);
+    const bool suppressGroupNotification = !messageGroupId.isEmpty()
+        && (messageGroupUserSettings.value(QStringLiteral("muteNotifications")).toBool(false)
+            || messageGroupUserSettings.value(QStringLiteral("receiveWithoutNotify")).toBool(false));
+    if (!isActiveWindow() && !suppressGroupNotification) {
         ++m_unreadCount;
         updateUnreadState();
         if (m_trayIcon->isVisible()) {
@@ -3734,6 +3850,8 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     m_serverGroupMembers.clear();
     m_serverGroupMemberNames.clear();
     m_serverGroupMemberRoles.clear();
+    m_serverGroupSettings.clear();
+    m_serverGroupUserSettings.clear();
     m_serverGroupAuditEvents.clear();
     m_removedServerGroups.clear();
 
@@ -3745,6 +3863,14 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
         m_serverGroupNames[groupId] = groupObj["groupName"].toString(groupId);
         m_serverGroupAnnouncements[groupId] = groupObj["announcement"].toString();
         m_serverGroupOwners[groupId] = groupObj["ownerId"].toString();
+        m_serverGroupSettings[groupId] = QJsonObject{
+            {QStringLiteral("avatar"), groupObj["avatar"].toString()},
+            {QStringLiteral("allMuted"), groupObj["allMuted"].toBool(false)},
+            {QStringLiteral("speakingRule"), groupObj["speakingRule"].toString(QStringLiteral("unrestricted"))},
+            {QStringLiteral("joinPolicy"), groupObj["joinPolicy"].toString(QStringLiteral("approval"))},
+            {QStringLiteral("searchable"), groupObj["searchable"].toBool(true)}
+        };
+        m_serverGroupUserSettings[groupId] = groupObj["userSettings"].toObject();
 
         QStringList memberIds;
         const QJsonArray members = groupObj["members"].toArray();
@@ -3759,6 +3885,13 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
         }
         m_serverGroupMembers[groupId] = memberIds;
         m_serverGroupAuditEvents[groupId] = groupObj["auditEvents"].toArray();
+        if (groupId != QLatin1String("public") && memberIds.contains(m_currentUserId)
+            && !m_joinedServerSearchGroups.contains(groupId)) {
+            const QString localId = createLocalGroupSession(
+                m_serverGroupNames.value(groupId, QStringLiteral("群聊")), memberIds,
+                m_serverGroupAnnouncements.value(groupId));
+            m_joinedServerSearchGroups.insert(groupId, localId);
+        }
     }
 
     const QJsonArray removedGroups = m_client ? m_client->removedServerGroups() : QJsonArray();
@@ -3774,6 +3907,14 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     }
 
     const bool isInPublicGroup = m_serverGroupMembers.value("public").contains(m_currentUserId);
+    for (auto it = m_pendingGroupJoinApplications.begin(); it != m_pendingGroupJoinApplications.end(); ) {
+        const QString groupId = it.value().value("groupId").toString();
+        const QString role = m_serverGroupMemberRoles.value(groupId + "|" + m_currentUserId).toLower();
+        const bool canReview = m_serverGroupOwners.value(groupId) == m_currentUserId
+            || role == QLatin1String("owner") || role == QLatin1String("admin");
+        if (!canReview) it = m_pendingGroupJoinApplications.erase(it);
+        else ++it;
+    }
     m_wasInPublicServerGroup = isInPublicGroup;
 
     if (m_privateChatTarget.isEmpty()) {
@@ -4851,6 +4992,7 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     readLocalChatActions(groupId);
     if (m_messagesView) {
         m_messagesView->setEssenceButtonVisible(true);
+        m_messagesView->setGroupMoreButtonVisible(true);
     }
     refreshGroupMemberSidebar();
 }
@@ -4884,16 +5026,20 @@ void MainWindow::readLocalChatActions(const QString& sessionId) {
 }
 
 void MainWindow::onEditGroupAnnouncement() {
-    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    const bool isServerPublicGroup = m_privateChatTarget.isEmpty();
+    const QString serverGroupId = m_privateChatTarget.isEmpty()
+        ? QStringLiteral("public")
+        : m_joinedServerSearchGroups.key(m_privateChatTarget);
+    const bool isServerGroup = !serverGroupId.isEmpty();
+    const bool isLocalGroup = !isServerGroup && !m_privateChatTarget.isEmpty()
+        && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
     if (isLocalGroup && !isCurrentUserGroupOwner(m_privateChatTarget)) {
         ui->statusbar->showMessage("只有群主可以编辑群公告", 2400);
         appendSystemMessage("群公告编辑被权限保护拦截：当前账号不是群主");
         return;
     }
-    if (isServerPublicGroup && !canCurrentUserManageServerGroup("public")) {
-        ui->statusbar->showMessage("只有群主或管理员可以编辑公共群公告", 2400);
-        appendSystemMessage("公共群公告编辑被服务端角色保护拦截");
+    if (isServerGroup && !canCurrentUserManageServerGroup(serverGroupId)) {
+        ui->statusbar->showMessage("只有群主或管理员可以编辑群公告", 2400);
+        appendSystemMessage("群公告编辑被服务端角色保护拦截");
         return;
     }
 
@@ -4918,12 +5064,18 @@ void MainWindow::onEditGroupAnnouncement() {
         ui->statusbar->showMessage(announcementDecision.unchangedStatusMessage, 1600);
         return;
     }
-    if (isServerPublicGroup) {
-        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate("public", announcementDecision.text)) {
+    if (isServerGroup) {
+        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate(serverGroupId, announcementDecision.text)) {
             ui->statusbar->showMessage("群公告提交失败，请检查连接状态", 2400);
             appendSystemMessage("群公告提交失败：客户端未连接或发送失败");
             return;
         }
+        // Keep every visible group surface coherent while the server snapshot
+        // is in flight. The authoritative value will still arrive by snapshot.
+        m_serverGroupAnnouncements[serverGroupId] = announcementDecision.text;
+        ui->announcementBodyLabel->setText(announcementDecision.text);
+        refreshGroupMemberSidebar();
+        refreshFriendList();
         appendSystemMessage("群公告更新已提交，等待服务端同步");
         ui->statusbar->showMessage(announcementDecision.submittedStatusMessage, 2200);
         return;
@@ -4937,6 +5089,8 @@ void MainWindow::onEditGroupAnnouncement() {
                         .arg(QDateTime::currentDateTime().toString("hh:mm:ss"),
                              announcementDecision.text));
     }
+    refreshGroupMemberSidebar();
+    refreshFriendList();
     appendSystemMessage("群公告已更新");
     ui->statusbar->showMessage(announcementDecision.appliedStatusMessage, 2200);
 }
@@ -5099,7 +5253,7 @@ void MainWindow::onMessageActionRequested(const QModelIndex& index, const QStrin
         QString errorMessage;
         QQNTBackendService::handle(QStringLiteral("toggle_multi_select_local_message"), payload, &response, &errorCode, &errorMessage);
     } else if (action == QStringLiteral("delete") ||
-               action == QStringLiteral("favorite") || action == QStringLiteral("essence") ||
+               action == QStringLiteral("favorite") || action == QStringLiteral("essence") || action == QStringLiteral("unessence") ||
                action == QStringLiteral("recall")) {
         handleBackendContextCommand(action, text, index);
     } else if (action == QStringLiteral("forward")) {
@@ -6399,6 +6553,7 @@ void MainWindow::onBackToGroupChat() {
     refreshGroupMemberPanel();
     refreshComposerState();
     refreshSessionSummary();
+    if (m_messagesView) m_messagesView->setGroupMoreButtonVisible(true);
 }
 
 void MainWindow::onFriendRequestReceived(const QString& senderId, const QString& senderName) {
@@ -6438,11 +6593,17 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
         return;
     }
     if (m_activeContactGroupSearchDialog) {
+        m_activeContactGroupSearchDialog->setSearching(false);
         if (found && !userId.isEmpty()) {
             const QString displayName = userName.isEmpty() ? account : userName;
+            m_friendNames[userId] = displayName;
             m_activeContactGroupSearchDialog->setContactKnown(userId, m_friendIds.contains(userId));
             m_activeContactGroupSearchDialog->addResult(QStringLiteral("contact"), userId, displayName,
-                                                        QStringLiteral("QQ:%1").arg(account));
+                                                        QStringLiteral("QQ:%1 · %2").arg(account, online ? QStringLiteral("在线") : QStringLiteral("离线")),
+                                                        peerAvatarPath(userId));
+        } else {
+            m_activeContactGroupSearchDialog->showSearchState(
+                QStringLiteral("未找到 QQ:%1，请确认账号或昵称后重试").arg(account));
         }
         return;
     }
@@ -7607,6 +7768,59 @@ void MainWindow::onShowGroupNotifications() {
 
     auto fillGroups = [this, noticeList, countLabel, searchEdit]() {
         fillGroupNoticeList(noticeList, countLabel, searchEdit);
+        const QString keyword = searchEdit->text().trimmed();
+        for (auto it = m_pendingGroupJoinApplications.constBegin(); it != m_pendingGroupJoinApplications.constEnd(); ++it) {
+            const QJsonObject application = it.value();
+            const QString groupName = application.value("groupName").toString(QStringLiteral("群聊"));
+            const QString applicantName = application.value("applicantName").toString(application.value("applicantId").toString());
+            const QString message = application.value("message").toString();
+            const QString searchable = groupName + applicantName + application.value("applicantId").toString() + message;
+            if (!keyword.isEmpty() && !searchable.contains(keyword, Qt::CaseInsensitive)) continue;
+            auto* item = new QListWidgetItem(
+                QStringLiteral("入群申请 · %1\n%2 申请加入 · %3%4")
+                    .arg(groupName, applicantName, application.value("applicantId").toString(),
+                         message.isEmpty() ? QString() : QStringLiteral("\n验证信息：%1").arg(message)), noticeList);
+            item->setData(Qt::UserRole, QStringLiteral("join_request:") + it.key());
+            item->setSizeHint(QSize(0, 70));
+            item->setForeground(QColor(18, 150, 247));
+            item->setToolTip(QStringLiteral("选择后可同意或拒绝该入群申请"));
+            noticeList->insertItem(0, item);
+        }
+        for (auto it = m_pendingOutgoingGroupJoinApplications.constBegin(); it != m_pendingOutgoingGroupJoinApplications.constEnd(); ++it) {
+            const QJsonObject application = it.value();
+            const QString groupName = application.value("groupName").toString(QStringLiteral("群聊"));
+            const QString message = application.value("message").toString();
+            const QString searchable = groupName + application.value("groupId").toString() + message;
+            if (!keyword.isEmpty() && !searchable.contains(keyword, Qt::CaseInsensitive)) continue;
+            auto* item = new QListWidgetItem(
+                QStringLiteral("入群申请中 · %1\n群号：%2 · 等待群主或管理员同意%3")
+                    .arg(groupName, application.value("groupId").toString(),
+                         message.isEmpty() ? QString() : QStringLiteral("\n验证信息：%1").arg(message)), noticeList);
+            item->setData(Qt::UserRole, QStringLiteral("join_pending:") + it.key());
+            item->setSizeHint(QSize(0, 64));
+            item->setToolTip(QStringLiteral("入群申请已提交，等待群主或管理员同意"));
+            noticeList->insertItem(0, item);
+        }
+        for (auto it = m_rejectedOutgoingGroupJoinApplications.constBegin(); it != m_rejectedOutgoingGroupJoinApplications.constEnd(); ++it) {
+            const QJsonObject application = it.value();
+            const QString groupName = application.value("groupName").toString(QStringLiteral("群聊"));
+            const QString reviewer = application.value("reviewerName").toString(QStringLiteral("群主或管理员"));
+            const QString searchable = groupName + application.value("groupId").toString() + reviewer;
+            if (!keyword.isEmpty() && !searchable.contains(keyword, Qt::CaseInsensitive)) continue;
+            auto* item = new QListWidgetItem(
+                QStringLiteral("入群申请被拒绝 · %1\n%2 拒绝了你的加群申请")
+                    .arg(groupName, reviewer), noticeList);
+            item->setData(Qt::UserRole, QStringLiteral("join_rejected:") + it.key());
+            item->setSizeHint(QSize(0, 56));
+            item->setForeground(ThemeManager::instance()->dangerColor());
+            item->setToolTip(QStringLiteral("入群申请已被群主或管理员拒绝"));
+            noticeList->insertItem(0, item);
+        }
+        countLabel->setText(QStringLiteral("%1 个群聊 · %2 条待处理 · %3 条申请中")
+                            .arg(m_localGroupIds.size() + 1)
+                            .arg(m_pendingGroupJoinApplications.size())
+                            .arg(m_pendingOutgoingGroupJoinApplications.size()));
+        if (noticeList->count() > 0) noticeList->setCurrentRow(0);
     };
     fillGroups();
 
@@ -7661,10 +7875,22 @@ void MainWindow::onShowGroupNotifications() {
     QPushButton* closeBtn = new QPushButton(chrome.closeButton.text, &dialog);
     closeBtn->setObjectName(chrome.closeButton.objectName);
     closeBtn->setToolTip(chrome.closeButton.toolTip);
+    QPushButton* approveJoinBtn = new QPushButton(QStringLiteral("同意"), &dialog);
+    approveJoinBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
+    approveJoinBtn->setToolTip(QStringLiteral("同意选中的入群申请"));
+    QPushButton* rejectJoinBtn = new QPushButton(QStringLiteral("拒绝"), &dialog);
+    rejectJoinBtn->setObjectName(QStringLiteral("dialogDangerBtn"));
+    rejectJoinBtn->setToolTip(QStringLiteral("拒绝选中的入群申请"));
+    QPushButton* leaveGroupBtn = new QPushButton(QStringLiteral("退群"), &dialog);
+    leaveGroupBtn->setObjectName(QStringLiteral("dialogDangerBtn"));
+    leaveGroupBtn->setToolTip(QStringLiteral("退出选中的服务器群聊"));
     groupMainActionLayout->addWidget(openBtn);
     groupMainActionLayout->addWidget(copyBtn);
     groupMainActionLayout->addWidget(cardBtn);
     groupMainActionLayout->addWidget(announceBtn);
+    groupMainActionLayout->addWidget(approveJoinBtn);
+    groupMainActionLayout->addWidget(rejectJoinBtn);
+    groupMainActionLayout->addWidget(leaveGroupBtn);
     groupMainActionLayout->addStretch();
     groupMainActionLayout->addWidget(closeBtn);
     groupMemberActionLayout->addWidget(inviteTextBtn);
@@ -7687,37 +7913,77 @@ void MainWindow::onShowGroupNotifications() {
     dialog.setStyleSheet(NotificationPanelManager::groupNoticeDialogStyleSheet());
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
     auto updateGroupPreview = [this, noticeList, searchEdit, groupPreviewLabel]() {
+        const QString entryId = selectedGroupNoticeEntryId(noticeList);
+        if (entryId.startsWith(QStringLiteral("join_request:"))) {
+            const QJsonObject application = m_pendingGroupJoinApplications.value(entryId.mid(QStringLiteral("join_request:").size()));
+            const QString applicant = application.value("applicantName").toString(application.value("applicantId").toString());
+            const QString message = application.value("message").toString();
+            groupPreviewLabel->setText(QStringLiteral("%1 申请加入“%2”\nQQ:%3%4")
+                .arg(applicant,
+                     application.value("groupName").toString(QStringLiteral("群聊")),
+                     application.value("applicantId").toString(),
+                     message.isEmpty() ? QString() : QStringLiteral("\n验证信息：%1").arg(message)));
+            return;
+        }
+        if (entryId.startsWith(QStringLiteral("join_pending:"))) {
+            const QJsonObject application = m_pendingOutgoingGroupJoinApplications.value(entryId.mid(QStringLiteral("join_pending:").size()));
+            groupPreviewLabel->setText(QStringLiteral("已申请加入“%1”\n群号：%2\n当前状态：等待群主或管理员同意%3")
+                .arg(application.value("groupName").toString(QStringLiteral("群聊")),
+                     application.value("groupId").toString(),
+                     application.value("message").toString().isEmpty() ? QString() : QStringLiteral("\n验证信息：%1").arg(application.value("message").toString())));
+            return;
+        }
+        if (entryId.startsWith(QStringLiteral("join_rejected:"))) {
+            const QJsonObject application = m_rejectedOutgoingGroupJoinApplications.value(entryId.mid(QStringLiteral("join_rejected:").size()));
+            groupPreviewLabel->setText(QStringLiteral("“%1”已拒绝你的加群申请\n群名：%2\n群号：%3")
+                .arg(application.value("reviewerName").toString(QStringLiteral("群主或管理员")),
+                     application.value("groupName").toString(QStringLiteral("群聊")),
+                     application.value("groupId").toString()));
+            return;
+        }
         const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         groupPreviewLabel->setText(snapshot.previewText);
     };
     auto updateGroupActionState = [=]() {
+        const bool joinRequestSelected = selectedGroupNoticeEntryId(noticeList).startsWith(QStringLiteral("join_request:"));
+        const bool joinPendingSelected = selectedGroupNoticeEntryId(noticeList).startsWith(QStringLiteral("join_pending:"));
+        const bool joinRejectedSelected = selectedGroupNoticeEntryId(noticeList).startsWith(QStringLiteral("join_rejected:"));
         const GroupNoticeActionState state = NotificationPanelManager::groupNoticeActionState(
             selectedGroupNoticeEntryId(noticeList),
             noticeList->currentItem() != nullptr,
             !searchEdit->text().trimmed().isEmpty(),
             noticeList->count());
-        openBtn->setEnabled(state.openEnabled);
+        openBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.openEnabled);
         openBtn->setText(state.openText);
         openBtn->setToolTip(state.openToolTip);
-        copyBtn->setEnabled(state.copyIdEnabled);
+        copyBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyIdEnabled);
         copyBtn->setToolTip(state.copyIdToolTip);
-        cardBtn->setEnabled(state.copyCardEnabled);
+        cardBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyCardEnabled);
         cardBtn->setToolTip(state.copyCardToolTip);
-        announceBtn->setEnabled(state.copyAnnouncementEnabled);
+        announceBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyAnnouncementEnabled);
         announceBtn->setToolTip(state.copyAnnouncementToolTip);
-        memberBtn->setEnabled(state.copyMembersEnabled);
+        memberBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyMembersEnabled);
         memberBtn->setToolTip(state.copyMembersToolTip);
-        onlineMemberBtn->setEnabled(state.copyOnlineMembersEnabled);
+        onlineMemberBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyOnlineMembersEnabled);
         onlineMemberBtn->setToolTip(state.copyOnlineMembersToolTip);
-        inviteTextBtn->setEnabled(state.copyInviteEnabled);
+        inviteTextBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyInviteEnabled);
         inviteTextBtn->setToolTip(state.copyInviteToolTip);
-        copyGroupMediaPackBtn->setEnabled(state.copyMediaPackEnabled);
+        copyGroupMediaPackBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyMediaPackEnabled);
         copyGroupMediaPackBtn->setToolTip(state.copyMediaPackToolTip);
-        copyGroupBatchPlanBtn->setEnabled(state.copyBatchPlanEnabled);
+        copyGroupBatchPlanBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyBatchPlanEnabled);
         copyGroupBatchPlanBtn->setToolTip(state.copyBatchPlanToolTip);
-        copyMediaGuideBtn->setEnabled(state.copyMediaGuideEnabled);
+        copyMediaGuideBtn->setEnabled(!joinRequestSelected && !joinPendingSelected && !joinRejectedSelected && state.copyMediaGuideEnabled);
         copyMediaGuideBtn->setToolTip(state.copyMediaGuideToolTip);
-        hintLabel->setText(state.hintText);
+        approveJoinBtn->setVisible(joinRequestSelected);
+        rejectJoinBtn->setVisible(joinRequestSelected);
+        const QString entryId = selectedGroupNoticeEntryId(noticeList);
+        const bool canLeaveGroup = !joinRequestSelected
+            && m_joinedServerSearchGroups.values().contains(entryId)
+            && m_serverGroupOwners.value(m_joinedServerSearchGroups.key(entryId)) != m_currentUserId;
+        leaveGroupBtn->setVisible(canLeaveGroup);
+        hintLabel->setText(joinRequestSelected ? QStringLiteral("请选择同意或拒绝处理入群申请")
+            : (joinPendingSelected ? QStringLiteral("入群申请处理中，等待群主或管理员同意")
+            : (joinRejectedSelected ? QStringLiteral("该入群申请已被拒绝") : state.hintText)));
     };
     updateGroupPreview();
     updateGroupActionState();
@@ -7731,6 +7997,38 @@ void MainWindow::onShowGroupNotifications() {
         updateGroupActionState();
     });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
+    auto respondToSelectedJoinRequest = [this, noticeList, fillGroups, updateGroupPreview, updateGroupActionState](bool accepted) {
+        const QString entryId = selectedGroupNoticeEntryId(noticeList);
+        static const QString prefix = QStringLiteral("join_request:");
+        if (!entryId.startsWith(prefix)) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择要处理的入群申请"), 1800);
+            return;
+        }
+        const QString requestId = entryId.mid(prefix.size());
+        if (!m_client || !m_client->respondServerGroupJoinRequest(requestId, accepted)) {
+            ui->statusbar->showMessage(QStringLiteral("入群申请处理发送失败，请检查连接"), 2800);
+            return;
+        }
+        fillGroups();
+        updateGroupPreview();
+        updateGroupActionState();
+        ui->statusbar->showMessage(accepted ? QStringLiteral("已同意入群申请") : QStringLiteral("已拒绝入群申请"), 2200);
+        ui->groupNoticeBtn->setText(m_pendingGroupJoinApplications.isEmpty()
+            ? QStringLiteral("群通知")
+            : QStringLiteral("群通知 %1").arg(m_pendingGroupJoinApplications.size()));
+    };
+    connect(approveJoinBtn, &QPushButton::clicked, &dialog, [respondToSelectedJoinRequest]() { respondToSelectedJoinRequest(true); });
+    connect(rejectJoinBtn, &QPushButton::clicked, &dialog, [respondToSelectedJoinRequest]() { respondToSelectedJoinRequest(false); });
+    connect(leaveGroupBtn, &QPushButton::clicked, &dialog, [this, noticeList, &dialog]() {
+        const QString localId = selectedGroupNoticeEntryId(noticeList);
+        const QString serverId = m_joinedServerSearchGroups.key(localId);
+        if (serverId.isEmpty() || !m_client) return;
+        if (QMessageBox::question(&dialog, QStringLiteral("退出群聊"),
+                                  QStringLiteral("确定退出“%1”吗？").arg(m_localGroupNames.value(localId, QStringLiteral("群聊"))),
+                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
+            m_client->leaveServerGroup(serverId);
+        }
+    });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
@@ -8760,6 +9058,8 @@ void MainWindow::refreshSessionList() {
         group.id = groupId;
         group.name = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
         group.announcement = m_localGroupAnnouncements.value(groupId, QStringLiteral("[本地群聊]"));
+        group.pinned = QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"))
+            .value(QStringLiteral("groupInfo/local/%1/pinned").arg(groupId), false).toBool();
         localGroups.append(group);
     }
 
@@ -8789,7 +9089,10 @@ void MainWindow::refreshSessionList() {
         item->setData(entry.lastMessage, SessionItemDelegate::SessionLastMessageRole);
         item->setData(QDateTime::currentDateTime(), SessionItemDelegate::SessionLastMessageTimestampRole);
         item->setData(entry.unread, SessionItemDelegate::SessionUnreadRole);
-        item->setData(entry.pinned, SessionItemDelegate::SessionPinnedRole);
+        const QString pinKey = QStringLiteral("groupInfo/%1/%2/pinned")
+            .arg(entry.id.startsWith(QStringLiteral("local_group_")) ? QStringLiteral("local") : QStringLiteral("server"), entry.id);
+        const bool pinned = entry.pinned || (entry.isGroup && QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).value(pinKey, false).toBool());
+        item->setData(pinned, SessionItemDelegate::SessionPinnedRole);
         item->setData(entry.atMention, SessionItemDelegate::SessionAtMentionRole);
         item->setData(entry.online, SessionItemDelegate::SessionOnlineRole);
         item->setData(entry.isGroup, SessionItemDelegate::SessionGroupRole);
@@ -9340,10 +9643,13 @@ void MainWindow::refreshGroupMemberSidebar() {
     GroupMemberSidebar* sidebar = m_messagesView->groupMemberSidebar();
     if (!sidebar) return;
 
-    const bool isLocalGroup = !m_privateChatTarget.isEmpty()
+    const QString serverGroupId = m_privateChatTarget.isEmpty()
+        ? QStringLiteral("public")
+        : m_joinedServerSearchGroups.key(m_privateChatTarget);
+    const bool isServerGroup = !serverGroupId.isEmpty();
+    const bool isLocalGroup = !isServerGroup && !m_privateChatTarget.isEmpty()
         && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
-    const bool isServerPublicGroup = m_privateChatTarget.isEmpty();
-    if (!isLocalGroup && !isServerPublicGroup) {
+    if (!isLocalGroup && !isServerGroup) {
         // Not a group session: hide the rail.
         m_messagesView->setGroupMemberSidebarVisible(false);
         return;
@@ -9370,19 +9676,19 @@ void MainWindow::refreshGroupMemberSidebar() {
             members.append(d);
         }
     } else {
-        groupName = m_serverGroupNames.value(QStringLiteral("public"), QStringLiteral("公共聊天室"));
-        announcement = m_serverGroupAnnouncements.value(QStringLiteral("public"));
-        ownerId = m_serverGroupOwners.value(QStringLiteral("public"));
-        const QStringList ids = m_serverGroupMembers.value(QStringLiteral("public"));
+        groupName = m_serverGroupNames.value(serverGroupId, QStringLiteral("群聊"));
+        announcement = m_serverGroupAnnouncements.value(serverGroupId);
+        ownerId = m_serverGroupOwners.value(serverGroupId);
+        const QStringList ids = m_serverGroupMembers.value(serverGroupId);
         for (const QString& id : ids) {
             if (id.trimmed().isEmpty()) continue;
             GroupMemberDisplayData d;
             d.id = id;
             d.nickname = id == m_currentUserId
                 ? m_currentUserName
-                : m_serverGroupMemberNames.value(QStringLiteral("public|") + id, contactDisplayName(id));
+                : m_serverGroupMemberNames.value(serverGroupId + QStringLiteral("|") + id, contactDisplayName(id));
             const QString serverRole =
-                m_serverGroupMemberRoles.value(QStringLiteral("public|") + id, QStringLiteral("member")).toLower();
+                m_serverGroupMemberRoles.value(serverGroupId + QStringLiteral("|") + id, QStringLiteral("member")).toLower();
             if (id == ownerId) {
                 d.role = QStringLiteral("owner");
             } else if (serverRole == QStringLiteral("admin")) {
@@ -9404,10 +9710,12 @@ void MainWindow::refreshGroupMemberSidebar() {
         }
     }
 
-    sidebar->setGroupId(m_privateChatTarget);
+    sidebar->setGroupId(isServerGroup ? serverGroupId : m_privateChatTarget);
     sidebar->setGroupName(groupName);
     sidebar->setAnnouncement(announcement);
     sidebar->setMembers(members);
+    sidebar->setManagementEnabled(isLocalGroup ? isCurrentUserGroupOwner(m_privateChatTarget)
+                                                : canCurrentUserManageServerGroup(serverGroupId));
     m_messagesView->setGroupMemberSidebarVisible(true);
 }
 
@@ -9419,11 +9727,15 @@ void MainWindow::connectGroupMemberSidebar() {
     // A member context action only applies to the current group session. These
     // helpers mirror the legacy right-click handlers' permission checks so the
     // sidebar and the (hidden) legacy list stay behaviourally identical.
-    auto isLocalGroup = [this]() {
-        return !m_privateChatTarget.isEmpty()
+    auto currentServerGroupId = [this]() {
+        return m_privateChatTarget.isEmpty()
+            ? QStringLiteral("public")
+            : m_joinedServerSearchGroups.key(m_privateChatTarget);
+    };
+    auto isLocalGroup = [currentServerGroupId, this]() {
+        return currentServerGroupId().isEmpty() && !m_privateChatTarget.isEmpty()
             && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
     };
-    auto isPublicGroup = [this]() { return m_privateChatTarget.isEmpty(); };
 
     connect(sidebar, &GroupMemberSidebar::chatWithMember, this, [this](const QString& userId) {
         if (userId.isEmpty() || userId == m_currentUserId) return;
@@ -9441,18 +9753,19 @@ void MainWindow::connectGroupMemberSidebar() {
         input->insertPlainText(QStringLiteral("@%1 ").arg(displayName));
         input->setFocus();
     });
-    connect(sidebar, &GroupMemberSidebar::viewProfile, this, [this](const QString& userId) {
+    connect(sidebar, &GroupMemberSidebar::viewProfile, this, [this, currentServerGroupId](const QString& userId) {
         if (userId.isEmpty()) return;
-        const bool local = !m_privateChatTarget.isEmpty()
+        const QString serverGroupId = currentServerGroupId();
+        const bool local = serverGroupId.isEmpty() && !m_privateChatTarget.isEmpty()
             && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
         const QString groupName = local
             ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
-            : m_serverGroupNames.value(QStringLiteral("public"), QStringLiteral("公共聊天室"));
+            : m_serverGroupNames.value(serverGroupId, QStringLiteral("群聊"));
         QString role = QStringLiteral("成员");
         if (userId == groupOwnerId(m_privateChatTarget)
-            || userId == m_serverGroupOwners.value(QStringLiteral("public"))) {
+            || userId == m_serverGroupOwners.value(serverGroupId)) {
             role = QStringLiteral("群主");
-        } else if (m_serverGroupMemberRoles.value(QStringLiteral("public|") + userId).toLower()
+        } else if (m_serverGroupMemberRoles.value(serverGroupId + QStringLiteral("|") + userId).toLower()
                    == QStringLiteral("admin")) {
             role = QStringLiteral("管理员");
         }
@@ -9494,7 +9807,7 @@ void MainWindow::connectGroupMemberSidebar() {
         });
         dlg.exec();
     });
-    connect(sidebar, &GroupMemberSidebar::muteMember, this, [this, isLocalGroup, isPublicGroup](const QString& userId, int minutes) {
+    connect(sidebar, &GroupMemberSidebar::muteMember, this, [this, isLocalGroup, currentServerGroupId](const QString& userId, int minutes) {
         if (userId.isEmpty() || userId == m_currentUserId) {
             ui->statusbar->showMessage(QStringLiteral("无法对该成员执行禁言"), 2000);
             return;
@@ -9503,11 +9816,12 @@ void MainWindow::connectGroupMemberSidebar() {
             ui->statusbar->showMessage(QStringLiteral("本地群聊暂不支持服务端禁言"), 2400);
             return;
         }
-        if (!isPublicGroup()) {
+        const QString serverGroupId = currentServerGroupId();
+        if (serverGroupId.isEmpty()) {
             ui->statusbar->showMessage(QStringLiteral("禁言仅在群聊会话中可用"), 2000);
             return;
         }
-        if (!canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        if (!canCurrentUserManageServerGroup(serverGroupId)) {
             ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以禁言成员"), 2400);
             return;
         }
@@ -9523,43 +9837,46 @@ void MainWindow::connectGroupMemberSidebar() {
         }
         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
         const qint64 mutedUntil = nowMs + static_cast<qint64>(durationMinutes) * 60 * 1000;
-        if (m_client && m_client->sendServerGroupMemberMute(QStringLiteral("public"), userId, mutedUntil, QString())) {
+        if (m_client && m_client->sendServerGroupMemberMute(serverGroupId, userId, mutedUntil, QString())) {
             ui->statusbar->showMessage(QStringLiteral("已请求禁言 %1").arg(contactDisplayName(userId)), 2200);
         } else {
             ui->statusbar->showMessage(QStringLiteral("禁言失败：需要有效的服务器连接"), 3000);
         }
     });
-    connect(sidebar, &GroupMemberSidebar::unmuteMember, this, [this, isPublicGroup](const QString& userId) {
+    connect(sidebar, &GroupMemberSidebar::unmuteMember, this, [this, currentServerGroupId](const QString& userId) {
         if (userId.isEmpty()) return;
-        if (!isPublicGroup() || !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        const QString serverGroupId = currentServerGroupId();
+        if (serverGroupId.isEmpty() || !canCurrentUserManageServerGroup(serverGroupId)) {
             ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以解除禁言"), 2400);
             return;
         }
         // Unmute maps to a mute window that ends now.
-        if (m_client && m_client->sendServerGroupMemberMute(QStringLiteral("public"), userId,
+        if (m_client && m_client->sendServerGroupMemberMute(serverGroupId, userId,
                                                             QDateTime::currentMSecsSinceEpoch(), QString())) {
             ui->statusbar->showMessage(QStringLiteral("已请求解除禁言 %1").arg(contactDisplayName(userId)), 2200);
         } else {
             ui->statusbar->showMessage(QStringLiteral("解除禁言失败：需要有效的服务器连接"), 3000);
         }
     });
-    connect(sidebar, &GroupMemberSidebar::promoteAdmin, this, [this, isPublicGroup](const QString& userId) {
+    connect(sidebar, &GroupMemberSidebar::promoteAdmin, this, [this, currentServerGroupId](const QString& userId) {
         if (userId.isEmpty() || userId == m_currentUserId) return;
-        if (!isPublicGroup() || !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        const QString serverGroupId = currentServerGroupId();
+        if (serverGroupId.isEmpty() || !canCurrentUserManageServerGroup(serverGroupId)) {
             ui->statusbar->showMessage(QStringLiteral("只有群主可以设置管理员"), 2400);
             return;
         }
-        requestServerGroupMemberUpdate(userId, QStringLiteral("promote_admin"));
+        requestServerGroupMemberUpdate(userId, QStringLiteral("promote_admin"), serverGroupId);
     });
-    connect(sidebar, &GroupMemberSidebar::demoteAdmin, this, [this, isPublicGroup](const QString& userId) {
+    connect(sidebar, &GroupMemberSidebar::demoteAdmin, this, [this, currentServerGroupId](const QString& userId) {
         if (userId.isEmpty() || userId == m_currentUserId) return;
-        if (!isPublicGroup() || !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        const QString serverGroupId = currentServerGroupId();
+        if (serverGroupId.isEmpty() || !canCurrentUserManageServerGroup(serverGroupId)) {
             ui->statusbar->showMessage(QStringLiteral("只有群主可以取消管理员"), 2400);
             return;
         }
-        requestServerGroupMemberUpdate(userId, QStringLiteral("demote_admin"));
+        requestServerGroupMemberUpdate(userId, QStringLiteral("demote_admin"), serverGroupId);
     });
-    connect(sidebar, &GroupMemberSidebar::kickMember, this, [this, isLocalGroup, isPublicGroup](const QString& userId) {
+    connect(sidebar, &GroupMemberSidebar::kickMember, this, [this, isLocalGroup, currentServerGroupId](const QString& userId) {
         if (userId.isEmpty() || userId == m_currentUserId) return;
         const QString memberName = contactDisplayName(userId);
         if (isLocalGroup()) {
@@ -9580,17 +9897,19 @@ void MainWindow::connectGroupMemberSidebar() {
             saveLocalGroups();
             refreshGroupMemberPanel();
             appendSystemMessage(QStringLiteral("已将 %1 移出群聊").arg(memberName));
-        } else if (isPublicGroup()) {
-            if (!canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        } else {
+            const QString serverGroupId = currentServerGroupId();
+            if (serverGroupId.isEmpty()) return;
+            if (!canCurrentUserManageServerGroup(serverGroupId)) {
                 ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以移出成员"), 2400);
                 return;
             }
             if (QMessageBox::question(this, QStringLiteral("移出群成员"),
-                                      QStringLiteral("确定将“%1”移出公共群吗？").arg(memberName),
+                                      QStringLiteral("确定将“%1”移出当前群聊吗？").arg(memberName),
                                       QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
                 return;
             }
-            requestServerGroupMemberUpdate(userId, QStringLiteral("remove"));
+            requestServerGroupMemberUpdate(userId, QStringLiteral("remove"), serverGroupId);
         }
     });
     connect(sidebar, &GroupMemberSidebar::reportMember, this, [this](const QString& userId) {
@@ -9663,13 +9982,15 @@ bool MainWindow::canCurrentUserManageServerGroup(const QString& groupId) const {
     return m_groupManager.canManageServerGroup(groupId, m_currentUserId, m_serverGroupOwners, m_serverGroupMemberRoles);
 }
 
-bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const QString& action) {
-    const QStringList members = m_serverGroupMembers.value("public");
+bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const QString& action,
+                                                const QString& requestedGroupId) {
+    const QString groupId = requestedGroupId.isEmpty() ? QStringLiteral("public") : requestedGroupId;
+    const QStringList members = m_serverGroupMembers.value(groupId);
     const ServerGroupMemberUpdateDecision decision = m_groupManager.serverGroupMemberUpdateDecision(
         memberId,
         action,
         m_client && m_client->isConnected(),
-        QStringLiteral("public"),
+        groupId,
         m_currentUserId,
         members,
         m_serverGroupOwners,
@@ -9681,19 +10002,20 @@ bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const Q
         }
         return false;
     }
-    if (!m_client->sendServerGroupMemberUpdate("public", decision.targetId, decision.normalizedAction)) {
-        ui->statusbar->showMessage("公共群成员变更提交失败", 2600);
+    if (!m_client->sendServerGroupMemberUpdate(groupId, decision.targetId, decision.normalizedAction)) {
+        ui->statusbar->showMessage(QStringLiteral("群成员变更提交失败"), 2600);
         return false;
     }
 
-    const QString displayName = m_serverGroupMemberNames.value("public|" + decision.targetId, contactDisplayName(decision.targetId));
+    const QString displayName = m_serverGroupMemberNames.value(groupId + QStringLiteral("|") + decision.targetId,
+                                                                contactDisplayName(decision.targetId));
     const QString actionText = decision.normalizedAction == "add"
         ? QStringLiteral("邀请")
         : (decision.normalizedAction == "remove"
             ? QStringLiteral("移出")
             : (decision.normalizedAction == "promote_admin" ? QStringLiteral("设置管理员") : QStringLiteral("取消管理员")));
-    appendSystemMessage(QString("已提交公共群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, decision.targetId));
-    ui->statusbar->showMessage(QString("公共群%1请求已提交，等待服务端同步").arg(actionText), 2400);
+    appendSystemMessage(QString("已提交群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, decision.targetId));
+    ui->statusbar->showMessage(QString("群%1请求已提交，等待服务端同步").arg(actionText), 2400);
     return true;
 }
 
@@ -9930,6 +10252,7 @@ void MainWindow::setupQQNT()
     connect(m_messagesView, &MessagesView::multiSelectDeleteRequested, this, &MainWindow::onMultiSelectDeleteRequested);
     connect(m_messagesView, &MessagesView::multiSelectFavoriteRequested, this, &MainWindow::onMultiSelectFavoriteRequested);
     connect(m_messagesView, &MessagesView::essenceRequested, this, &MainWindow::showEssencePanel);
+    connect(m_messagesView, &MessagesView::groupMoreRequested, this, &MainWindow::showGroupInfoPanel);
     connectGroupMemberSidebar();
     connect(m_contactsView, &ContactsView::friendSelected, this, [this](const QString& userId) {
         openPrivateSession(userId);
@@ -9940,15 +10263,19 @@ void MainWindow::setupQQNT()
         showMessagesView();
     });
     connect(m_contactsView, &ContactsView::addFriendRequested, this, [this]() {
-        showGlobalSearchDialog(true);
+        showGlobalSearchDialog();
     });
     connect(m_contactsView, &ContactsView::createGroupRequested, this, [this]() {
         handleCreateMenuCommand(QStringLiteral("create-group"));
     });
     connect(m_contactsView, &ContactsView::friendManagerRequested, this, [this]() {
         FriendManagerDialog dlg(this);
-        dlg.setFriendList(m_friendIds, m_friendNames, m_friendGroups, m_customGroups);
-        connect(&dlg, &FriendManagerDialog::addFriendRequested, this, &MainWindow::onShowQuickAddFriend);
+        QMap<QString, QString> avatarPaths;
+        for (const QString& id : m_friendIds) {
+            const QString path = peerAvatarPath(id);
+            if (!path.isEmpty()) avatarPaths.insert(id, path);
+        }
+        dlg.setFriendList(m_friendIds, m_friendNames, m_friendGroups, m_customGroups, avatarPaths);
         connect(&dlg, &FriendManagerDialog::deleteFriendRequested, this, [this](const QString& userId) {
             // TODO: no delete-friend command exists in Client/protocol yet; the dialog
             // only removes the row locally. Surface this so the state isn't misleading.
@@ -10342,18 +10669,28 @@ void MainWindow::showAddFriendDialog()
         }
         if (!m_client->searchFriendByAccount(account)) {
             ui->statusbar->showMessage(QStringLiteral("当前未连接，无法搜索账号"), 2500);
+            if (m_activeAddFriendDialog) {
+                m_activeAddFriendDialog->setRequestOutcome(false, QStringLiteral("当前未连接，请恢复连接后重试"));
+            }
         }
     });
-    connect(&dialog, &AddFriendDialog::addFriendRequested, this, [this](const QString& userId) {
+    connect(&dialog, &AddFriendDialog::addFriendRequested, this, [this, &dialog](const QString& userId) {
         if (userId.isEmpty() || userId == m_currentUserId) {
+            dialog.setRequestOutcome(false, QStringLiteral("不能添加自己为好友"));
             return;
         }
         if (m_friendIds.contains(userId)) {
             ui->statusbar->showMessage(QStringLiteral("QQ 账号 %1 已经是你的好友").arg(userId), 2500);
+            dialog.setRequestOutcome(false, QStringLiteral("该用户已经是你的好友"));
+            return;
+        }
+        if (m_pendingOutgoingFriendRequests.contains(userId)) {
+            dialog.setRequestOutcome(true, QStringLiteral("好友申请已发送，等待对方确认"));
             return;
         }
         if (!m_client->sendFriendRequest(userId)) {
             ui->statusbar->showMessage(QStringLiteral("好友申请发送失败，请检查连接后重试"), 3000);
+            dialog.setRequestOutcome(false, QStringLiteral("好友申请发送失败，请检查连接后重试"));
             return;
         }
         if (!m_pendingOutgoingFriendRequests.contains(userId)) {
@@ -10363,6 +10700,7 @@ void MainWindow::showAddFriendDialog()
         appendSystemMessage(QStringLiteral("已发送好友申请 QQ:%1，等待对方同意").arg(userId));
         ui->statusbar->showMessage(
             QStringLiteral("好友申请已发送给 %1").arg(contactDisplayName(userId)), 2500);
+        dialog.setRequestOutcome(true);
         refreshFriendList();
     });
 
@@ -10370,15 +10708,850 @@ void MainWindow::showAddFriendDialog()
     m_activeAddFriendDialog = nullptr;
 }
 
+void MainWindow::showGroupInfoPanel()
+{
+    const bool publicGroup = m_privateChatTarget.isEmpty();
+    const QString serverGroupId = publicGroup ? QStringLiteral("public")
+        : m_joinedServerSearchGroups.key(m_privateChatTarget);
+    const bool serverGroup = !serverGroupId.isEmpty();
+    // Joined searchable server groups deliberately use a local session id.  The
+    // server mapping must win here, otherwise a server group is treated as a
+    // local one and its owner/admin permissions disappear from the panel.
+    const bool localGroup = !serverGroup
+        && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    if (!localGroup && !publicGroup && !serverGroup) {
+        ui->statusbar->showMessage(QStringLiteral("请先进入群聊"), 1800);
+        return;
+    }
+
+    const QString groupId = serverGroup ? serverGroupId : m_privateChatTarget;
+    const QString groupName = localGroup ? m_localGroupNames.value(groupId, QStringLiteral("群聊"))
+        : m_serverGroupNames.value(groupId, QStringLiteral("公共聊天室"));
+    const QString announcement = localGroup ? m_localGroupAnnouncements.value(groupId)
+        : m_serverGroupAnnouncements.value(groupId);
+    const QStringList members = localGroup ? m_localGroupMembers.value(groupId)
+        : m_serverGroupMembers.value(groupId);
+    const bool manager = localGroup ? isCurrentUserGroupOwner(groupId) : canCurrentUserManageServerGroup(groupId);
+    const bool owner = localGroup ? isCurrentUserGroupOwner(groupId)
+        : (m_serverGroupOwners.value(groupId) == m_currentUserId);
+    const QJsonObject serverSettings = m_serverGroupSettings.value(groupId);
+    const QJsonObject userSettings = m_serverGroupUserSettings.value(groupId);
+
+    QDialog panel(this);
+    panel.setObjectName(QStringLiteral("groupInfoDialog"));
+    panel.setWindowTitle(QStringLiteral("群聊资料"));
+    panel.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+    panel.setFixedSize(360, qMin(720, qMax(576, height() - 28)));
+    auto* root = new QVBoxLayout(&panel);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    auto* titleBar = new QFrame(&panel);
+    titleBar->setObjectName(QStringLiteral("groupInfoTitleBar"));
+    titleBar->setFixedHeight(48);
+    auto* titleLayout = new QHBoxLayout(titleBar);
+    titleLayout->setContentsMargins(16, 0, 8, 0);
+    auto* title = new QLabel(QStringLiteral("群聊资料"), titleBar);
+    title->setObjectName(QStringLiteral("groupInfoPanelTitle"));
+    titleLayout->addWidget(title);
+    titleLayout->addStretch();
+    auto* close = new QToolButton(titleBar);
+    close->setObjectName(QStringLiteral("groupInfoClose"));
+    close->setText(QStringLiteral("×"));
+    close->setToolTip(QStringLiteral("关闭"));
+    close->setAccessibleName(QStringLiteral("关闭群资料"));
+    close->setFixedSize(30, 30);
+    titleLayout->addWidget(close);
+    connect(close, &QToolButton::clicked, &panel, &QDialog::reject);
+    root->addWidget(titleBar);
+
+    auto* scroll = new QScrollArea(&panel);
+    scroll->setObjectName(QStringLiteral("groupInfoScroll"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* content = new QWidget(scroll);
+    content->setObjectName(QStringLiteral("groupInfoContent"));
+    auto* contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(14, 10, 14, 20);
+    contentLayout->setSpacing(8);
+    scroll->setWidget(content);
+    root->addWidget(scroll, 1);
+
+    auto stableSettingKey = [groupId, serverGroup]() {
+        return QStringLiteral("groupInfo/%1/%2/")
+            .arg(serverGroup ? QStringLiteral("server") : QStringLiteral("local"), groupId);
+    };
+    QSettings settings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+
+    auto chooseSetting = [&panel](const QString& title,
+                                  const QString& section,
+                                  const QList<QPair<QString, QString>>& choices,
+                                  const QString& currentKey) -> QString {
+        QDialog chooser(&panel);
+        chooser.setObjectName(QStringLiteral("groupSettingChooser"));
+        chooser.setWindowTitle(title);
+        chooser.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+        chooser.setFixedSize(322, qBound(214, 118 + choices.size() * 46, 430));
+        auto* layout = new QVBoxLayout(&chooser);
+        layout->setContentsMargins(0, 0, 0, 14);
+        layout->setSpacing(0);
+        auto* titleBar = new QFrame(&chooser);
+        titleBar->setObjectName(QStringLiteral("groupSettingChooserTitleBar"));
+        titleBar->setFixedHeight(48);
+        auto* titleLayout = new QHBoxLayout(titleBar);
+        titleLayout->setContentsMargins(16, 0, 8, 0);
+        auto* titleLabel = new QLabel(title, titleBar);
+        titleLabel->setObjectName(QStringLiteral("groupSettingChooserTitle"));
+        titleLayout->addWidget(titleLabel);
+        titleLayout->addStretch();
+        auto* close = new QToolButton(titleBar);
+        close->setObjectName(QStringLiteral("groupSettingChooserClose"));
+        close->setText(QStringLiteral("×"));
+        close->setFixedSize(30, 30);
+        titleLayout->addWidget(close);
+        layout->addWidget(titleBar);
+        auto* sectionLabel = new QLabel(section, &chooser);
+        sectionLabel->setObjectName(QStringLiteral("groupSettingChooserCaption"));
+        sectionLabel->setContentsMargins(16, 12, 16, 6);
+        layout->addWidget(sectionLabel);
+        auto* optionCard = new QFrame(&chooser);
+        optionCard->setObjectName(QStringLiteral("groupSettingChooserCard"));
+        auto* optionLayout = new QVBoxLayout(optionCard);
+        optionLayout->setContentsMargins(0, 0, 0, 0);
+        optionLayout->setSpacing(0);
+        auto* buttons = new QButtonGroup(&chooser);
+        for (int index = 0; index < choices.size(); ++index) {
+            const auto& choice = choices.at(index);
+            auto* radio = new QRadioButton(choice.first, optionCard);
+            radio->setObjectName(QStringLiteral("groupSettingChoice"));
+            radio->setProperty("settingValue", choice.second);
+            radio->setChecked(choice.second == currentKey);
+            radio->setFixedHeight(46);
+            buttons->addButton(radio, index);
+            optionLayout->addWidget(radio);
+        }
+        layout->addWidget(optionCard);
+        layout->addStretch();
+        connect(close, &QToolButton::clicked, &chooser, &QDialog::reject);
+        connect(buttons, qOverload<QAbstractButton*>(&QButtonGroup::buttonClicked), &chooser,
+                [&chooser](QAbstractButton*) { chooser.accept(); });
+        chooser.setStyleSheet(DialogStyle::common() + QStringLiteral(
+            "QDialog#groupSettingChooser { background:%1; }"
+            "QFrame#groupSettingChooserTitleBar { background:%2; border-bottom:1px solid %3; }"
+            "QLabel#groupSettingChooserTitle { color:%4; font-size:15px; font-weight:600; }"
+            "QLabel#groupSettingChooserCaption { color:%5; font-size:12px; }"
+            "QFrame#groupSettingChooserCard { background:%2; border:1px solid %3; border-radius:7px; }"
+            "QRadioButton#groupSettingChoice { color:%4; font-size:13px; padding:0 13px; border-bottom:1px solid %3; }"
+            "QRadioButton#groupSettingChoice:last-child { border-bottom:none; }"
+            "QRadioButton#groupSettingChoice::indicator { width:16px; height:16px; }"
+            "QRadioButton#groupSettingChoice::indicator:unchecked { border:1px solid %6; border-radius:8px; background:%2; }"
+            "QRadioButton#groupSettingChoice::indicator:checked { border:5px solid %7; border-radius:8px; background:%2; }"
+            "QToolButton#groupSettingChooserClose { color:%5; background:transparent; border:none; font-size:22px; }"
+            "QToolButton#groupSettingChooserClose:hover { color:%4; background:%8; border-radius:5px; }")
+            .arg(ThemeManager::instance()->backgroundColor().name(),
+                 ThemeManager::instance()->backgroundSecondaryColor().name(),
+                 ThemeManager::instance()->borderColor().name(),
+                 ThemeManager::instance()->textColor().name(),
+                 ThemeManager::instance()->textSecondaryColor().name(),
+                 ThemeManager::instance()->borderColor().name(),
+                 ThemeManager::instance()->primaryColor().name(),
+                 ThemeManager::instance()->backgroundTertiaryColor().name()));
+        if (chooser.exec() != QDialog::Accepted || !buttons->checkedButton()) return QString();
+        return buttons->checkedButton()->property("settingValue").toString();
+    };
+
+    auto addCaption = [&panel, contentLayout](const QString& text) {
+        auto* caption = new QLabel(text, &panel);
+        caption->setObjectName(QStringLiteral("groupInfoCaption"));
+        contentLayout->addWidget(caption);
+    };
+    auto addRow = [&panel, contentLayout](const QString& title, const QString& value = QString(), bool clickable = false) {
+        auto* row = new QPushButton(&panel);
+        row->setObjectName(clickable ? QStringLiteral("groupInfoActionRow") : QStringLiteral("groupInfoRow"));
+        row->setFlat(true);
+        row->setCursor(clickable ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        row->setFixedHeight(46);
+        auto* layout = new QHBoxLayout(row);
+        layout->setContentsMargins(14, 0, 12, 0);
+        auto* label = new QLabel(title, row);
+        label->setObjectName(QStringLiteral("groupInfoRowTitle"));
+        layout->addWidget(label);
+        layout->addStretch();
+        if (!value.isEmpty()) {
+            auto* detail = new QLabel(value, row);
+            detail->setObjectName(QStringLiteral("groupInfoRowValue"));
+            layout->addWidget(detail);
+        }
+        if (clickable) {
+            auto* arrow = new QLabel(QStringLiteral("›"), row);
+            arrow->setObjectName(QStringLiteral("groupInfoArrow"));
+            layout->addWidget(arrow);
+        }
+        contentLayout->addWidget(row);
+        return row;
+    };
+
+    auto* overview = new QFrame(&panel);
+    overview->setObjectName(QStringLiteral("groupInfoOverview"));
+    auto* overviewLayout = new QHBoxLayout(overview);
+    overviewLayout->setContentsMargins(14, 14, 12, 14);
+    overviewLayout->setSpacing(11);
+    auto* groupAvatar = new AvatarLabel(overview, 52);
+    const QString avatarPath = localGroup ? m_localGroupAvatarPaths.value(groupId) : QString();
+    QPixmap serverAvatar;
+    if (serverGroup) serverAvatar.loadFromData(QByteArray::fromBase64(serverSettings.value(QStringLiteral("avatar")).toString().toUtf8()));
+    if (!avatarPath.isEmpty() && QFileInfo::exists(avatarPath)) {
+        groupAvatar->setPixmap(QPixmap(avatarPath));
+    } else if (!serverAvatar.isNull()) {
+        groupAvatar->setPixmap(serverAvatar);
+    } else {
+        groupAvatar->setTextAvatar(groupName, ThemeManager::instance()->primaryColor());
+    }
+    overviewLayout->addWidget(groupAvatar);
+    auto* overviewText = new QVBoxLayout();
+    overviewText->setSpacing(3);
+    auto* name = new QLabel(groupName, overview);
+    name->setObjectName(QStringLiteral("groupInfoName"));
+    name->setWordWrap(true);
+    auto* meta = new QLabel(QStringLiteral("群号 %1  ·  %2 人")
+        .arg(serverGroup ? groupId : groupId.mid(QStringLiteral("local_group_").size()))
+        .arg(members.size()), overview);
+    meta->setObjectName(QStringLiteral("groupInfoMeta"));
+    overviewText->addWidget(name);
+    overviewText->addWidget(meta);
+    auto* roleBadge = new QLabel(manager ? (owner ? QStringLiteral("群主") : QStringLiteral("管理员"))
+                                           : QStringLiteral("群成员"), overview);
+    roleBadge->setObjectName(manager ? QStringLiteral("groupInfoRoleManage")
+                                     : QStringLiteral("groupInfoRoleMember"));
+    roleBadge->setAlignment(Qt::AlignCenter);
+    roleBadge->setFixedHeight(20);
+    overviewText->addWidget(roleBadge, 0, Qt::AlignLeft);
+    overviewLayout->addLayout(overviewText, 1);
+    auto* share = new QToolButton(overview);
+    share->setObjectName(QStringLiteral("groupInfoShare"));
+    share->setText(QStringLiteral("↗"));
+    share->setToolTip(QStringLiteral("复制群号"));
+    share->setAccessibleName(QStringLiteral("复制群号"));
+    share->setFixedSize(30, 30);
+    overviewLayout->addWidget(share);
+    connect(share, &QToolButton::clicked, this, [groupId, this]() {
+        QApplication::clipboard()->setText(groupId);
+        ui->statusbar->showMessage(QStringLiteral("群号已复制"), 1600);
+    });
+    contentLayout->addWidget(overview);
+
+    auto* announcementCard = new QFrame(&panel);
+    announcementCard->setObjectName(QStringLiteral("groupInfoAnnouncementCard"));
+    auto* announcementLayout = new QVBoxLayout(announcementCard);
+    announcementLayout->setContentsMargins(12, 10, 12, 10);
+    announcementLayout->setSpacing(5);
+    auto* announcementHeader = new QHBoxLayout();
+    auto* announcementTitle = new QLabel(QStringLiteral("群公告"), announcementCard);
+    announcementTitle->setObjectName(QStringLiteral("groupInfoAnnouncementTitle"));
+    announcementHeader->addWidget(announcementTitle);
+    announcementHeader->addStretch();
+    if (manager) {
+        auto* editAnnouncement = new QPushButton(QStringLiteral("编辑"), announcementCard);
+        editAnnouncement->setObjectName(QStringLiteral("groupInfoLinkButton"));
+        editAnnouncement->setToolTip(QStringLiteral("编辑群公告"));
+        announcementHeader->addWidget(editAnnouncement);
+        connect(editAnnouncement, &QPushButton::clicked, this, [this, &panel]() {
+            onEditGroupAnnouncement();
+            panel.accept();
+        });
+    }
+    announcementLayout->addLayout(announcementHeader);
+    auto* announcementBody = new QLabel(announcement.isEmpty() ? QStringLiteral("暂无群公告") : announcement, announcementCard);
+    announcementBody->setObjectName(QStringLiteral("groupInfoAnnouncementBody"));
+    announcementBody->setWordWrap(true);
+    announcementBody->setMaximumHeight(56);
+    announcementLayout->addWidget(announcementBody);
+    contentLayout->addWidget(announcementCard);
+
+    auto* memberCard = new QFrame(&panel);
+    memberCard->setObjectName(QStringLiteral("groupInfoMemberCard"));
+    auto* memberLayout = new QVBoxLayout(memberCard);
+    memberLayout->setContentsMargins(12, 10, 12, 10);
+    memberLayout->setSpacing(8);
+    auto* memberHeader = new QHBoxLayout();
+    auto* memberTitle = new QLabel(QStringLiteral("群成员  %1").arg(members.size()), memberCard);
+    memberTitle->setObjectName(QStringLiteral("groupInfoMemberTitle"));
+    memberHeader->addWidget(memberTitle);
+    memberHeader->addStretch();
+    auto* allMembers = new QPushButton(QStringLiteral("查看全部"), memberCard);
+    allMembers->setObjectName(QStringLiteral("groupInfoLinkButton"));
+    allMembers->setToolTip(QStringLiteral("打开群成员列表"));
+    memberHeader->addWidget(allMembers);
+    memberLayout->addLayout(memberHeader);
+    auto* memberGrid = new QGridLayout();
+    memberGrid->setHorizontalSpacing(9);
+    memberGrid->setVerticalSpacing(8);
+    const int visibleMembers = qMin(10, members.size());
+    for (int index = 0; index < visibleMembers; ++index) {
+        const QString memberId = members.at(index);
+        const QString display = memberId == m_currentUserId ? m_currentUserName
+            : (serverGroup ? m_serverGroupMemberNames.value(groupId + QStringLiteral("|") + memberId,
+                                                             contactDisplayName(memberId))
+                           : contactDisplayName(memberId));
+        auto* memberItem = new QWidget(memberCard);
+        auto* itemLayout = new QVBoxLayout(memberItem);
+        itemLayout->setContentsMargins(0, 0, 0, 0);
+        itemLayout->setSpacing(3);
+        auto* avatar = new AvatarLabel(memberItem, 34);
+        const QString memberAvatarPath = peerAvatarPath(memberId);
+        if (!memberAvatarPath.isEmpty() && QFileInfo::exists(memberAvatarPath)) {
+            avatar->setPixmap(QPixmap(memberAvatarPath));
+        } else {
+            avatar->setTextAvatar(display, ThemeManager::instance()->primaryColor());
+        }
+        avatar->setToolTip(display);
+        auto* memberName = new QLabel(display.left(4), memberItem);
+        memberName->setObjectName(QStringLiteral("groupInfoMemberName"));
+        memberName->setAlignment(Qt::AlignCenter);
+        itemLayout->addWidget(avatar, 0, Qt::AlignHCenter);
+        itemLayout->addWidget(memberName);
+        memberGrid->addWidget(memberItem, index / 5, index % 5);
+    }
+    if (manager) {
+        auto* invite = new QToolButton(memberCard);
+        invite->setObjectName(QStringLiteral("groupInfoMemberAction"));
+        invite->setText(QStringLiteral("+"));
+        invite->setToolTip(QStringLiteral("邀请群成员"));
+        invite->setAccessibleName(QStringLiteral("邀请群成员"));
+        invite->setFixedSize(34, 34);
+        memberGrid->addWidget(invite, visibleMembers / 5, visibleMembers % 5, Qt::AlignHCenter);
+        connect(invite, &QToolButton::clicked, this, [this, serverGroup, groupId]() {
+            bool ok = false;
+            const QString account = QInputDialog::getText(this, QStringLiteral("邀请群成员"),
+                QStringLiteral("输入 QQ 号"), QLineEdit::Normal, QString(), &ok).trimmed();
+            if (!ok || account.isEmpty()) return;
+            if (serverGroup) {
+                requestServerGroupMemberUpdate(account, QStringLiteral("add"), groupId);
+                return;
+            }
+            if (!isCurrentUserGroupOwner(groupId)) return;
+            if (!m_localGroupMembers[groupId].contains(account)) {
+                m_localGroupMembers[groupId].append(account);
+                saveLocalGroups();
+                refreshGroupMemberSidebar();
+            }
+        });
+    }
+    memberLayout->addLayout(memberGrid);
+    contentLayout->addWidget(memberCard);
+    connect(allMembers, &QPushButton::clicked, this, [this, &panel]() {
+        if (m_messagesView) {
+            refreshGroupMemberSidebar();
+            m_messagesView->setGroupMemberSidebarVisible(true);
+        }
+        panel.accept();
+    });
+
+    if (manager) {
+        addCaption(QStringLiteral("资料管理"));
+        QPushButton* profileRow = addRow(QStringLiteral("群资料设置"), QStringLiteral("群名称、头像"), true);
+        connect(profileRow, &QPushButton::clicked, this, [this, serverGroup, groupId, groupName]() {
+            QDialog editor(this);
+            editor.setObjectName(QStringLiteral("groupProfileEditor"));
+            editor.setWindowTitle(QStringLiteral("编辑群资料"));
+            editor.setFixedSize(340, 242);
+            auto* editorLayout = new QVBoxLayout(&editor);
+            editorLayout->setContentsMargins(20, 18, 20, 18);
+            editorLayout->setSpacing(12);
+            auto* editorTitle = new QLabel(QStringLiteral("编辑群资料"), &editor);
+            editorTitle->setObjectName(QStringLiteral("groupProfileEditorTitle"));
+            auto* editorHint = new QLabel(QStringLiteral("修改后将同步给当前群成员"), &editor);
+            editorHint->setObjectName(QStringLiteral("groupProfileEditorHint"));
+            editorLayout->addWidget(editorTitle);
+            editorLayout->addWidget(editorHint);
+
+            auto* profileRowLayout = new QHBoxLayout();
+            profileRowLayout->setSpacing(12);
+            auto* preview = new AvatarLabel(&editor, 54);
+            QByteArray avatarBytes;
+            if (serverGroup) {
+                avatarBytes = QByteArray::fromBase64(m_serverGroupSettings.value(groupId)
+                                                          .value(QStringLiteral("avatar")).toString().toUtf8());
+            } else {
+                const QString path = m_localGroupAvatarPaths.value(groupId);
+                if (!path.isEmpty()) {
+                    QFile avatarFile(path);
+                    if (avatarFile.open(QIODevice::ReadOnly)) avatarBytes = avatarFile.readAll();
+                }
+            }
+            QPixmap currentAvatar;
+            currentAvatar.loadFromData(avatarBytes);
+            if (currentAvatar.isNull()) preview->setTextAvatar(groupName, ThemeManager::instance()->primaryColor());
+            else preview->setPixmap(currentAvatar);
+            profileRowLayout->addWidget(preview);
+            auto* profileFields = new QVBoxLayout();
+            profileFields->setSpacing(6);
+            auto* nameInput = new QLineEdit(groupName, &editor);
+            nameInput->setObjectName(QStringLiteral("groupProfileNameInput"));
+            nameInput->setMaxLength(80);
+            nameInput->setPlaceholderText(QStringLiteral("输入群名称"));
+            auto* chooseAvatar = new QPushButton(QStringLiteral("更换头像"), &editor);
+            chooseAvatar->setObjectName(QStringLiteral("groupProfileAvatarButton"));
+            chooseAvatar->setCursor(Qt::PointingHandCursor);
+            profileFields->addWidget(nameInput);
+            profileFields->addWidget(chooseAvatar, 0, Qt::AlignLeft);
+            profileRowLayout->addLayout(profileFields, 1);
+            editorLayout->addLayout(profileRowLayout);
+            connect(chooseAvatar, &QPushButton::clicked, &editor, [&editor, preview, &avatarBytes, groupName]() {
+                const QString avatarFilePath = QFileDialog::getOpenFileName(&editor, QStringLiteral("选择群头像"), QString(),
+                    QStringLiteral("图片 (*.png *.jpg *.jpeg *.bmp)"));
+                if (avatarFilePath.isEmpty()) return;
+                QFile avatarFile(avatarFilePath);
+                if (!avatarFile.open(QIODevice::ReadOnly)) return;
+                const QByteArray selected = avatarFile.readAll();
+                QPixmap pixmap;
+                if (!pixmap.loadFromData(selected)) return;
+                avatarBytes = selected;
+                preview->setPixmap(pixmap);
+                Q_UNUSED(groupName);
+            });
+
+            auto* editorActions = new QHBoxLayout();
+            editorActions->addStretch();
+            auto* cancel = new QPushButton(QStringLiteral("取消"), &editor);
+            cancel->setObjectName(QStringLiteral("dialogSecondaryBtn"));
+            auto* save = new QPushButton(QStringLiteral("保存"), &editor);
+            save->setObjectName(QStringLiteral("dialogPrimaryBtn"));
+            save->setDefault(true);
+            editorActions->addWidget(cancel);
+            editorActions->addWidget(save);
+            editorLayout->addLayout(editorActions);
+            connect(cancel, &QPushButton::clicked, &editor, &QDialog::reject);
+            connect(save, &QPushButton::clicked, &editor, [&editor, nameInput]() {
+                if (nameInput->text().trimmed().isEmpty()) {
+                    nameInput->setFocus();
+                    return;
+                }
+                editor.accept();
+            });
+            editor.setStyleSheet(DialogStyle::common() + QStringLiteral(
+                "QDialog#groupProfileEditor { background:%1; }"
+                "QLabel#groupProfileEditorTitle { color:%2; font-size:16px; font-weight:600; }"
+                "QLabel#groupProfileEditorHint { color:%3; font-size:12px; }"
+                "QLineEdit#groupProfileNameInput { background:%4; color:%2; border:1px solid %5; border-radius:6px; padding:7px 9px; }"
+                "QLineEdit#groupProfileNameInput:focus { border-color:%6; }"
+                "QPushButton#groupProfileAvatarButton { color:%6; background:transparent; border:none; padding:2px 0; }"
+                "QPushButton#groupProfileAvatarButton:hover { color:%7; }")
+                .arg(ThemeManager::instance()->backgroundColor().name(), ThemeManager::instance()->textColor().name(),
+                     ThemeManager::instance()->textSecondaryColor().name(), ThemeManager::instance()->backgroundSecondaryColor().name(),
+                     ThemeManager::instance()->borderColor().name(), ThemeManager::instance()->primaryColor().name(),
+                     ThemeManager::instance()->primaryHoverColor().name()));
+            if (editor.exec() != QDialog::Accepted) return;
+            const QString newName = nameInput->text().trimmed();
+            QJsonObject update{{QStringLiteral("groupName"), newName}};
+            if (!avatarBytes.isEmpty()) update[QStringLiteral("avatar")] = QString::fromUtf8(avatarBytes.toBase64());
+            if (serverGroup) {
+                if (!m_client || !m_client->sendServerGroupSettingsUpdate(groupId, update)) {
+                    ui->statusbar->showMessage(QStringLiteral("群资料提交失败，请检查连接"), 2600);
+                } else {
+                    ui->statusbar->showMessage(QStringLiteral("群资料已提交，正在同步"), 1800);
+                }
+            } else {
+                m_localGroupNames[groupId] = newName;
+                if (!avatarBytes.isEmpty()) {
+                    const QString localAvatarPath = QFileInfo(getGroupFilePath()).absoluteDir()
+                        .filePath(groupId + QStringLiteral("_avatar.png"));
+                    QPixmap avatar;
+                    if (avatar.loadFromData(avatarBytes) && avatar.save(localAvatarPath, "PNG")) {
+                        m_localGroupAvatarPaths[groupId] = localAvatarPath;
+                    }
+                }
+                saveLocalGroups();
+                refreshFriendList();
+                ui->statusbar->showMessage(QStringLiteral("群资料已保存"), 1800);
+            }
+        });
+        addCaption(QStringLiteral("发言权限"));
+        auto* muteRow = new QFrame(&panel);
+        muteRow->setObjectName(QStringLiteral("groupInfoRow"));
+        muteRow->setFixedHeight(42);
+        auto* muteLayout = new QHBoxLayout(muteRow);
+        muteLayout->setContentsMargins(12, 0, 12, 0);
+        auto* muteLabel = new QLabel(QStringLiteral("全员禁言"), muteRow);
+        muteLabel->setObjectName(QStringLiteral("groupInfoRowTitle"));
+        auto* muteToggle = new QCheckBox(muteRow);
+        muteToggle->setToolTip(QStringLiteral("仅允许管理员和群主发言"));
+        muteLayout->addWidget(muteLabel);
+        muteLayout->addStretch();
+        muteLayout->addWidget(muteToggle);
+        contentLayout->addWidget(muteRow);
+        const QString allMuteKey = stableSettingKey() + QStringLiteral("allMuted");
+        muteToggle->setChecked(serverGroup ? serverSettings.value(QStringLiteral("allMuted")).toBool(false)
+                                           : settings.value(allMuteKey, false).toBool());
+        connect(muteToggle, &QCheckBox::toggled, this, [this, manager, allMuteKey, serverGroup, groupId](bool enabled) {
+            if (!manager) return;
+            if (serverGroup) {
+                if (!m_client || !m_client->sendServerGroupSettingsUpdate(groupId, QJsonObject{{QStringLiteral("allMuted"), enabled}})) {
+                    ui->statusbar->showMessage(QStringLiteral("全员禁言提交失败，请检查连接"), 2600);
+                }
+                return;
+            }
+            QSettings localSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+            localSettings.setValue(allMuteKey, enabled);
+            ui->statusbar->showMessage(enabled ? QStringLiteral("已保存全员禁言状态") : QStringLiteral("已解除全员禁言状态"), 2200);
+        });
+        const QString speakingRule = serverGroup ? serverSettings.value(QStringLiteral("speakingRule")).toString(QStringLiteral("unrestricted"))
+                                                 : settings.value(stableSettingKey() + QStringLiteral("speakingRule"), QStringLiteral("unrestricted")).toString();
+        const QMap<QString, QString> speakingTexts = {
+            {QStringLiteral("unrestricted"), QStringLiteral("不限制发言")},
+            {QStringLiteral("per_minute_10"), QStringLiteral("每分钟 10 条")},
+            {QStringLiteral("per_minute_5"), QStringLiteral("每分钟 5 条")},
+            {QStringLiteral("new_members_24h"), QStringLiteral("新成员 24 小时后可发言")}
+        };
+        QPushButton* speakingRow = addRow(QStringLiteral("发言限制"), speakingTexts.value(speakingRule, QStringLiteral("不限制发言")), true);
+        connect(speakingRow, &QPushButton::clicked, this, [this, speakingRow, stableSettingKey, serverGroup, groupId, chooseSetting, speakingTexts]() {
+            const QString current = serverGroup
+                ? m_serverGroupSettings.value(groupId).value(QStringLiteral("speakingRule")).toString(QStringLiteral("unrestricted"))
+                : QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).value(stableSettingKey() + QStringLiteral("speakingRule"), QStringLiteral("unrestricted")).toString();
+            const QList<QPair<QString, QString>> choices = {
+                {QStringLiteral("不限制发言"), QStringLiteral("unrestricted")},
+                {QStringLiteral("每分钟 10 条"), QStringLiteral("per_minute_10")},
+                {QStringLiteral("每分钟 5 条"), QStringLiteral("per_minute_5")},
+                {QStringLiteral("新成员 24 小时后可发言"), QStringLiteral("new_members_24h")}
+            };
+            const QString selected = chooseSetting(QStringLiteral("发言限制"), QStringLiteral("选择群成员发言频率"), choices, current);
+            if (selected.isEmpty() || selected == current) return;
+            if (serverGroup && selected != QLatin1String("unrestricted") && selected != QLatin1String("new_members_24h")) {
+                ui->statusbar->showMessage(QStringLiteral("该频率限制已保存在当前客户端，服务端暂支持不限制和新成员限制"), 2800);
+            } else if (serverGroup && (!m_client || !m_client->sendServerGroupSettingsUpdate(groupId, QJsonObject{{QStringLiteral("speakingRule"), selected}}))) {
+                ui->statusbar->showMessage(QStringLiteral("发言限制提交失败，请检查连接"), 2600);
+                return;
+            }
+            if (!serverGroup || selected == QLatin1String("per_minute_10") || selected == QLatin1String("per_minute_5")) {
+                QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).setValue(stableSettingKey() + QStringLiteral("speakingRule"), selected);
+            }
+            speakingRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->setText(speakingTexts.value(selected));
+        });
+        addCaption(QStringLiteral("开放设置"));
+        const QString joinPolicy = serverGroup ? serverSettings.value(QStringLiteral("joinPolicy")).toString(QStringLiteral("approval"))
+                                               : settings.value(stableSettingKey() + QStringLiteral("joinPolicy"), QStringLiteral("approval")).toString();
+        const QMap<QString, QString> joinTexts = {
+            {QStringLiteral("open"), QStringLiteral("允许任何人加群")},
+            {QStringLiteral("approval"), QStringLiteral("需要身份验证")},
+            {QStringLiteral("disabled"), QStringLiteral("不允许任何人加群")}
+        };
+        QPushButton* joinRow = addRow(QStringLiteral("加群方式"), joinTexts.value(joinPolicy, QStringLiteral("需要身份验证")), true);
+        connect(joinRow, &QPushButton::clicked, this, [this, joinRow, serverGroup, groupId, stableSettingKey, chooseSetting, joinTexts]() {
+            const QString current = serverGroup
+                ? m_serverGroupSettings.value(groupId).value(QStringLiteral("joinPolicy")).toString(QStringLiteral("approval"))
+                : QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).value(stableSettingKey() + QStringLiteral("joinPolicy"), QStringLiteral("approval")).toString();
+            const QString selected = chooseSetting(QStringLiteral("加群方式"), QStringLiteral("选择加入当前群聊的方式"), {
+                {QStringLiteral("允许任何人加群"), QStringLiteral("open")},
+                {QStringLiteral("需要身份验证"), QStringLiteral("approval")},
+                {QStringLiteral("不允许任何人加群"), QStringLiteral("disabled")}
+            }, current);
+            if (selected.isEmpty() || selected == current) return;
+            if (serverGroup) {
+                if (!m_client || !m_client->sendServerGroupSettingsUpdate(groupId, QJsonObject{{QStringLiteral("joinPolicy"), selected}})) {
+                    ui->statusbar->showMessage(QStringLiteral("加群方式提交失败，请检查连接"), 2600);
+                    return;
+                }
+            } else {
+                QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).setValue(stableSettingKey() + QStringLiteral("joinPolicy"), selected);
+            }
+            joinRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->setText(joinTexts.value(selected));
+        });
+        const QString searchMode = serverGroup
+            ? (serverSettings.value(QStringLiteral("searchable")).toBool(true) ? QStringLiteral("id_and_keyword") : QStringLiteral("private"))
+            : settings.value(stableSettingKey() + QStringLiteral("searchMode"), QStringLiteral("id_and_keyword")).toString();
+        const QMap<QString, QString> searchTexts = {
+            {QStringLiteral("id_and_keyword"), QStringLiteral("通过群号及关键词搜索")},
+            {QStringLiteral("id_only"), QStringLiteral("通过群号搜索")},
+            {QStringLiteral("private"), QStringLiteral("私密")}
+        };
+        QPushButton* searchRow = addRow(QStringLiteral("群搜索方式"), searchTexts.value(searchMode), true);
+        connect(searchRow, &QPushButton::clicked, this, [this, searchRow, serverGroup, groupId, stableSettingKey, chooseSetting, searchTexts]() {
+            const QString current = serverGroup
+                ? (m_serverGroupSettings.value(groupId).value(QStringLiteral("searchable")).toBool(true) ? QStringLiteral("id_and_keyword") : QStringLiteral("private"))
+                : QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).value(stableSettingKey() + QStringLiteral("searchMode"), QStringLiteral("id_and_keyword")).toString();
+            const QString selected = chooseSetting(QStringLiteral("群搜索方式"), QStringLiteral("选择其他用户查找群聊的方式"), {
+                {QStringLiteral("通过群号及关键词搜索"), QStringLiteral("id_and_keyword")},
+                {QStringLiteral("通过群号搜索"), QStringLiteral("id_only")},
+                {QStringLiteral("私密"), QStringLiteral("private")}
+            }, current);
+            if (selected.isEmpty() || selected == current) return;
+            if (serverGroup) {
+                if (!m_client || !m_client->sendServerGroupSettingsUpdate(groupId, QJsonObject{{QStringLiteral("searchable"), selected != QLatin1String("private")}})) {
+                    ui->statusbar->showMessage(QStringLiteral("群搜索方式提交失败，请检查连接"), 2600);
+                    return;
+                }
+                if (selected == QLatin1String("id_only")) {
+                    QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).setValue(stableSettingKey() + QStringLiteral("searchMode"), selected);
+                    ui->statusbar->showMessage(QStringLiteral("仅群号搜索已保存在当前客户端，服务端关键词搜索仍保持可用"), 3000);
+                }
+            } else {
+                QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).setValue(stableSettingKey() + QStringLiteral("searchMode"), selected);
+            }
+            searchRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->setText(searchTexts.value(selected));
+        });
+    }
+
+    addCaption(QStringLiteral("我的群资料"));
+    const QString nicknameKey = stableSettingKey() + QStringLiteral("nickname");
+    const QString remarkKey = stableSettingKey() + QStringLiteral("remark");
+    const QString currentNickname = serverGroup ? userSettings.value(QStringLiteral("nickname")).toString(m_currentUserName)
+                                                : settings.value(nicknameKey, m_currentUserName).toString();
+    const QString currentRemark = serverGroup ? userSettings.value(QStringLiteral("remark")).toString()
+                                              : settings.value(remarkKey).toString();
+    QPushButton* nicknameRow = addRow(QStringLiteral("我的本群昵称"), currentNickname, true);
+    connect(nicknameRow, &QPushButton::clicked, this, [nicknameRow, nicknameKey, serverGroup, groupId, this]() {
+        bool ok = false;
+        const QString current = nicknameRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->text();
+        const QString value = QInputDialog::getText(this, QStringLiteral("我的本群昵称"), QStringLiteral("群昵称"), QLineEdit::Normal, current, &ok).trimmed();
+        if (!ok || value.isEmpty()) return;
+        if (serverGroup) {
+            if (!m_client || !m_client->sendServerGroupUserSettingsUpdate(groupId, QJsonObject{{QStringLiteral("nickname"), value}})) {
+                ui->statusbar->showMessage(QStringLiteral("群昵称保存失败，请检查连接"), 2600);
+            }
+            return;
+        }
+        QSettings localSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+        localSettings.setValue(nicknameKey, value);
+        nicknameRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->setText(value);
+    });
+    QPushButton* remarkRow = addRow(QStringLiteral("群聊备注"), currentRemark.isEmpty() ? QStringLiteral("填写备注") : currentRemark, true);
+    connect(remarkRow, &QPushButton::clicked, this, [remarkRow, remarkKey, serverGroup, groupId, this]() {
+        bool ok = false;
+        const QString current = remarkRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->text();
+        const QString value = QInputDialog::getText(this, QStringLiteral("群聊备注"), QStringLiteral("备注名称"), QLineEdit::Normal,
+                                                    current == QStringLiteral("填写备注") ? QString() : current, &ok).trimmed();
+        if (!ok) return;
+        if (serverGroup) {
+            if (!m_client || !m_client->sendServerGroupUserSettingsUpdate(groupId, QJsonObject{{QStringLiteral("remark"), value}})) {
+                ui->statusbar->showMessage(QStringLiteral("群聊备注保存失败，请检查连接"), 2600);
+            }
+            return;
+        }
+        QSettings localSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+        localSettings.setValue(remarkKey, value);
+        remarkRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->setText(value.isEmpty() ? QStringLiteral("填写备注") : value);
+    });
+    addCaption(QStringLiteral("消息设置"));
+    auto* notificationRow = new QFrame(&panel);
+    notificationRow->setObjectName(QStringLiteral("groupInfoRow"));
+    notificationRow->setFixedHeight(42);
+    auto* notificationLayout = new QHBoxLayout(notificationRow);
+    notificationLayout->setContentsMargins(12, 0, 12, 0);
+    auto* notificationLabel = new QLabel(QStringLiteral("消息免打扰"), notificationRow);
+    notificationLabel->setObjectName(QStringLiteral("groupInfoRowTitle"));
+    auto* notificationToggle = new QCheckBox(notificationRow);
+    notificationLayout->addWidget(notificationLabel);
+    notificationLayout->addStretch();
+    notificationLayout->addWidget(notificationToggle);
+    contentLayout->addWidget(notificationRow);
+    const QString muteNotificationKey = stableSettingKey() + QStringLiteral("muteNotifications");
+    notificationToggle->setChecked(serverGroup ? userSettings.value(QStringLiteral("muteNotifications")).toBool(false)
+                                               : settings.value(muteNotificationKey, false).toBool());
+    connect(notificationToggle, &QCheckBox::toggled, this, [this, serverGroup, groupId, muteNotificationKey](bool enabled) {
+        if (serverGroup) {
+            if (!m_client || !m_client->sendServerGroupUserSettingsUpdate(groupId, QJsonObject{{QStringLiteral("muteNotifications"), enabled}})) {
+                ui->statusbar->showMessage(QStringLiteral("消息设置保存失败，请检查连接"), 2600);
+            }
+            return;
+        }
+        QSettings localSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+        localSettings.setValue(muteNotificationKey, enabled);
+    });
+    const QString receiveMode = serverGroup
+        ? (userSettings.value(QStringLiteral("receiveWithoutNotify")).toBool(false)
+               ? QStringLiteral("receive_quiet")
+               : settings.value(stableSettingKey() + QStringLiteral("receiveMode"), QStringLiteral("receive_quiet")).toString())
+        : settings.value(stableSettingKey() + QStringLiteral("receiveMode"), QStringLiteral("receive_quiet")).toString();
+    const QMap<QString, QString> receiveTexts = {
+        {QStringLiteral("receive_quiet"), QStringLiteral("接收消息但不提醒")},
+        {QStringLiteral("assistant_quiet"), QStringLiteral("收进群助手且不提醒")},
+        {QStringLiteral("block"), QStringLiteral("屏蔽群消息")}
+    };
+    QPushButton* receiveRow = addRow(QStringLiteral("群消息设置"), receiveTexts.value(receiveMode), true);
+    connect(receiveRow, &QPushButton::clicked, this, [this, receiveRow, stableSettingKey, serverGroup, groupId, chooseSetting, receiveTexts]() {
+        const QSettings localSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"));
+        const QString current = serverGroup && m_serverGroupUserSettings.value(groupId).value(QStringLiteral("receiveWithoutNotify")).toBool(false)
+            ? QStringLiteral("receive_quiet")
+            : localSettings.value(stableSettingKey() + QStringLiteral("receiveMode"), QStringLiteral("receive_quiet")).toString();
+        const QString selected = chooseSetting(QStringLiteral("群消息设置"), QStringLiteral("选择该群消息的接收方式"), {
+            {QStringLiteral("接收消息但不提醒"), QStringLiteral("receive_quiet")},
+            {QStringLiteral("收进群助手且不提醒"), QStringLiteral("assistant_quiet")},
+            {QStringLiteral("屏蔽群消息"), QStringLiteral("block")}
+        }, current);
+        if (selected.isEmpty() || selected == current) return;
+        if (serverGroup && (!m_client || !m_client->sendServerGroupUserSettingsUpdate(
+                groupId, QJsonObject{{QStringLiteral("receiveWithoutNotify"), selected != QLatin1String("block")}}))) {
+            ui->statusbar->showMessage(QStringLiteral("消息设置保存失败，请检查连接"), 2600);
+            return;
+        }
+        QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).setValue(stableSettingKey() + QStringLiteral("receiveMode"), selected);
+        receiveRow->findChild<QLabel*>(QStringLiteral("groupInfoRowValue"))->setText(receiveTexts.value(selected));
+    });
+    const QString pinKey = stableSettingKey() + QStringLiteral("pinned");
+    auto* pinRow = new QFrame(&panel);
+    pinRow->setObjectName(QStringLiteral("groupInfoRow"));
+    pinRow->setFixedHeight(42);
+    auto* pinLayout = new QHBoxLayout(pinRow);
+    pinLayout->setContentsMargins(12, 0, 12, 0);
+    auto* pinLabel = new QLabel(QStringLiteral("设为置顶"), pinRow);
+    pinLabel->setObjectName(QStringLiteral("groupInfoRowTitle"));
+    auto* pinToggle = new QCheckBox(pinRow);
+    pinToggle->setToolTip(QStringLiteral("将群聊固定在会话列表顶部"));
+    pinToggle->setChecked(settings.value(pinKey, false).toBool());
+    pinLayout->addWidget(pinLabel);
+    pinLayout->addStretch();
+    pinLayout->addWidget(pinToggle);
+    contentLayout->addWidget(pinRow);
+    connect(pinToggle, &QCheckBox::toggled, this, [this, pinKey](bool enabled) {
+        QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat")).setValue(pinKey, enabled);
+        refreshFriendList();
+        ui->statusbar->showMessage(enabled ? QStringLiteral("已置顶群聊") : QStringLiteral("已取消置顶"), 1800);
+    });
+
+    if (serverGroup && owner && serverGroupId != QLatin1String("public")) {
+        QPushButton* dissolve = new QPushButton(QStringLiteral("解散群聊"), &panel);
+        dissolve->setObjectName(QStringLiteral("groupInfoLeaveBtn"));
+        dissolve->setCursor(Qt::PointingHandCursor);
+        dissolve->setFixedHeight(38);
+        contentLayout->addWidget(dissolve);
+        connect(dissolve, &QPushButton::clicked, this, [this, serverGroupId, groupName, &panel]() {
+            QMessageBox confirmation(&panel);
+            confirmation.setWindowTitle(QStringLiteral("解散群聊"));
+            confirmation.setText(QStringLiteral("确定解散“%1”吗？").arg(groupName));
+            confirmation.setInformativeText(QStringLiteral("解散后成员将无法继续访问该群聊，此操作不可撤销。"));
+            confirmation.setIcon(QMessageBox::Warning);
+            confirmation.setStandardButtons(QMessageBox::Cancel | QMessageBox::Yes);
+            confirmation.setDefaultButton(QMessageBox::Cancel);
+            if (confirmation.exec() == QMessageBox::Yes && m_client && m_client->dissolveServerGroup(serverGroupId)) panel.accept();
+        });
+    } else if (serverGroup && !owner) {
+        QPushButton* leave = new QPushButton(QStringLiteral("退出群聊"), &panel);
+        leave->setObjectName(QStringLiteral("groupInfoLeaveBtn"));
+        leave->setCursor(Qt::PointingHandCursor);
+        leave->setFixedHeight(38);
+        contentLayout->addWidget(leave);
+        connect(leave, &QPushButton::clicked, this, [this, serverGroupId, groupName, &panel]() {
+            if (QMessageBox::question(&panel, QStringLiteral("退出群聊"), QStringLiteral("确定退出“%1”吗？").arg(groupName),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes
+                && m_client && m_client->leaveServerGroup(serverGroupId)) panel.accept();
+        });
+    } else if (localGroup && owner) {
+        QPushButton* dissolve = new QPushButton(QStringLiteral("解散本地群聊"), &panel);
+        dissolve->setObjectName(QStringLiteral("groupInfoLeaveBtn"));
+        dissolve->setCursor(Qt::PointingHandCursor);
+        dissolve->setFixedHeight(38);
+        contentLayout->addWidget(dissolve);
+        connect(dissolve, &QPushButton::clicked, this, [this, groupId, groupName, &panel]() {
+            QDialog confirmation(&panel);
+            confirmation.setObjectName(QStringLiteral("groupDangerConfirm"));
+            confirmation.setWindowTitle(QStringLiteral("解散本地群聊"));
+            confirmation.setFixedSize(336, 176);
+            auto* layout = new QVBoxLayout(&confirmation);
+            layout->setContentsMargins(20, 18, 20, 18);
+            layout->setSpacing(8);
+            auto* title = new QLabel(QStringLiteral("解散本地群聊"), &confirmation);
+            title->setObjectName(QStringLiteral("groupDangerConfirmTitle"));
+            auto* detail = new QLabel(QStringLiteral("确定解散“%1”吗？此操作不可撤销。\n所有本地成员和聊天记录入口将被移除。").arg(groupName), &confirmation);
+            detail->setObjectName(QStringLiteral("groupDangerConfirmDetail"));
+            detail->setWordWrap(true);
+            layout->addWidget(title);
+            layout->addWidget(detail, 1);
+            auto* actions = new QHBoxLayout();
+            actions->addStretch();
+            auto* cancel = new QPushButton(QStringLiteral("取消"), &confirmation);
+            cancel->setObjectName(QStringLiteral("dialogSecondaryBtn"));
+            auto* confirm = new QPushButton(QStringLiteral("确认解散"), &confirmation);
+            confirm->setObjectName(QStringLiteral("dialogDangerBtn"));
+            actions->addWidget(cancel);
+            actions->addWidget(confirm);
+            layout->addLayout(actions);
+            connect(cancel, &QPushButton::clicked, &confirmation, &QDialog::reject);
+            connect(confirm, &QPushButton::clicked, &confirmation, &QDialog::accept);
+            confirmation.setStyleSheet(DialogStyle::common() + QStringLiteral(
+                "QDialog#groupDangerConfirm { background:%1; }"
+                "QLabel#groupDangerConfirmTitle { color:%2; font-size:16px; font-weight:600; }"
+                "QLabel#groupDangerConfirmDetail { color:%3; font-size:12px; line-height:1.4; }")
+                .arg(ThemeManager::instance()->backgroundColor().name(), ThemeManager::instance()->textColor().name(),
+                     ThemeManager::instance()->textSecondaryColor().name()));
+            if (confirmation.exec() != QDialog::Accepted) return;
+            m_localGroupIds.removeAll(groupId);
+            m_localGroupNames.remove(groupId);
+            m_localGroupMembers.remove(groupId);
+            m_localGroupAnnouncements.remove(groupId);
+            m_localGroupAvatarPaths.remove(groupId);
+            saveLocalGroups();
+            m_privateChatTarget.clear();
+            refreshFriendList();
+            panel.accept();
+        });
+    } else if (localGroup && !owner) {
+        QPushButton* leave = new QPushButton(QStringLiteral("退出本地群聊"), &panel);
+        leave->setObjectName(QStringLiteral("groupInfoLeaveBtn"));
+        leave->setCursor(Qt::PointingHandCursor);
+        leave->setFixedHeight(38);
+        contentLayout->addWidget(leave);
+        connect(leave, &QPushButton::clicked, this, [this, groupId, groupName, &panel]() {
+            if (QMessageBox::question(&panel, QStringLiteral("退出群聊"), QStringLiteral("确定退出“%1”吗？").arg(groupName),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+            m_localGroupMembers[groupId].removeAll(m_currentUserId);
+            saveLocalGroups();
+            refreshFriendList();
+            panel.accept();
+        });
+    }
+
+    panel.setStyleSheet(DialogStyle::common() + QStringLiteral(
+        "QDialog#groupInfoDialog,QScrollArea#groupInfoScroll,QWidget#groupInfoContent { background:%1; }"
+        "QScrollArea#groupInfoScroll { border:none; }"
+        "QFrame#groupInfoTitleBar { background:%2; border-bottom:1px solid %3; }"
+        "QLabel#groupInfoPanelTitle { color:%4; font-size:15px; font-weight:600; }"
+        "QLabel#groupInfoName { color:%4; font-size:16px; font-weight:600; }"
+        "QLabel#groupInfoRowTitle,QLabel#groupInfoMemberTitle,QLabel#groupInfoAnnouncementTitle { color:%4; font-size:13px; font-weight:500; }"
+        "QFrame#groupInfoOverview,QFrame#groupInfoAnnouncementCard,QFrame#groupInfoMemberCard { background:%2; border:1px solid %3; border-radius:7px; }"
+        "QFrame#groupInfoRow,QPushButton#groupInfoRow,QPushButton#groupInfoActionRow { background:%2; border:none; border-bottom:1px solid %3; border-radius:0; text-align:left; }"
+        "QPushButton#groupInfoActionRow:hover { background:%5; }"
+        "QPushButton#groupInfoActionRow:pressed { background:%8; }"
+        "QPushButton#groupInfoActionRow:focus { border:1px solid %7; }"
+        "QLabel#groupInfoMeta,QLabel#groupInfoRowValue,QLabel#groupInfoCaption,QLabel#groupInfoMemberName,QLabel#groupInfoAnnouncementBody { color:%6; font-size:12px; }"
+        "QLabel#groupInfoAnnouncementBody { line-height:1.45; padding-top:1px; }"
+        "QLabel#groupInfoRowValue { max-width:156px; color:%6; }"
+        "QLabel#groupInfoCaption { color:%6; font-size:11px; font-weight:500; padding:12px 4px 3px 4px; }"
+        "QLabel#groupInfoArrow { color:%6; font-size:20px; font-weight:400; padding-left:6px; }"
+        "QLabel#groupInfoRoleManage { color:%7; background:%5; border-radius:3px; padding:0 6px; font-size:11px; }"
+        "QLabel#groupInfoRoleMember { color:%6; background:%8; border-radius:3px; padding:0 6px; font-size:11px; }"
+        "QToolButton#groupInfoClose,QToolButton#groupInfoShare { color:%6; border:none; border-radius:4px; font-size:18px; }"
+        "QToolButton#groupInfoClose:hover,QToolButton#groupInfoShare:hover { background:%5; color:%4; }"
+        "QToolButton#groupInfoMemberAction { color:%7; background:%5; border:1px dashed %7; border-radius:17px; font-size:20px; }"
+        "QToolButton#groupInfoMemberAction:hover { background:%7; color:%2; }"
+        "QPushButton#groupInfoLinkButton { color:%7; background:transparent; border:none; font-size:12px; padding:3px 0; }"
+        "QPushButton#groupInfoLinkButton:hover { color:%9; }"
+        "QCheckBox { spacing:7px; }"
+        "QCheckBox::indicator { width:30px; height:18px; border-radius:9px; background:%8; border:1px solid %3; image:none; }"
+        "QCheckBox::indicator:checked { background:%7; border-color:%7; }"
+        "QCheckBox::indicator:checked:disabled { background:%6; border-color:%6; }"
+        "QPushButton#groupInfoLeaveBtn { background:%2; color:%10; border:1px solid %3; border-radius:7px; margin-top:12px; font-weight:500; }"
+        "QPushButton#groupInfoLeaveBtn:hover { background:%11; border-color:%10; }")
+        .arg(ThemeManager::instance()->backgroundColor().name(), ThemeManager::instance()->backgroundSecondaryColor().name(),
+             ThemeManager::instance()->borderColor().name(), ThemeManager::instance()->textColor().name(),
+             ThemeManager::instance()->primarySoftColor().name(), ThemeManager::instance()->textSecondaryColor().name(),
+             ThemeManager::instance()->primaryColor().name(), ThemeManager::instance()->backgroundTertiaryColor().name(),
+             ThemeManager::instance()->primaryHoverColor().name(), ThemeManager::instance()->dangerColor().name(),
+             ThemeManager::instance()->dangerColor().lighter(185).name()));
+    const QPoint panelOrigin = mapToGlobal(QPoint(qMax(0, width() - panel.width() - 10), 36));
+    panel.move(panelOrigin);
+    panel.exec();
+}
+
 void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
 {
-    // QQNT global search: filter the local friend/group lists by keyword and let
-    // the user activate a result. Contacts open a private session; groups switch
-    // to the group session. This replaces the legacy onShowGlobalSearch dialog for
-    // the contacts-view entry while keeping that flow available elsewhere.
+    // QQNT global search combines locally joined groups with server-side stranger
+    // group discovery. A stranger group can only be entered after server approval.
     GlobalSearchDialog dialog(this);
     dialog.setContactGroupMode(contactGroupMode);
-    if (contactGroupMode) m_activeContactGroupSearchDialog = &dialog;
+    // Every global-search variant receives async QQ account results. Previously
+    // only contactGroupMode did so, leaving the standard search blank.
+    m_activeContactGroupSearchDialog = &dialog;
 
     auto populate = [this, &dialog](const QString& keyword) {
         dialog.clearResults();
@@ -10391,7 +11564,7 @@ void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
             const QString name = contactDisplayName(id);
             if (matches(id, name)) {
                 dialog.addResult(QStringLiteral("contact"), id, name,
-                                 QStringLiteral("QQ:%1").arg(id));
+                                 QStringLiteral("QQ:%1").arg(id), peerAvatarPath(id));
                 dialog.setContactKnown(id, true);
             }
         }
@@ -10400,8 +11573,8 @@ void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
             if (matches(id, name)) {
                 const int count = m_localGroupMembers.value(id).size();
                 dialog.addResult(QStringLiteral("group"), id, name,
-                                 QStringLiteral("%1 人").arg(count));
-                dialog.setGroupEnterable(id, true);
+                                 QStringLiteral("%1 人").arg(count), m_localGroupAvatarPaths.value(id));
+                dialog.setGroupJoined(id, true);
             }
         }
         for (const QString& id : m_serverGroupNames.keys()) {
@@ -10410,7 +11583,7 @@ void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
             if (matches(id, name)) {
                 const int count = m_serverGroupMembers.value(id).size();
                 dialog.addResult(QStringLiteral("group"), id, name, QStringLiteral("%1 人").arg(count));
-                dialog.setGroupEnterable(id, false);
+                dialog.setGroupJoined(id, m_joinedServerSearchGroups.contains(id));
             }
         }
     };
@@ -10418,10 +11591,17 @@ void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
     // Prime the list with everything, then refilter on each search.
     populate(QString());
     connect(&dialog, &GlobalSearchDialog::searchRequested, this,
-            [this, populate, contactGroupMode](const QString& text) {
+            [this, populate](const QString& text) {
         populate(text);
-        if (contactGroupMode && !text.trimmed().isEmpty() && m_client) {
-            m_client->searchFriendByAccount(text.trimmed());
+        if (!text.trimmed().isEmpty() && m_client) {
+            if (!m_client->searchFriendByAccount(text.trimmed()) && m_activeContactGroupSearchDialog) {
+                m_activeContactGroupSearchDialog->setSearching(false);
+                m_activeContactGroupSearchDialog->showSearchState(QStringLiteral("当前未连接，搜索不可用"));
+            }
+            m_client->searchServerGroups(text.trimmed());
+        } else if (m_activeContactGroupSearchDialog) {
+            m_activeContactGroupSearchDialog->setSearching(false);
+            m_activeContactGroupSearchDialog->showSearchState(QStringLiteral("当前未连接，搜索不可用"));
         }
     });
     connect(&dialog, &GlobalSearchDialog::addFriendRequested, this, [this, &dialog](const QString& userId) {
@@ -10442,11 +11622,27 @@ void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
             ui->statusbar->showMessage(QStringLiteral("好友申请发送失败，请检查连接"), 2600);
         }
     });
+    connect(&dialog, &GlobalSearchDialog::joinGroupRequested, this,
+            [this, &dialog](const QString& serverGroupId) {
+        if (serverGroupId.isEmpty()) {
+            return;
+        }
+        if (m_joinedServerSearchGroups.contains(serverGroupId)) {
+            dialog.setGroupJoined(serverGroupId, true);
+            return;
+        }
+        if (!m_client || !m_client->requestServerGroupJoin(serverGroupId)) {
+            ui->statusbar->showMessage(QStringLiteral("入群申请发送失败，请检查连接"), 2800);
+            return;
+        }
+        dialog.setGroupJoinPending(serverGroupId, true);
+    });
     connect(&dialog, &GlobalSearchDialog::resultActivated, this,
             [this, &dialog](const QString& type, const QString& id) {
         if (type == QStringLiteral("group")) {
-            const QString name = m_localGroupNames.value(id, m_serverGroupNames.value(id, QStringLiteral("群聊")));
-            switchToLocalGroup(id, name);
+            const QString localId = m_joinedServerSearchGroups.value(id, id);
+            const QString name = m_localGroupNames.value(localId, m_serverGroupNames.value(id, QStringLiteral("群聊")));
+            switchToLocalGroup(localId, name);
         } else {
             openPrivateSession(id);
         }
@@ -10455,16 +11651,48 @@ void MainWindow::showGlobalSearchDialog(bool contactGroupMode)
     });
 
     dialog.exec();
-    if (contactGroupMode) m_activeContactGroupSearchDialog = nullptr;
+    m_activeContactGroupSearchDialog = nullptr;
 }
 
 void MainWindow::showEssencePanel()
 {
     // QQNT essence view: enumerate the current chat's essence-flagged messages
     // (marked via ChatBubbleForwardedRole by the essence/unessence command) and
-    // present them in a modal panel. Clicking a row could later scroll to the
-    // source message; for now it is display-only.
+    // present them in a modal panel. The panel shares Favorites' locate flow
+    // and supports removing an essence mark directly from its context menu.
     EssencePanel panel(this);
+    connect(&panel, &EssencePanel::messageActivated, this, [this, &panel](const QString& messageId) {
+        if (messageId.isEmpty() || !m_chatModel || !m_messagesView) return;
+        for (int row = 0; row < m_chatModel->rowCount(); ++row) {
+            QStandardItem* item = m_chatModel->item(row);
+            const QString itemId = item ? item->data(ChatMessageIdRole).toString() : QString();
+            if (!item || (itemId != messageId && QString::number(row) != messageId)) continue;
+            const QModelIndex target = m_chatModel->index(row, 0);
+            if (QListView* view = m_messagesView->chatListView()) {
+                view->scrollTo(target, QAbstractItemView::PositionAtCenter);
+                view->setCurrentIndex(target);
+            }
+            panel.accept();
+            ui->statusbar->showMessage(QStringLiteral("已定位精华消息"), 1800);
+            return;
+        }
+        ui->statusbar->showMessage(QStringLiteral("未在当前聊天记录中找到该精华消息"), 2200);
+    });
+    connect(&panel, &EssencePanel::messageRemovalRequested, this, [this, &panel](const QString& messageId) {
+        if (messageId.isEmpty() || !m_chatModel) return;
+        for (int row = 0; row < m_chatModel->rowCount(); ++row) {
+            QStandardItem* item = m_chatModel->item(row);
+            const QString itemId = item ? item->data(ChatMessageIdRole).toString() : QString();
+            if (!item || (itemId != messageId && QString::number(row) != messageId)) continue;
+            const QModelIndex target = m_chatModel->index(row, 0);
+            if (handleBackendContextCommand(QStringLiteral("unessence"), item->text(), target)) {
+                panel.accept();
+                QTimer::singleShot(0, this, &MainWindow::showEssencePanel);
+            }
+            return;
+        }
+        ui->statusbar->showMessage(QStringLiteral("取消精华失败：未找到原消息"), 2200);
+    });
     const int rowCount = m_chatModel ? m_chatModel->rowCount() : 0;
     int essenceCount = 0;
     for (int row = 0; row < rowCount; ++row) {

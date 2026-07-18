@@ -15,6 +15,7 @@ public:
 
     void setTitle(const QString& title);
     void setCloseButtonVisible(bool visible);
+    void setTitleCentered(bool centered);
 
 signals:
     void closeRequested();
@@ -30,6 +31,7 @@ private:
 
     QLabel* m_titleLabel = nullptr;
     QPushButton* m_closeBtn = nullptr;
+    QWidget* m_leftBalance = nullptr;
     QPoint m_dragStartPos;
     bool m_dragging = false;
 };

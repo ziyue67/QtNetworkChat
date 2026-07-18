@@ -2,11 +2,13 @@
 
 #include "theme/dialogstyle.h"
 #include "theme/thememanager.h"
+#include "widgets/avatarlabel.h"
 #include "widgets/dialogtitlebar.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QApplication>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
@@ -14,10 +16,13 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
-#include <QMessageBox>
 #include <QMenu>
 #include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
+#include <QSignalBlocker>
+#include <QStackedLayout>
+#include <QStyle>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -40,6 +45,35 @@ QIcon closeIcon(const QColor& color)
     painter.drawLine(QPointF(4.5, 4.5), QPointF(11.5, 11.5));
     painter.drawLine(QPointF(11.5, 4.5), QPointF(4.5, 11.5));
     return QIcon(pixmap);
+}
+
+QIcon actionIcon(QStyle::StandardPixmap icon, const QColor& color)
+{
+    QIcon base = qApp->style()->standardIcon(icon);
+    QPixmap pixmap = base.pixmap(22, 22);
+    if (pixmap.isNull()) return base;
+    QPainter painter(&pixmap);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(pixmap.rect(), color);
+    return QIcon(pixmap);
+}
+
+QWidget* groupRailRow(QWidget* parent, const QString& name, int count)
+{
+    auto* row = new QWidget(parent);
+    row->setObjectName(QStringLiteral("managerGroupRow"));
+    auto* layout = new QHBoxLayout(row);
+    layout->setContentsMargins(10, 0, 10, 0);
+    layout->setSpacing(8);
+    auto* title = new QLabel(name, row);
+    title->setObjectName(QStringLiteral("managerGroupName"));
+    title->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* value = new QLabel(QString::number(count), row);
+    value->setObjectName(QStringLiteral("managerGroupCount"));
+    value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    layout->addWidget(title, 1);
+    layout->addWidget(value);
+    return row;
 }
 
 QString requestGroupName(QWidget* parent, const QString& title, const QString& initialValue,
@@ -295,6 +329,107 @@ bool confirmGroupDeletion(QWidget* parent, const QString& groupName)
     QObject::connect(confirm, &QPushButton::clicked, &dialog, &QDialog::accept);
     return dialog.exec() == QDialog::Accepted;
 }
+
+bool confirmFriendDeletion(QWidget* parent, int count)
+{
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("friendDeleteDialog"));
+    dialog.setWindowTitle(QStringLiteral("删除好友"));
+    dialog.setModal(true);
+    dialog.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+    dialog.setAttribute(Qt::WA_TranslucentBackground);
+    dialog.setFixedSize(390, 176);
+    ThemeManager* tm = ThemeManager::instance();
+    dialog.setStyleSheet(DialogStyle::common() + QStringLiteral(
+        "QDialog#friendDeleteDialog { background: transparent; }"
+        "QFrame#friendDeleteSurface { background: %1; border: 1px solid %4; border-radius: 8px; }"
+        "QLabel#friendDeleteTitle { color: %2; font-size: 16px; font-weight: 600; }"
+        "QLabel#friendDeleteMessage { color: %3; font-size: 13px; }"
+        "QPushButton#friendGroupCloseBtn { background: transparent; border: none; border-radius: 4px; padding: 0; }"
+        "QPushButton#friendGroupCloseBtn:hover { background: %5; }"
+    ).arg(tm->backgroundColor().name(), tm->textColor().name(), tm->textSecondaryColor().name(),
+          tm->borderColor().name(), tm->backgroundSecondaryColor().name()));
+
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(10, 10, 10, 10);
+    auto* surface = new QFrame(&dialog);
+    surface->setObjectName(QStringLiteral("friendDeleteSurface"));
+    root->addWidget(surface);
+    auto* layout = new QVBoxLayout(surface);
+    layout->setContentsMargins(18, 12, 18, 12);
+    layout->setSpacing(8);
+    auto* top = new QHBoxLayout();
+    auto* title = new QLabel(QStringLiteral("删除好友"), surface);
+    title->setObjectName(QStringLiteral("friendDeleteTitle"));
+    top->addWidget(title);
+    top->addStretch();
+    auto* close = new QPushButton(surface);
+    close->setObjectName(QStringLiteral("friendGroupCloseBtn"));
+    close->setFixedSize(28, 28);
+    close->setIcon(closeIcon(tm->textSecondaryColor()));
+    close->setIconSize(QSize(16, 16));
+    close->setToolTip(QStringLiteral("关闭"));
+    top->addWidget(close);
+    layout->addLayout(top);
+    auto* message = new QLabel(QStringLiteral("确定删除选中的 %1 位好友吗？删除后可重新搜索并添加。").arg(count), surface);
+    message->setObjectName(QStringLiteral("friendDeleteMessage"));
+    message->setWordWrap(true);
+    layout->addWidget(message);
+    layout->addStretch();
+    auto* actions = new QHBoxLayout();
+    actions->addStretch();
+    auto* cancel = new QPushButton(QStringLiteral("取消"), surface);
+    cancel->setObjectName(QStringLiteral("dialogSecondaryBtn"));
+    cancel->setFixedSize(78, 32);
+    auto* remove = new QPushButton(QStringLiteral("删除"), surface);
+    remove->setObjectName(QStringLiteral("dialogDangerBtn"));
+    remove->setFixedSize(78, 32);
+    actions->addWidget(cancel);
+    actions->addWidget(remove);
+    layout->addLayout(actions);
+    QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::reject);
+    QObject::connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    QObject::connect(remove, &QPushButton::clicked, &dialog, &QDialog::accept);
+    return dialog.exec() == QDialog::Accepted;
+}
+
+void showFriendSelectionHint(QWidget* parent)
+{
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("friendSelectionHintDialog"));
+    dialog.setWindowTitle(QStringLiteral("删除好友"));
+    dialog.setModal(true);
+    dialog.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+    dialog.setAttribute(Qt::WA_TranslucentBackground);
+    dialog.setFixedSize(340, 144);
+    ThemeManager* tm = ThemeManager::instance();
+    dialog.setStyleSheet(DialogStyle::common() + QStringLiteral(
+        "QDialog#friendSelectionHintDialog { background: transparent; }"
+        "QFrame#friendSelectionHintSurface { background: %1; border: 1px solid %4; border-radius: 8px; }"
+        "QLabel#friendSelectionHintText { color: %2; font-size: 14px; }"
+    ).arg(tm->backgroundColor().name(), tm->textColor().name(), tm->textSecondaryColor().name(), tm->borderColor().name()));
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(10, 10, 10, 10);
+    auto* surface = new QFrame(&dialog);
+    surface->setObjectName(QStringLiteral("friendSelectionHintSurface"));
+    root->addWidget(surface);
+    auto* layout = new QVBoxLayout(surface);
+    layout->setContentsMargins(18, 18, 18, 14);
+    auto* text = new QLabel(QStringLiteral("请先勾选要删除的好友"), surface);
+    text->setObjectName(QStringLiteral("friendSelectionHintText"));
+    layout->addWidget(text);
+    layout->addStretch();
+    auto* actions = new QHBoxLayout();
+    actions->addStretch();
+    auto* confirm = new QPushButton(QStringLiteral("知道了"), surface);
+    confirm->setObjectName(QStringLiteral("dialogPrimaryBtn"));
+    confirm->setFixedSize(78, 32);
+    confirm->setDefault(true);
+    actions->addWidget(confirm);
+    layout->addLayout(actions);
+    QObject::connect(confirm, &QPushButton::clicked, &dialog, &QDialog::accept);
+    dialog.exec();
+}
 }
 
 FriendManagerDialog::FriendManagerDialog(QWidget* parent)
@@ -324,13 +459,13 @@ void FriendManagerDialog::setupUi()
     bodyLayout->setContentsMargins(0, 0, 0, 0);
     bodyLayout->setSpacing(0);
 
-    // ---- Left group rail (200px) ----------------------------------------
+    // ---- Left group rail -------------------------------------------------
     QWidget* rail = new QWidget(body);
     rail->setObjectName(QStringLiteral("managerRail"));
-    rail->setFixedWidth(200);
+    rail->setFixedWidth(204);
     QVBoxLayout* railLayout = new QVBoxLayout(rail);
-    railLayout->setContentsMargins(8, 8, 8, 8);
-    railLayout->setSpacing(6);
+    railLayout->setContentsMargins(8, 12, 8, 12);
+    railLayout->setSpacing(8);
 
     QLabel* groupCaption = new QLabel(QStringLiteral("分组"), rail);
     groupCaption->setObjectName(QStringLiteral("managerGroupCaption"));
@@ -346,8 +481,7 @@ void FriendManagerDialog::setupUi()
             this, &FriendManagerDialog::showGroupContextMenu);
     railLayout->addWidget(m_groupList, 1);
 
-    // Adding is explicit; editing/removing stays on the selected group's context menu.
-    m_addGroupBtn = new QPushButton(QStringLiteral("添加分组"), rail);
+    m_addGroupBtn = new QPushButton(QStringLiteral("+  添加分组"), rail);
     m_addGroupBtn->setObjectName(QStringLiteral("managerGroupAddBtn"));
     m_addGroupBtn->setCursor(Qt::PointingHandCursor);
     m_addGroupBtn->setFixedHeight(34);
@@ -368,7 +502,7 @@ void FriendManagerDialog::setupUi()
     // ---- Right main panel ------------------------------------------------
     QWidget* main = new QWidget(body);
     QVBoxLayout* mainLayout = new QVBoxLayout(main);
-    mainLayout->setContentsMargins(20, 18, 20, 16);
+    mainLayout->setContentsMargins(20, 18, 20, 12);
     mainLayout->setSpacing(14);
 
     QHBoxLayout* headerRow = new QHBoxLayout();
@@ -380,7 +514,7 @@ void FriendManagerDialog::setupUi()
     m_searchEdit = new QLineEdit(main);
     m_searchEdit->setObjectName(QStringLiteral("dialogInput"));
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索"));
-    m_searchEdit->setFixedWidth(200);
+    m_searchEdit->setFixedWidth(190);
     m_searchEdit->setClearButtonEnabled(true);
     connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
         m_filter = text.trimmed();
@@ -399,73 +533,83 @@ void FriendManagerDialog::setupUi()
     m_table->setSelectionMode(QAbstractItemView::NoSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setShowGrid(false);
-    m_table->setColumnWidth(kColCheck, 36);
+    m_table->setFocusPolicy(Qt::NoFocus);
+    m_table->setAlternatingRowColors(false);
+    m_table->verticalHeader()->setDefaultSectionSize(52);
+    m_table->horizontalHeader()->setFixedHeight(40);
+    m_table->setColumnWidth(kColCheck, 38);
     m_table->horizontalHeader()->setSectionResizeMode(kColCheck, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(kColName, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(kColRemark, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(kColGroup, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(kColPermission, QHeaderView::Stretch);
 
-    QHBoxLayout* selectAllRow = new QHBoxLayout();
-    selectAllRow->setContentsMargins(8, 0, 0, 0);
-    m_selectAll = new QCheckBox(QStringLiteral("全选"), main);
+    m_selectAll = new QCheckBox(m_table);
     m_selectAll->setObjectName(QStringLiteral("managerSelectAll"));
+    m_selectAll->setToolTip(QStringLiteral("全选当前列表"));
     connect(m_selectAll, &QCheckBox::clicked, this, [this](bool checked) {
         for (int row = 0; row < m_table->rowCount(); ++row) {
             if (auto* cb = qobject_cast<QCheckBox*>(m_table->cellWidget(row, kColCheck))) {
                 cb->setChecked(checked);
             }
         }
+        updateSelectAllState();
     });
-    selectAllRow->addWidget(m_selectAll);
-    selectAllRow->addStretch();
-    mainLayout->addLayout(selectAllRow);
-    mainLayout->addWidget(m_table, 1);
+    m_selectAll->setParent(m_table->horizontalHeader());
+    m_selectAll->move(10, 10);
+    m_selectAll->show();
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionResized, this,
+            [this]() { m_selectAll->move(10, 10); });
+    QWidget* tableArea = new QWidget(main);
+    auto* tableStack = new QStackedLayout(tableArea);
+    tableStack->setStackingMode(QStackedLayout::StackAll);
+    tableStack->setContentsMargins(0, 0, 0, 0);
+    tableStack->addWidget(m_table);
+    m_emptyLabel = new QLabel(tableArea);
+    m_emptyLabel->setObjectName(QStringLiteral("managerEmptyState"));
+    m_emptyLabel->setAlignment(Qt::AlignCenter);
+    m_emptyLabel->setWordWrap(true);
+    m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    tableStack->addWidget(m_emptyLabel);
+    mainLayout->addWidget(tableArea, 1);
 
-    QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_addBtn = new QPushButton(QStringLiteral("添加好友"), main);
-    m_addBtn->setObjectName(QStringLiteral("dialogPrimaryBtn"));
-    m_addBtn->setCursor(Qt::PointingHandCursor);
-    connect(m_addBtn, &QPushButton::clicked, this, &FriendManagerDialog::addFriendRequested);
-    btnLayout->addWidget(m_addBtn);
-
-    m_deleteBtn = new QPushButton(QStringLiteral("删除选中"), main);
-    m_deleteBtn->setObjectName(QStringLiteral("dialogDangerBtn"));
+    m_actionBar = new QWidget(main);
+    m_actionBar->setObjectName(QStringLiteral("managerActionBar"));
+    m_actionBar->setFixedHeight(58);
+    m_actionBar->setVisible(false);
+    QHBoxLayout* actionLayout = new QHBoxLayout(m_actionBar);
+    actionLayout->setContentsMargins(12, 7, 8, 7);
+    actionLayout->setSpacing(6);
+    m_selectedLabel = new QLabel(QStringLiteral("已选 0 人"), m_actionBar);
+    m_selectedLabel->setObjectName(QStringLiteral("managerSelectedLabel"));
+    actionLayout->addWidget(m_selectedLabel);
+    actionLayout->addStretch();
+    auto addAction = [this, actionLayout](const QString& text, QStyle::StandardPixmap icon,
+                                                      const QString& objectName, auto handler) {
+        auto* button = new QPushButton(text, m_actionBar);
+        button->setObjectName(objectName);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setFixedHeight(34);
+        button->setIcon(actionIcon(icon, ThemeManager::instance()->textColor()));
+        button->setIconSize(QSize(18, 18));
+        button->setToolTip(text);
+        connect(button, &QPushButton::clicked, this, handler);
+        actionLayout->addWidget(button);
+    };
+    addAction(QStringLiteral("设置分组"), QStyle::SP_DirIcon,
+              QStringLiteral("managerActionBtn"), [this]() { moveSelectedFriendsToGroup(); });
+    m_deleteBtn = new QPushButton(QStringLiteral("删除好友"), m_actionBar);
+    m_deleteBtn->setObjectName(QStringLiteral("managerDangerActionBtn"));
     m_deleteBtn->setCursor(Qt::PointingHandCursor);
-    connect(m_deleteBtn, &QPushButton::clicked, this, [this]() {
-        QStringList selected;
-        for (int row = 0; row < m_table->rowCount(); ++row) {
-            auto* cb = qobject_cast<QCheckBox*>(m_table->cellWidget(row, kColCheck));
-            if (cb && cb->isChecked()) {
-                QTableWidgetItem* nameItem = m_table->item(row, kColName);
-                if (nameItem) selected << nameItem->data(Qt::UserRole).toString();
-            }
-        }
-        if (selected.isEmpty()) {
-            QMessageBox::information(this, QStringLiteral("删除好友"), QStringLiteral("请先勾选要删除的好友"));
-            return;
-        }
-        if (QMessageBox::question(this, QStringLiteral("删除好友"),
-                                  QStringLiteral("确定删除选中的 %1 位好友吗？").arg(selected.size()),
-                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
-            return;
-        }
-        for (const QString& id : selected) {
-            emit deleteFriendRequested(id);
-            m_friendIds.removeAll(id);
-            m_friendGroups.remove(id);
-        }
-        rebuildTable();
-    });
-    btnLayout->addWidget(m_deleteBtn);
-    btnLayout->addStretch();
-
-    QPushButton* closeBtn = new QPushButton(QStringLiteral("关闭"), main);
-    closeBtn->setObjectName(QStringLiteral("dialogSecondaryBtn"));
-    closeBtn->setCursor(Qt::PointingHandCursor);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-    btnLayout->addWidget(closeBtn);
-    mainLayout->addLayout(btnLayout);
+    m_deleteBtn->setFixedHeight(34);
+    m_deleteBtn->setIcon(actionIcon(QStyle::SP_TrashIcon, ThemeManager::instance()->dangerColor()));
+    m_deleteBtn->setIconSize(QSize(18, 18));
+    m_deleteBtn->setToolTip(QStringLiteral("删除选中的好友"));
+    connect(m_deleteBtn, &QPushButton::clicked, this, &FriendManagerDialog::deleteSelectedFriends);
+    actionLayout->addWidget(m_deleteBtn);
+    addAction(QStringLiteral("关闭"), QStyle::SP_DialogCloseButton,
+              QStringLiteral("managerActionBtn"), [this]() { reject(); });
+    mainLayout->addWidget(m_actionBar);
 
     bodyLayout->addWidget(main, 1);
     root->addWidget(body, 1);
@@ -493,8 +637,10 @@ void FriendManagerDialog::rebuildGroupRail()
     }
 
     auto addRow = [this](const QString& name, int count) {
-        auto* item = new QListWidgetItem(QStringLiteral("%1  (%2)").arg(name).arg(count), m_groupList);
+        auto* item = new QListWidgetItem(m_groupList);
         item->setData(Qt::UserRole, name);
+        item->setSizeHint(QSize(0, 38));
+        m_groupList->setItemWidget(item, groupRailRow(m_groupList, name, count));
     };
 
     // 全部好友 first.
@@ -602,6 +748,7 @@ void FriendManagerDialog::rebuildTable()
         }
         const int row = m_table->rowCount();
         m_table->insertRow(row);
+        m_table->setRowHeight(row, 52);
 
         QWidget* checkHolder = new QWidget(m_table);
         QHBoxLayout* checkLayout = new QHBoxLayout(checkHolder);
@@ -612,10 +759,31 @@ void FriendManagerDialog::rebuildTable()
         checkLayout->addWidget(cb);
         m_table->setCellWidget(row, kColCheck, cb);
 
-        QTableWidgetItem* nameItem = new QTableWidgetItem(name);
+        auto* nameCell = new QWidget(m_table);
+        nameCell->setObjectName(QStringLiteral("managerNameCell"));
+        auto* nameLayout = new QHBoxLayout(nameCell);
+        nameLayout->setContentsMargins(7, 0, 6, 0);
+        nameLayout->setSpacing(9);
+        auto* avatar = new AvatarLabel(nameCell, 30);
+        const QString avatarPath = m_avatarPaths.value(id);
+        if (!avatarPath.isEmpty()) {
+            const QPixmap avatarPixmap(avatarPath);
+            if (!avatarPixmap.isNull()) avatar->setPixmap(avatarPixmap);
+            else avatar->setTextAvatar(name, ThemeManager::instance()->primaryColor());
+        } else {
+            avatar->setTextAvatar(name, ThemeManager::instance()->primaryColor());
+        }
+        auto* nameLabel = new QLabel(name, nameCell);
+        nameLabel->setObjectName(QStringLiteral("managerFriendName"));
+        nameLabel->setTextFormat(Qt::PlainText);
+        nameLayout->addWidget(avatar);
+        nameLayout->addWidget(nameLabel, 1);
+        m_table->setCellWidget(row, kColName, nameCell);
+
+        QTableWidgetItem* nameItem = new QTableWidgetItem;
         nameItem->setData(Qt::UserRole, id);
         m_table->setItem(row, kColName, nameItem);
-        m_table->setItem(row, kColRemark, new QTableWidgetItem(m_friendNames.value(id, QStringLiteral("-"))));
+        m_table->setItem(row, kColRemark, new QTableWidgetItem(QStringLiteral("-")));
 
         // Group column: editable combo so the user can move a friend.
         QComboBox* groupCombo = new QComboBox(m_table);
@@ -630,6 +798,15 @@ void FriendManagerDialog::rebuildTable()
 
         m_table->setItem(row, kColPermission, new QTableWidgetItem(QStringLiteral("正常")));
     }
+    const bool hasRows = m_table->rowCount() > 0;
+    if (m_emptyLabel) {
+        const bool hasFilter = !m_filter.isEmpty();
+        m_emptyLabel->setText(hasFilter
+            ? QStringLiteral("未找到匹配的好友\n换个关键词试试")
+            : QStringLiteral("暂无好友\n添加好友后可在这里整理分组和权限"));
+        m_emptyLabel->setVisible(!hasRows);
+    }
+    m_selectAll->setVisible(hasRows);
     updateSelectAllState();
 }
 
@@ -646,6 +823,89 @@ void FriendManagerDialog::updateSelectAllState()
     }
     QSignalBlocker blocker(m_selectAll);
     m_selectAll->setChecked(total > 0 && checked == total);
+    m_selectAll->setTristate(total > 0 && checked > 0 && checked < total);
+    if (m_selectedLabel) {
+        m_selectedLabel->setText(QStringLiteral("已选 %1 人").arg(checked));
+    }
+    if (m_actionBar) {
+        m_actionBar->setVisible(checked > 0);
+    }
+}
+
+QStringList FriendManagerDialog::selectedFriendIds() const
+{
+    QStringList selected;
+    if (!m_table) return selected;
+    for (int row = 0; row < m_table->rowCount(); ++row) {
+        auto* check = qobject_cast<QCheckBox*>(m_table->cellWidget(row, kColCheck));
+        QTableWidgetItem* item = m_table->item(row, kColName);
+        if (check && check->isChecked() && item) {
+            selected << item->data(Qt::UserRole).toString();
+        }
+    }
+    return selected;
+}
+
+void FriendManagerDialog::deleteSelectedFriends()
+{
+    const QStringList selected = selectedFriendIds();
+    if (selected.isEmpty()) {
+        showFriendSelectionHint(this);
+        return;
+    }
+    if (!confirmFriendDeletion(this, selected.size())) return;
+    for (const QString& id : selected) {
+        emit deleteFriendRequested(id);
+        m_friendIds.removeAll(id);
+        m_friendGroups.remove(id);
+        m_avatarPaths.remove(id);
+    }
+    rebuildGroupRail();
+}
+
+void FriendManagerDialog::moveSelectedFriendsToGroup()
+{
+    const QStringList selected = selectedFriendIds();
+    if (selected.isEmpty()) {
+        showFriendSelectionHint(this);
+        return;
+    }
+    QStringList groups;
+    groups << kDefaultGroup;
+    for (const QString& group : m_customGroups) {
+        if (!groups.contains(group)) groups << group;
+    }
+    QDialog dialog(this);
+    dialog.setObjectName(QStringLiteral("friendBatchGroupDialog"));
+    dialog.setWindowTitle(QStringLiteral("设置分组"));
+    dialog.setModal(true);
+    dialog.setFixedSize(310, 156);
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20, 18, 20, 16);
+    auto* hint = new QLabel(QStringLiteral("将 %1 位好友移动到").arg(selected.size()), &dialog);
+    hint->setObjectName(QStringLiteral("friendBatchGroupHint"));
+    auto* combo = new QComboBox(&dialog);
+    combo->addItems(groups);
+    auto* actions = new QHBoxLayout();
+    actions->addStretch();
+    auto* cancel = new QPushButton(QStringLiteral("取消"), &dialog);
+    cancel->setObjectName(QStringLiteral("dialogSecondaryBtn"));
+    auto* apply = new QPushButton(QStringLiteral("确定"), &dialog);
+    apply->setObjectName(QStringLiteral("dialogPrimaryBtn"));
+    actions->addWidget(cancel);
+    actions->addWidget(apply);
+    layout->addWidget(hint);
+    layout->addWidget(combo);
+    layout->addLayout(actions);
+    connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const QString group = combo->currentText();
+    for (const QString& id : selected) {
+        m_friendGroups[id] = group;
+        emit moveFriendToGroupRequested(id, group);
+    }
+    rebuildGroupRail();
 }
 
 void FriendManagerDialog::updateStyle()
@@ -654,13 +914,16 @@ void FriendManagerDialog::updateStyle()
     setStyleSheet(DialogStyle::common() + QStringLiteral(
         "QDialog#friendManagerDialog { background-color: %1; }"
         "QWidget#managerRail { background-color: %3; border-right: 1px solid %4; }"
-        "QLabel#managerGroupCaption { color: %6; font-size: 12px; padding: 4px 8px 2px; }"
+        "QLabel#managerGroupCaption { color: %6; font-size: 12px; padding: 4px 10px 4px; }"
         "QListWidget#managerGroupList { background-color: %3; border: none; color: %2; outline: none; }"
-        "QListWidget#managerGroupList::item { padding: 9px 10px; margin: 1px 0; border-radius: 6px; }"
+        "QListWidget#managerGroupList::item { margin: 2px 0; border-radius: 6px; }"
         "QListWidget#managerGroupList::item:hover { background-color: %1; }"
         "QListWidget#managerGroupList::item:selected { background-color: %5; color: %2; }"
+        "QWidget#managerGroupRow { background: transparent; }"
+        "QLabel#managerGroupName { color: %2; font-size: 13px; }"
+        "QLabel#managerGroupCount { color: %6; font-size: 12px; }"
         "QPushButton#managerGroupAddBtn { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 0 10px; font-size: 13px; text-align: center; }"
-        "QPushButton#managerGroupAddBtn:hover { background: %3; border-color: %7; color: %7; }"
+        "QPushButton#managerGroupAddBtn:hover { background: %5; border-color: %7; color: %7; }"
         "QPushButton#managerGroupAddBtn:pressed { padding-top: 1px; }"
         "QMenu#managerGroupContextMenu { background: %1; color: %2; border: 1px solid %4; border-radius: 6px; padding: 4px; }"
         "QMenu#managerGroupContextMenu::item { padding: 7px 30px 7px 10px; border-radius: 4px; }"
@@ -671,12 +934,27 @@ void FriendManagerDialog::updateStyle()
         "QLabel#friendGroupEditTitle { color: %2; font-size: 16px; font-weight: 600; }"
         "QLabel#friendGroupEditError { color: %8; font-size: 12px; }"
         "QLabel#managerTitle { color: %2; font-size: 18px; font-weight: 600; }"
-        "QCheckBox#managerSelectAll { color: %6; font-size: 12px; }"
-        "QTableWidget#managerTable { background-color: %1; border: none; color: %2; }"
+        "QCheckBox#managerSelectAll { spacing: 0; }"
+        "QCheckBox#managerSelectAll::indicator, QTableWidget QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid %4; border-radius: 8px; background: %1; }"
+        "QCheckBox#managerSelectAll::indicator:checked, QTableWidget QCheckBox::indicator:checked { background: %7; border-color: %7; }"
+        "QTableWidget#managerTable { background-color: %1; border: 1px solid %4; border-radius: 6px; color: %2; }"
         "QTableWidget#managerTable::item { padding: 6px 8px; border-bottom: 1px solid %4; }"
-        "QComboBox { background: %3; color: %2; border: 1px solid %4; border-radius: 4px; padding: 2px 6px; }"
+        "QTableWidget#managerTable::item:selected { background: %5; color: %2; }"
+        "QWidget#managerNameCell { background: transparent; }"
+        "QLabel#managerFriendName { color: %2; font-size: 13px; }"
+        "QComboBox { background: transparent; color: %2; border: none; border-radius: 4px; padding: 2px 20px 2px 4px; }"
+        "QComboBox:hover { background: %3; }"
         "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %5; }"
-        "QHeaderView::section { background-color: %1; color: %2; border: none; border-bottom: 1px solid %4; padding: 6px 8px; font-weight: 600; }"
+        "QHeaderView::section { background-color: %1; color: %6; border: none; border-bottom: 1px solid %4; padding: 6px 8px; font-weight: 600; font-size: 13px; }"
+        "QLabel#managerEmptyState { color: %6; font-size: 13px; line-height: 1.7; background: %1; border: 1px solid %4; border-radius: 6px; }"
+        "QWidget#managerActionBar { background: %3; border: 1px solid %4; border-radius: 6px; }"
+        "QLabel#managerSelectedLabel { color: %6; font-size: 13px; padding: 0 6px; }"
+        "QPushButton#managerActionBtn, QPushButton#managerDangerActionBtn { background: transparent; border: 1px solid transparent; border-radius: 5px; color: %2; font-size: 12px; padding: 0 9px; text-align: center; }"
+        "QPushButton#managerActionBtn:hover { background: %1; border-color: %4; }"
+        "QPushButton#managerDangerActionBtn { color: %8; }"
+        "QPushButton#managerDangerActionBtn:hover { background: %9; border-color: %8; }"
+        "QDialog#friendBatchGroupDialog { background: %1; }"
+        "QLabel#friendBatchGroupHint { color: %2; font-size: 13px; }"
     ).arg(tm->backgroundColor().name())            // %1
      .arg(tm->textColor().name())                  // %2
      .arg(tm->backgroundSecondaryColor().name())    // %3
@@ -691,12 +969,14 @@ void FriendManagerDialog::updateStyle()
 void FriendManagerDialog::setFriendList(const QStringList& friendIds,
                                         const QMap<QString, QString>& friendNames,
                                         const QMap<QString, QString>& friendGroups,
-                                        const QStringList& customGroups)
+                                        const QStringList& customGroups,
+                                        const QMap<QString, QString>& avatarPaths)
 {
     m_friendIds = friendIds;
     m_friendNames = friendNames;
     m_friendGroups = friendGroups;
     m_customGroups = customGroups;
+    m_avatarPaths = avatarPaths;
     rebuildGroupRail();
 }
 

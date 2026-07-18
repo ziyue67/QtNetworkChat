@@ -19,6 +19,7 @@ public:
 
 signals:
     void messageActivated(const QString& messageId);
+    void messageRemovalRequested(const QString& messageId);
 
 private:
     void setupUi();

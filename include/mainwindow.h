@@ -348,6 +348,7 @@ private:
     void showAddFriendDialog();
     void showGlobalSearchDialog(bool contactGroupMode = false);
     void showEssencePanel();
+    void showGroupInfoPanel();
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
@@ -356,7 +357,8 @@ private:
     QString groupOwnerId(const QString& groupId) const;
     bool isCurrentUserGroupOwner(const QString& groupId) const;
     bool canCurrentUserManageServerGroup(const QString& groupId) const;
-    bool requestServerGroupMemberUpdate(const QString& memberId, const QString& action);
+    bool requestServerGroupMemberUpdate(const QString& memberId, const QString& action,
+                                        const QString& groupId = QString());
     QString e2eSessionStatusText(const QString& peerId) const;
     void copyE2ESessionStatus(const QString& peerId);
     QString getFriendFilePath() const;
@@ -397,13 +399,25 @@ private:
     QMap<QString, QString> m_localGroupAvatarPaths;
     QMap<QString, QStringList> m_localGroupMembers;
     QMap<QString, QString> m_serverGroupNames;
+    // Server group id -> locally persisted group session after the user joins
+    // it from QQNT global search. Keeps the result-card action stable.
+    QMap<QString, QString> m_joinedServerSearchGroups;
     QMap<QString, QString> m_serverGroupAnnouncements;
     QMap<QString, QString> m_serverGroupOwners;
     QMap<QString, QStringList> m_serverGroupMembers;
     QMap<QString, QString> m_serverGroupMemberNames;
     QMap<QString, QString> m_serverGroupMemberRoles;
+    QMap<QString, QJsonObject> m_serverGroupSettings;
+    QMap<QString, QJsonObject> m_serverGroupUserSettings;
     QMap<QString, QJsonArray> m_serverGroupAuditEvents;
     QMap<QString, QJsonObject> m_removedServerGroups;
+    // Pending server-side join applications received by a group owner/admin.
+    // Keyed by requestId and rendered in the Group Notifications dialog.
+    QMap<QString, QJsonObject> m_pendingGroupJoinApplications;
+    // Outgoing applications are visible to their applicant in Group Notifications
+    // until a group owner or administrator decides them.
+    QMap<QString, QJsonObject> m_pendingOutgoingGroupJoinApplications;
+    QMap<QString, QJsonObject> m_rejectedOutgoingGroupJoinApplications;
     bool m_hasServerGroupSnapshot;
     bool m_wasInPublicServerGroup;
     QMap<QString, ChatUser> m_knownUsers;

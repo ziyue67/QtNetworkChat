@@ -46,6 +46,7 @@ public:
     void setAnnouncement(const QString& text);
     void setMembers(const QList<GroupMemberDisplayData>& members);
     void setOnlineUsers(const QSet<QString>& onlineIds);
+    void setManagementEnabled(bool enabled);
 
 signals:
     void chatWithMember(const QString& userId);
@@ -74,6 +75,7 @@ private:
     QList<GroupMemberDisplayData> m_members;
     QList<GroupMemberDisplayData> m_filtered;
     QSet<QString> m_onlineIds;
+    bool m_managementEnabled = false;
 
     QLabel* m_titleLabel = nullptr;
     QLabel* m_countLabel = nullptr;

@@ -77,6 +77,8 @@ private:
     void handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupSettingsUpdate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupUserSettingsUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupEssenceUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleMessageFavoriteUpdate(const QJsonObject& obj, QTcpSocket* socket);
@@ -84,6 +86,11 @@ private:
     void handleServerGroupMemberMute(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupMemberUnmute(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupMemberProfileRequest(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupSearch(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupJoinRequest(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupJoinResponse(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupLeave(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupDissolve(const QJsonObject& obj, QTcpSocket* socket);
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* socket);

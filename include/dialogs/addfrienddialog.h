@@ -25,12 +25,14 @@ public slots:
     // Called by MainWindow when an async friend-search result arrives. Populates
     // the result card (found) or shows an inline "未找到" message (not found).
     void onSearchResult(const QString& account, const QString& userId, const QString& userName, bool found);
+    void setRequestOutcome(bool sent, const QString& message = QString());
 
 private:
     void setupUi();
     void updateStyle();
     void setLoading(bool loading);
-    void setAdded();
+    void setAdded(const QString& message = QString());
+    void showError(const QString& message);
 
     QLineEdit* m_searchEdit = nullptr;
     QPushButton* m_searchBtn = nullptr;

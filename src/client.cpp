@@ -3091,6 +3091,66 @@ bool Client::requestServerGroupMemberProfile(const QString& groupId, const QStri
     return sendJson(obj);
 }
 
+bool Client::sendServerGroupSettingsUpdate(const QString& groupId, const QJsonObject& settings) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || settings.isEmpty()) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_settings_update";
+    obj["groupId"] = groupId.trimmed();
+    obj["settings"] = settings;
+    return sendJson(obj);
+}
+
+bool Client::sendServerGroupUserSettingsUpdate(const QString& groupId, const QJsonObject& settings) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || settings.isEmpty()) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_user_settings_update";
+    obj["groupId"] = groupId.trimmed();
+    obj["settings"] = settings;
+    return sendJson(obj);
+}
+
+bool Client::searchServerGroups(const QString& keyword) {
+    if (!isConnected() || keyword.trimmed().isEmpty()) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_search";
+    obj["keyword"] = keyword.trimmed();
+    return sendJson(obj);
+}
+
+bool Client::requestServerGroupJoin(const QString& groupId, const QString& message) {
+    if (!isConnected() || groupId.trimmed().isEmpty()) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_join_request";
+    obj["groupId"] = groupId.trimmed();
+    obj["message"] = message.trimmed().left(120);
+    return sendJson(obj);
+}
+
+bool Client::respondServerGroupJoinRequest(const QString& requestId, bool accepted) {
+    if (!isConnected() || requestId.trimmed().isEmpty()) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_join_response";
+    obj["requestId"] = requestId.trimmed();
+    obj["accepted"] = accepted;
+    return sendJson(obj);
+}
+
+bool Client::leaveServerGroup(const QString& groupId) {
+    if (!isConnected() || groupId.trimmed().isEmpty()) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_leave";
+    obj["groupId"] = groupId.trimmed();
+    return sendJson(obj);
+}
+
+bool Client::dissolveServerGroup(const QString& groupId) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || groupId.trimmed() == QLatin1String("public")) return false;
+    QJsonObject obj;
+    obj["type"] = "server_group_dissolve";
+    obj["groupId"] = groupId.trimmed();
+    return sendJson(obj);
+}
+
 bool Client::createPrivateServerGroup(const QString& groupName, const QString& announcement, const QStringList& initialMemberIds) {
     if (!isConnected() || groupName.trimmed().isEmpty()) return false;
 
@@ -4784,6 +4844,31 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         emit serverGroupMemberUpdated(obj["groupId"].toString(),
                                       obj["memberId"].toString(),
                                       obj["action"].toString());
+        return;
+    }
+
+    if (type == "server_group_search_results") {
+        emit serverGroupSearchResults(obj["keyword"].toString(), obj["groups"].toArray());
+        return;
+    }
+
+    if (type == "server_group_join_application") {
+        emit serverGroupJoinApplicationReceived(obj);
+        return;
+    }
+
+    if (type == "server_group_join_request_status") {
+        emit serverGroupJoinRequestStatusReceived(obj);
+        return;
+    }
+
+    if (type == "server_group_leave_status") {
+        emit serverGroupLeaveStatusReceived(obj);
+        return;
+    }
+
+    if (type == "server_group_dissolve_status") {
+        emit serverGroupDissolveStatusReceived(obj);
         return;
     }
 
