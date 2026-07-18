@@ -17,7 +17,7 @@
 #include <QVBoxLayout>
 
 namespace {
-enum class ComposerToolIcon { Emoji, Image, File, History, Mention, Screenshot };
+enum class ComposerToolIcon { Emoji, Image, File, History, Screenshot };
 
 class ComposerToolButton final : public QPushButton {
 public:
@@ -75,14 +75,6 @@ protected:
             painter.drawLine(QPointF(r.left() + 1, r.top() + 3), QPointF(r.left() + 1, r.top() + 7));
             painter.drawLine(QPointF(r.left() + 1, r.top() + 3), QPointF(r.left() + 5, r.top() + 3));
             break;
-        case ComposerToolIcon::Mention: {
-            QFont font = painter.font();
-            font.setPixelSize(17);
-            font.setWeight(QFont::Medium);
-            painter.setFont(font);
-            painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("@"));
-            break;
-        }
         case ComposerToolIcon::Screenshot:
             painter.drawLine(QPointF(r.left() + 2, r.top() + 2), QPointF(r.right() - 2, r.bottom() - 2));
             painter.drawLine(QPointF(r.left() + 2, r.bottom() - 2), QPointF(r.right() - 2, r.top() + 2));
@@ -146,19 +138,23 @@ ComposerWidget::ComposerWidget(QWidget* parent)
 void ComposerWidget::setupUi()
 {
     QVBoxLayout* root = new QVBoxLayout(this);
-    root->setContentsMargins(18, 10, 18, 10);
+    root->setContentsMargins(18, 9, 18, 10);
     root->setSpacing(6);
 
     QHBoxLayout* toolbar = new QHBoxLayout();
-    toolbar->setSpacing(4);
+    toolbar->setSpacing(3);
     m_emojiBtn = createToolButton(ComposerToolIcon::Emoji, QStringLiteral("表情"));
     m_screenshotBtn = createToolButton(ComposerToolIcon::Screenshot, QStringLiteral("截图"));
     m_screenshotMoreBtn = new ComposerChevronButton(this);
     m_fileBtn = createToolButton(ComposerToolIcon::File, QStringLiteral("发送文件"));
     m_imageBtn = createToolButton(ComposerToolIcon::Image, QStringLiteral("发送图片/视频"));
-    m_historyBtn = createToolButton(ComposerToolIcon::History, QStringLiteral("清空聊天记录"));
-    m_mentionBtn = createToolButton(ComposerToolIcon::Mention, QStringLiteral("@ 提及"));
-    toolbar->addWidget(m_emojiBtn);
+    m_historyBtn = createToolButton(ComposerToolIcon::History, QStringLiteral("聊天记录"));
+    auto* leftTools = new QFrame(this);
+    leftTools->setObjectName(QStringLiteral("composerLeftTools"));
+    auto* leftLayout = new QHBoxLayout(leftTools);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(3);
+    leftLayout->addWidget(m_emojiBtn);
     auto* screenshotGroup = new QFrame(this);
     screenshotGroup->setObjectName(QStringLiteral("composerScreenshotGroup"));
     screenshotGroup->setFixedSize(42, 28);
@@ -167,12 +163,17 @@ void ComposerWidget::setupUi()
     screenshotLayout->setSpacing(0);
     screenshotLayout->addWidget(m_screenshotBtn);
     screenshotLayout->addWidget(m_screenshotMoreBtn);
-    toolbar->addWidget(screenshotGroup);
-    toolbar->addWidget(m_fileBtn);
-    toolbar->addWidget(m_imageBtn);
-    toolbar->addWidget(m_historyBtn);
-    toolbar->addWidget(m_mentionBtn);
+    leftLayout->addWidget(screenshotGroup);
+    leftLayout->addWidget(m_fileBtn);
+    leftLayout->addWidget(m_imageBtn);
+    toolbar->addWidget(leftTools);
     toolbar->addStretch();
+    auto* historyWrap = new QFrame(this);
+    historyWrap->setObjectName(QStringLiteral("composerHistoryWrap"));
+    auto* historyLayout = new QHBoxLayout(historyWrap);
+    historyLayout->setContentsMargins(0, 0, 0, 0);
+    historyLayout->addWidget(m_historyBtn);
+    toolbar->addWidget(historyWrap);
     root->addLayout(toolbar);
 
     ComposerTextEdit* input = new ComposerTextEdit(this);
@@ -205,8 +206,7 @@ void ComposerWidget::setupUi()
     connect(m_emojiBtn, &QPushButton::clicked, this, &ComposerWidget::showEmojiPicker);
     connect(m_imageBtn, &QPushButton::clicked, this, &ComposerWidget::imageRequested);
     connect(m_fileBtn, &QPushButton::clicked, this, &ComposerWidget::fileRequested);
-    connect(m_historyBtn, &QPushButton::clicked, this, &ComposerWidget::clearHistoryRequested);
-    connect(m_mentionBtn, &QPushButton::clicked, this, &ComposerWidget::mentionRequested);
+    connect(m_historyBtn, &QPushButton::clicked, this, &ComposerWidget::viewHistoryRequested);
     connect(m_screenshotBtn, &QPushButton::clicked, this, [this]() {
         emit screenshotRequested(m_hideWindowBeforeScreenshot);
     });
@@ -223,6 +223,7 @@ void ComposerWidget::updateStyle()
         "QTextEdit#composerInput:focus { border: 1px solid %5; }"
         "QPushButton#composerToolBtn { color: %6; border: none; background: transparent; border-radius: 6px; }"
         "QPushButton#composerToolBtn:hover { background-color: %7; color: %5; }"
+        "QFrame#composerLeftTools,QFrame#composerHistoryWrap { background: transparent; }"
         "QFrame#composerScreenshotGroup { border-radius: 6px; }"
         "QFrame#composerScreenshotGroup:hover { background-color: %7; }"
         "QFrame#composerScreenshotGroup QPushButton#composerToolBtn { border-top-right-radius: 0; border-bottom-right-radius: 0; }"

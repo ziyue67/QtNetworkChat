@@ -156,6 +156,8 @@ void MessagesView::setupUi()
     m_essenceBtn = new QPushButton(QStringLiteral("精华"), header);
     m_essenceBtn->setObjectName(QStringLiteral("chatEssenceBtn"));
     m_essenceBtn->setCursor(Qt::PointingHandCursor);
+    m_essenceBtn->setFixedHeight(30);
+    m_essenceBtn->setToolTip(QStringLiteral("查看群精华消息"));
     m_essenceBtn->setVisible(false);
     connect(m_essenceBtn, &QPushButton::clicked, this, &MessagesView::essenceRequested);
     headerTopRow->addWidget(m_essenceBtn, 0, Qt::AlignVCenter);
@@ -255,6 +257,9 @@ void MessagesView::setupUi()
     connect(m_composer, &ComposerWidget::imageRequested, this, &MessagesView::imageRequested);
     connect(m_composer, &ComposerWidget::emojiRequested, this, &MessagesView::emojiRequested);
     connect(m_composer, &ComposerWidget::mentionRequested, this, &MessagesView::mentionRequested);
+    connect(m_composer, &ComposerWidget::viewHistoryRequested, this, &MessagesView::viewHistoryRequested);
+    connect(m_composer, &ComposerWidget::filterHistoryByDateRequested, this, &MessagesView::filterHistoryByDateRequested);
+    connect(m_composer, &ComposerWidget::exportHistoryRequested, this, &MessagesView::exportHistoryRequested);
     connect(m_composer, &ComposerWidget::clearHistoryRequested, this, &MessagesView::clearHistoryRequested);
     connect(m_composer, &ComposerWidget::filesDropped, this, &MessagesView::filesDropped);
 
@@ -330,17 +335,21 @@ void MessagesView::updateStyle()
         "QLabel#chatSubtitleLabel { color: %10; font-size: 12px; }"
         "QLabel#chatHintLabel { color: %10; font-size: 12px; }"
         "QLabel#emptyChatLabel, QLabel#loadingLabel { color: %10; font-size: 14px; }"
-        "QPushButton#chatEssenceBtn { background: %5; color: %7; border: 1px solid %2; border-radius: 6px; padding: 5px 14px; font-size: 13px; }"
-        "QPushButton#chatEssenceBtn:hover { background: %8; }"
-        "QPushButton#chatGroupMoreBtn { background: transparent; color: %6; border: 1px solid %2; border-radius: 6px; font-size: 20px; font-weight:600; padding:0; text-align:center; }"
+        "QPushButton#chatEssenceBtn { background: transparent; color: %7; border: 1px solid %2; border-radius: 5px; padding: 0 11px; font-size: 12px; font-weight:500; }"
+        "QPushButton#chatEssenceBtn:hover { background: %5; border-color: %7; }"
+        "QPushButton#chatEssenceBtn:pressed { background: %8; }"
+        "QPushButton#chatEssenceBtn:focus,QPushButton#chatGroupMoreBtn:focus { border: 1px solid %7; }"
+        "QPushButton#chatGroupMoreBtn { background: transparent; color: %6; border: 1px solid %2; border-radius: 5px; font-size: 20px; font-weight:600; padding:0; text-align:center; }"
         "QPushButton#chatGroupMoreBtn:hover { background: %5; border-color: %7; color: %7; }"
+        "QPushButton#chatGroupMoreBtn:pressed { background: %8; }"
         "QLabel#dropOverlay { background-color: %11; color: %7; border: 2px dashed %7; font-size: 18px; font-weight: 600; }"
         "QPushButton#sessionNewChatBtn { background: transparent; color: %7; border: none; font-size: 18px; }"
         "QPushButton#sessionNewChatBtn:hover { background: %9; border-radius: 6px; }"
-        "QMenu#chatContextMenu { background-color: %4; color: %6; border: 1px solid %2; padding: 6px; border-radius: 6px; }"
-        "QMenu#chatContextMenu::item { padding: 6px 18px; border-radius: 4px; }"
-        "QMenu#chatContextMenu::item:selected { background-color: %5; color: %4; }"
-        "QMenu#chatContextMenu::separator { background-color: %2; height: 1px; margin: 4px 8px; }"
+        "QMenu#chatContextMenu { background-color: %4; color: %6; border: 1px solid %2; padding: 5px; border-radius: 6px; }"
+        "QMenu#chatContextMenu::item { min-width:112px; padding: 7px 24px 7px 11px; border-radius: 4px; }"
+        "QMenu#chatContextMenu::item:selected { background-color: %5; color: %6; }"
+        "QMenu#chatContextMenu::item:disabled { color: %10; }"
+        "QMenu#chatContextMenu::separator { background-color: %2; height: 1px; margin: 4px 7px; }"
     ).arg(tm->backgroundSecondaryColor().name())
      .arg(tm->borderColor().name())
      .arg(tm->backgroundColor().name())
@@ -408,8 +417,14 @@ void MessagesView::setCurrentUser(const QString& userId, const QString& userName
 void MessagesView::setChatTitle(const QString& title, const QString& subtitle, const QString& hint)
 {
     if (m_chatTitleLabel) m_chatTitleLabel->setText(title);
-    if (m_chatSubtitleLabel) m_chatSubtitleLabel->setText(subtitle);
-    if (m_chatHintLabel) m_chatHintLabel->setText(hint);
+    if (m_chatSubtitleLabel) {
+        m_chatSubtitleLabel->setText(subtitle);
+        m_chatSubtitleLabel->setVisible(!subtitle.trimmed().isEmpty());
+    }
+    if (m_chatHintLabel) {
+        m_chatHintLabel->setText(hint);
+        m_chatHintLabel->setVisible(!hint.trimmed().isEmpty());
+    }
     if (m_composer) m_composer->setSessionName(title);
 }
 

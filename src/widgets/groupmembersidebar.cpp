@@ -90,20 +90,39 @@ void GroupMemberItemDelegate::paint(QPainter* painter,
 
     QFont nameFont = option.font;
     nameFont.setPixelSize(13);
+    QFont roleFont = option.font;
+    roleFont.setPixelSize(10);
+    const QString role = roleLabel(data.role);
+    const QString roleSuffix = role.isEmpty() ? QString() : QStringLiteral("  %1").arg(role);
+    const int textLeft = avatarRect.right() + 10;
+    const QRect nameRect(textLeft, rect.top() + 5, rect.right() - textLeft - 12, 18);
     painter->setFont(nameFont);
     painter->setPen(tm->textColor());
-    QRect nameRect(avatarRect.right() + 10, rect.top() + 5, rect.width() - avatarRect.right() - 50, 18);
     painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter,
                       painter->fontMetrics().elidedText(displayName, Qt::ElideRight, nameRect.width()));
 
-    QFont roleFont = option.font;
-    roleFont.setPixelSize(10);
-    painter->setFont(roleFont);
-    const QString role = roleLabel(data.role);
     if (!role.isEmpty()) {
-        painter->setPen(tm->color(data.role == QStringLiteral("owner") ? QStringLiteral("role-owner")
-                                                                         : QStringLiteral("role-admin")));
-        painter->drawText(nameRect.right() + 6, rect.top() + 8, role);
+        // Role tokens are not part of the global palette. Derive both label
+        // colors from stable theme tokens so they stay visible in light/dark.
+        const bool owner = data.role == QStringLiteral("owner");
+        const QColor roleColor = owner ? QColor(QStringLiteral("#f08a24"))
+                                      : tm->primaryColor();
+        const QColor roleBackground = owner
+            ? (tm->isDark() ? QColor(QStringLiteral("#4a351f")) : QColor(QStringLiteral("#fff1df")))
+            : tm->primarySoftColor();
+        const int nameWidth = QFontMetrics(nameFont).horizontalAdvance(displayName);
+        const int available = nameRect.width();
+        const int roleWidth = QFontMetrics(roleFont).horizontalAdvance(roleSuffix) + 8;
+        const int textWidth = qMin(nameWidth, qMax(18, available - roleWidth));
+        const QRect badgeRect(nameRect.left() + textWidth + 5, rect.top() + 6,
+                              qMin(roleWidth, qMax(0, nameRect.right() - (nameRect.left() + textWidth + 5))), 18);
+        if (badgeRect.width() <= 8) return;
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(roleBackground);
+        painter->drawRoundedRect(badgeRect, 3, 3);
+        painter->setFont(roleFont);
+        painter->setPen(roleColor);
+        painter->drawText(badgeRect, Qt::AlignCenter, role);
     }
 
     QFont smallFont = option.font;

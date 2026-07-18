@@ -24,10 +24,13 @@ signals:
 private:
     void setupUi();
     void updateStyle();
+    void refreshSummary();
 
     QListView* m_listView = nullptr;
     QStandardItemModel* m_model = nullptr;
     QLabel* m_titleLabel = nullptr;
+    QLabel* m_countLabel = nullptr;
+    QLabel* m_emptyLabel = nullptr;
 };
 
 #endif // ESSENCEPANEL_H

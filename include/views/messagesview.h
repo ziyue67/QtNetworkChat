@@ -69,6 +69,9 @@ signals:
     void imageRequested();
     void emojiRequested();
     void mentionRequested();
+    void viewHistoryRequested();
+    void filterHistoryByDateRequested();
+    void exportHistoryRequested();
     void clearHistoryRequested();
     void filesDropped(const QStringList& paths);
     void messageActionRequested(const QModelIndex& index, const QString& action);

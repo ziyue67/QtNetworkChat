@@ -38,6 +38,9 @@ signals:
     void emojiRequested();
     void mentionRequested();
     void screenshotRequested(bool hideCurrentWindow);
+    void viewHistoryRequested();
+    void filterHistoryByDateRequested();
+    void exportHistoryRequested();
     void clearHistoryRequested();
     void filesDropped(const QStringList& paths);
     void textChanged();
@@ -55,7 +58,6 @@ private:
     QPushButton* m_imageBtn = nullptr;
     QPushButton* m_fileBtn = nullptr;
     QPushButton* m_historyBtn = nullptr;
-    QPushButton* m_mentionBtn = nullptr;
     QPushButton* m_screenshotBtn = nullptr;
     QPushButton* m_screenshotMoreBtn = nullptr;
     QPushButton* m_sendBtn = nullptr;

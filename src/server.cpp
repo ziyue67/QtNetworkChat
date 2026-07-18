@@ -17,6 +17,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QCryptographicHash>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -36,6 +37,7 @@
 #include <QUuid>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QHash>
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -62,6 +64,19 @@ constexpr int kPasswordKdfIterations = 120000;
 constexpr int kPasswordKdfSaltBytes = 16;
 constexpr int kPasswordKdfOutputBytes = 32;
 constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
+
+bool serverGroupMessageRateAllowed(const QString& groupId, const QString& userId, int perMinute) {
+    static QMutex mutex;
+    static QHash<QString, QList<qint64>> timestampsByMember;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const QString key = groupId + QLatin1Char('|') + userId;
+    QMutexLocker lock(&mutex);
+    QList<qint64>& timestamps = timestampsByMember[key];
+    while (!timestamps.isEmpty() && timestamps.first() <= now - 60 * 1000) timestamps.removeFirst();
+    if (timestamps.size() >= perMinute) return false;
+    timestamps.append(now);
+    return true;
+}
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -2492,6 +2507,12 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
                                           : QStringLiteral("群消息发送失败：新成员需在入群 24 小时后发言"));
         return;
     }
+    const int perMinuteLimit = speakingRule == QLatin1String("per_minute_10") ? 10
+        : (speakingRule == QLatin1String("per_minute_5") ? 5 : 0);
+    if (!manager && perMinuteLimit > 0 && !serverGroupMessageRateAllowed(groupId, sender->id, perMinuteLimit)) {
+        sendSystemNotice(socket, QStringLiteral("群消息发送失败：当前群每分钟最多发送 %1 条消息").arg(perMinuteLimit));
+        return;
+    }
     qint64 mutedUntil = 0;
     if (isServerGroupMemberMuted(groupId, sender->id, &mutedUntil)) {
         QJsonObject notice;
@@ -2506,19 +2527,25 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
         return;
     }
 
-    QStringList memberIds;
+    struct GroupMessageRecipient {
+        QString userId;
+        QString receiveMode;
+    };
+    QList<GroupMessageRecipient> recipients;
     const QString connectionName = "server_group_message_" + QString::number(reinterpret_cast<quintptr>(socket));
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
         if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery memberQuery(db);
-            memberQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+            memberQuery.prepare("SELECT m.user_id, COALESCE(s.receive_mode, 'receive_quiet') "
+                                "FROM server_group_members m LEFT JOIN server_group_user_settings s "
+                                "ON s.group_id = m.group_id AND s.user_id = m.user_id WHERE m.group_id = ?");
             memberQuery.addBindValue(groupId);
             if (memberQuery.exec()) {
                 while (memberQuery.next()) {
                     const QString memberId = memberQuery.value(0).toString();
-                    if (!memberId.isEmpty() && !memberIds.contains(memberId)) {
-                        memberIds << memberId;
+                    if (!memberId.isEmpty()) {
+                        recipients.append({memberId, memberQuery.value(1).toString()});
                     }
                 }
             }
@@ -2537,12 +2564,15 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
     msg.type = MessageType::Text;
     msg.timestamp = QDateTime::currentDateTime();
 
-    for (const QString& memberId : memberIds) {
-        QTcpSocket* memberSocket = m_userSockets.value(memberId);
+    for (const GroupMessageRecipient& recipient : recipients) {
+        if (recipient.receiveMode == QLatin1String("block") && recipient.userId != sender->id) continue;
+        QTcpSocket* memberSocket = m_userSockets.value(recipient.userId);
         if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
         QJsonObject forwarded = QJsonDocument::fromJson(msg.toJson()).object();
         forwarded["type"] = "server_group_message";
         forwarded["groupId"] = groupId;
+        forwarded["receiveMode"] = recipient.receiveMode;
+        forwarded["assistantInbox"] = recipient.receiveMode == QLatin1String("assistant_quiet");
         memberSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
         memberSocket->write("\n");
         memberSocket->flush();
@@ -2704,7 +2734,8 @@ void Server::handleServerGroupSearch(const QJsonObject& obj, QTcpSocket* socket)
             QSqlQuery query(db);
             query.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, ''), COUNT(m.user_id) "
                           "FROM server_groups g LEFT JOIN server_group_members m ON m.group_id = g.group_id "
-                          "WHERE g.group_id <> 'public' AND COALESCE(g.searchable, 1) = 1 AND (g.group_id LIKE ? OR g.group_name LIKE ?) "
+                          "WHERE g.group_id <> 'public' AND COALESCE(g.search_mode, 'id_and_keyword') <> 'private' "
+                          "AND (g.group_id LIKE ? OR (COALESCE(g.search_mode, 'id_and_keyword') = 'id_and_keyword' AND g.group_name LIKE ?)) "
                           "GROUP BY g.group_id, g.group_name, g.announcement, g.owner_id "
                           "ORDER BY g.updated_at DESC LIMIT 30");
             const QString pattern = QStringLiteral("%%1%").arg(keyword);
@@ -2761,24 +2792,40 @@ void Server::handleServerGroupSettingsUpdate(const QJsonObject& obj, QTcpSocket*
                 error = QStringLiteral("群设置保存失败：只有群主或管理员可以修改");
             }
 
-            const QStringList allowedKeys = {"groupName", "avatar", "allMuted", "speakingRule", "joinPolicy", "searchable"};
+            const QStringList allowedKeys = {"groupName", "avatar", "allMuted", "speakingRule", "joinPolicy", "searchMode", "searchable"};
             for (auto it = requested.begin(); error.isEmpty() && it != requested.end(); ++it) {
                 if (!allowedKeys.contains(it.key())) error = QStringLiteral("群设置保存失败：存在不支持的设置项");
             }
             const QString speakingRule = requested.value("speakingRule").toString();
             const QString joinPolicy = requested.value("joinPolicy").toString();
+            const QString searchMode = requested.value("searchMode").toString();
             if (error.isEmpty() && requested.contains("groupName")
                 && requested.value("groupName").toString().trimmed().isEmpty()) {
                 error = QStringLiteral("群设置保存失败：群名称不能为空");
             }
+            if (error.isEmpty() && requested.contains("avatar")) {
+                const QByteArray avatarData = QByteArray::fromBase64(requested.value("avatar").toString().toUtf8());
+                const QImage avatar = QImage::fromData(avatarData);
+                if (avatarData.isEmpty() || avatar.isNull()) {
+                    error = QStringLiteral("群设置保存失败：群头像不是有效图片");
+                } else if (avatarData.size() > 768 * 1024 || avatar.width() > 1024 || avatar.height() > 1024) {
+                    error = QStringLiteral("群设置保存失败：群头像尺寸或文件过大");
+                }
+            }
             if (error.isEmpty() && !speakingRule.isEmpty()
-                && speakingRule != QLatin1String("unrestricted") && speakingRule != QLatin1String("new_members_24h")) {
+                && speakingRule != QLatin1String("unrestricted") && speakingRule != QLatin1String("new_members_24h")
+                && speakingRule != QLatin1String("per_minute_10") && speakingRule != QLatin1String("per_minute_5")) {
                 error = QStringLiteral("群设置保存失败：发言限制无效");
             }
             if (error.isEmpty() && !joinPolicy.isEmpty()
                 && joinPolicy != QLatin1String("approval") && joinPolicy != QLatin1String("open")
                 && joinPolicy != QLatin1String("disabled")) {
                 error = QStringLiteral("群设置保存失败：加群方式无效");
+            }
+            if (error.isEmpty() && !searchMode.isEmpty()
+                && searchMode != QLatin1String("id_and_keyword") && searchMode != QLatin1String("id_only")
+                && searchMode != QLatin1String("private")) {
+                error = QStringLiteral("群设置保存失败：群搜索方式无效");
             }
             if (error.isEmpty()) {
                 QStringList assignments;
@@ -2788,7 +2835,8 @@ void Server::handleServerGroupSettingsUpdate(const QJsonObject& obj, QTcpSocket*
                 if (requested.contains("allMuted")) { assignments << "all_muted = ?"; values << (requested.value("allMuted").toBool() ? 1 : 0); }
                 if (requested.contains("speakingRule")) { assignments << "speaking_rule = ?"; values << (speakingRule.isEmpty() ? QStringLiteral("unrestricted") : speakingRule); }
                 if (requested.contains("joinPolicy")) { assignments << "join_policy = ?"; values << (joinPolicy.isEmpty() ? QStringLiteral("approval") : joinPolicy); }
-                if (requested.contains("searchable")) { assignments << "searchable = ?"; values << (requested.value("searchable").toBool() ? 1 : 0); }
+                if (requested.contains("searchMode")) { assignments << "search_mode = ?"; values << (searchMode.isEmpty() ? QStringLiteral("id_and_keyword") : searchMode); }
+                if (requested.contains("searchable") && !requested.contains("searchMode")) { assignments << "search_mode = ?"; values << (requested.value("searchable").toBool() ? QStringLiteral("id_and_keyword") : QStringLiteral("private")); }
                 if (assignments.isEmpty()) error = QStringLiteral("群设置保存失败：没有可更新的内容");
                 else {
                     QSqlQuery update(db);
@@ -2822,7 +2870,8 @@ void Server::handleServerGroupUserSettingsUpdate(const QJsonObject& obj, QTcpSoc
     const QJsonObject settings = obj.value("settings").toObject();
     if (!requester || groupId.isEmpty() || settings.isEmpty() || !ensureAccountDatabase()) return;
     const QStringList allowedKeys = {QStringLiteral("nickname"), QStringLiteral("remark"),
-                                     QStringLiteral("muteNotifications"), QStringLiteral("receiveWithoutNotify")};
+                                     QStringLiteral("muteNotifications"), QStringLiteral("receiveMode"),
+                                     QStringLiteral("receiveWithoutNotify")};
     QString error;
     const QString connectionName = "server_group_user_settings_" + QString::number(reinterpret_cast<quintptr>(socket));
     {
@@ -2838,24 +2887,32 @@ void Server::handleServerGroupUserSettingsUpdate(const QJsonObject& obj, QTcpSoc
             if (!membership.exec() || !membership.next() || membership.value(0).toInt() == 0) {
                 error = QStringLiteral("个人群设置保存失败：你不在该群聊");
             } else if (error.isEmpty()) {
-                QStringList assignments;
-                QList<QVariant> values;
-                if (settings.contains("nickname")) { assignments << "nickname = ?"; values << settings.value("nickname").toString().trimmed().left(40); }
-                if (settings.contains("remark")) { assignments << "remark = ?"; values << settings.value("remark").toString().trimmed().left(80); }
-                if (settings.contains("muteNotifications")) { assignments << "mute_notifications = ?"; values << (settings.value("muteNotifications").toBool() ? 1 : 0); }
-                if (settings.contains("receiveWithoutNotify")) { assignments << "receive_without_notify = ?"; values << (settings.value("receiveWithoutNotify").toBool() ? 1 : 0); }
-                QSqlQuery update(db);
-                update.prepare(insertIgnoreSql(QStringLiteral("server_group_user_settings"),
-                    {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("updated_at")},
-                    {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
-                    {QStringLiteral("group_id"), QStringLiteral("user_id")}));
-                update.addBindValue(groupId); update.addBindValue(requester->id);
-                if (!update.exec()) error = QStringLiteral("个人群设置保存失败：初始化失败");
+                const QString receiveMode = settings.value(QStringLiteral("receiveMode")).toString();
+                if (!receiveMode.isEmpty() && receiveMode != QLatin1String("receive_quiet")
+                    && receiveMode != QLatin1String("assistant_quiet") && receiveMode != QLatin1String("block")) {
+                    error = QStringLiteral("个人群设置保存失败：群消息接收方式无效");
+                }
                 if (error.isEmpty()) {
-                    update.prepare("UPDATE server_group_user_settings SET " + assignments.join(", ") + ", updated_at = CURRENT_TIMESTAMP WHERE group_id = ? AND user_id = ?");
-                    for (const QVariant& value : values) update.addBindValue(value);
+                    QStringList assignments;
+                    QList<QVariant> values;
+                    if (settings.contains("nickname")) { assignments << "nickname = ?"; values << settings.value("nickname").toString().trimmed().left(40); }
+                    if (settings.contains("remark")) { assignments << "remark = ?"; values << settings.value("remark").toString().trimmed().left(80); }
+                    if (settings.contains("muteNotifications")) { assignments << "mute_notifications = ?"; values << (settings.value("muteNotifications").toBool() ? 1 : 0); }
+                    if (settings.contains("receiveMode")) { assignments << "receive_mode = ?"; values << receiveMode; }
+                    if (settings.contains("receiveWithoutNotify")) { assignments << "receive_without_notify = ?"; values << (settings.value("receiveWithoutNotify").toBool() ? 1 : 0); }
+                    QSqlQuery update(db);
+                    update.prepare(insertIgnoreSql(QStringLiteral("server_group_user_settings"),
+                        {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("updated_at")},
+                        {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                        {QStringLiteral("group_id"), QStringLiteral("user_id")}));
                     update.addBindValue(groupId); update.addBindValue(requester->id);
-                    if (!update.exec()) error = QStringLiteral("个人群设置保存失败：数据库写入失败");
+                    if (!update.exec()) error = QStringLiteral("个人群设置保存失败：初始化失败");
+                    if (error.isEmpty()) {
+                        update.prepare("UPDATE server_group_user_settings SET " + assignments.join(", ") + ", updated_at = CURRENT_TIMESTAMP WHERE group_id = ? AND user_id = ?");
+                        for (const QVariant& value : values) update.addBindValue(value);
+                        update.addBindValue(groupId); update.addBindValue(requester->id);
+                        if (!update.exec()) error = QStringLiteral("个人群设置保存失败：数据库写入失败");
+                    }
                 }
             }
             db.close();
@@ -6280,6 +6337,8 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("ALTER TABLE server_groups ADD COLUMN speaking_rule TEXT DEFAULT 'unrestricted'");
                 query.exec("ALTER TABLE server_groups ADD COLUMN join_policy TEXT DEFAULT 'approval'");
                 query.exec("ALTER TABLE server_groups ADD COLUMN searchable INTEGER DEFAULT 1");
+                query.exec("ALTER TABLE server_groups ADD COLUMN search_mode TEXT DEFAULT 'id_and_keyword'");
+                query.exec("UPDATE server_groups SET search_mode = CASE WHEN COALESCE(searchable, 1) = 1 THEN 'id_and_keyword' ELSE 'private' END WHERE search_mode IS NULL OR search_mode = ''");
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_members ("
@@ -6306,10 +6365,12 @@ bool Server::ensureAccountDatabase() const {
                                 "user_id TEXT NOT NULL, "
                                 "nickname TEXT, "
                                 "remark TEXT, "
-                                "mute_notifications INTEGER NOT NULL DEFAULT 0, "
-                                "receive_without_notify INTEGER NOT NULL DEFAULT 0, "
-                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
-                                "PRIMARY KEY(group_id, user_id))");
+                                 "mute_notifications INTEGER NOT NULL DEFAULT 0, "
+                                 "receive_without_notify INTEGER NOT NULL DEFAULT 0, "
+                                 "receive_mode TEXT NOT NULL DEFAULT 'receive_quiet', "
+                                 "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                 "PRIMARY KEY(group_id, user_id))");
+                query.exec("ALTER TABLE server_group_user_settings ADD COLUMN receive_mode TEXT DEFAULT 'receive_quiet'");
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_join_requests ("
@@ -7866,7 +7927,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
             groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, ''), "
                                "COALESCE(g.group_type, ''), COALESCE(g.history_policy, ''), COALESCE(g.file_policy, ''), "
                                "COALESCE(g.avatar, ''), COALESCE(g.all_muted, 0), COALESCE(g.speaking_rule, 'unrestricted'), "
-                               "COALESCE(g.join_policy, 'approval'), COALESCE(g.searchable, 1) "
+                                "COALESCE(g.join_policy, 'approval'), COALESCE(g.search_mode, 'id_and_keyword') "
                                "FROM server_groups g "
                                "JOIN server_group_members m ON m.group_id = g.group_id "
                                "WHERE m.user_id = ? "
@@ -7897,7 +7958,8 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groupObj["allMuted"] = groupQuery.value(8).toInt() != 0;
                     groupObj["speakingRule"] = groupQuery.value(9).toString();
                     groupObj["joinPolicy"] = groupQuery.value(10).toString();
-                    groupObj["searchable"] = groupQuery.value(11).toInt() != 0;
+                    groupObj["searchMode"] = groupQuery.value(11).toString();
+                    groupObj["searchable"] = groupObj["searchMode"].toString() != QLatin1String("private");
                     groupObj["canSend"] = true;
                     groupObj["canSendFiles"] = true;
                     groupObj["canReadHistory"] = true;
@@ -7950,7 +8012,8 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
 
                     QSqlQuery userSettingsQuery(db);
                     userSettingsQuery.prepare("SELECT COALESCE(nickname, ''), COALESCE(remark, ''), "
-                                              "COALESCE(mute_notifications, 0), COALESCE(receive_without_notify, 0) "
+                                              "COALESCE(mute_notifications, 0), COALESCE(receive_without_notify, 0), "
+                                              "COALESCE(receive_mode, 'receive_quiet') "
                                               "FROM server_group_user_settings WHERE group_id = ? AND user_id = ?");
                     userSettingsQuery.addBindValue(groupId);
                     userSettingsQuery.addBindValue(userId);
@@ -7960,6 +8023,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                         userSettings["remark"] = userSettingsQuery.value(1).toString();
                         userSettings["muteNotifications"] = userSettingsQuery.value(2).toInt() != 0;
                         userSettings["receiveWithoutNotify"] = userSettingsQuery.value(3).toInt() != 0;
+                        userSettings["receiveMode"] = userSettingsQuery.value(4).toString();
                     }
                     groupObj["userSettings"] = userSettings;
 

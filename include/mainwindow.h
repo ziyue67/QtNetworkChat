@@ -65,6 +65,7 @@ private slots:
     void onClientDisconnected();
     void onClientError(const QString& error);
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
+    void onViewHistory();
     void onClearHistory();
     void onFilterHistoryByDate();
     void onExportHistory();

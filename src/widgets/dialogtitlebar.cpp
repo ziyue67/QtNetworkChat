@@ -29,18 +29,11 @@ void DialogTitleBar::setupUi(bool showCloseButton)
     layout->addWidget(m_titleLabel, 1);
 
     if (showCloseButton) {
-        // Use ASCII X here: the preview window can use a dark local stylesheet
-        // and the multiplication glyph was rendered blank by the active font
-        // fallback on some Windows installations.
-        m_closeBtn = new QPushButton(QStringLiteral("X"), this);
+        m_closeBtn = new QPushButton(QStringLiteral("×"), this);
         m_closeBtn->setObjectName(QStringLiteral("dialogTitleBarCloseBtn"));
         m_closeBtn->setFixedSize(32, 32);
         m_closeBtn->setFlat(true);
         m_closeBtn->setCursor(Qt::PointingHandCursor);
-        // No inline stylesheet here: the theme-aware rule in updateStyle()
-        // (QPushButton#dialogTitleBarCloseBtn { color: <textColor> }) must win so
-        // the X stays visible on light backgrounds. A hardcoded near-white color
-        // previously made it invisible on the light title bar.
         m_closeBtn->setToolTip(QStringLiteral("关闭"));
         layout->addWidget(m_closeBtn);
         connect(m_closeBtn, &QPushButton::clicked, this, &DialogTitleBar::closeRequested);
@@ -56,11 +49,13 @@ void DialogTitleBar::updateStyle()
         "QFrame#dialogTitleBar { background-color: %1; border-bottom: 1px solid %2; }"
         "QLabel#dialogTitleBarLabel { color: %3; font-size: 14px; font-weight: 600; }"
         "QLabel#dialogTitleBarLabel[centered=\"true\"] { font-size: 16px; font-weight: 700; }"
-        "QPushButton#dialogTitleBarCloseBtn { color: %3; border: none; background: transparent; font-size: 14px; font-weight: 700; border-radius: 4px; padding: 0; }"
-        "QPushButton#dialogTitleBarCloseBtn:hover { background-color: #ff4d4f; color: white; }"
+        "QPushButton#dialogTitleBarCloseBtn { color: %3; border: none; background: transparent; font-size: 20px; font-weight: 400; border-radius: 5px; padding: 0; }"
+        "QPushButton#dialogTitleBarCloseBtn:hover { background-color: %4; color: %3; }"
+        "QPushButton#dialogTitleBarCloseBtn:pressed { background-color: %2; }"
     ).arg(tm->backgroundSecondaryColor().name())
      .arg(tm->borderColor().name())
-     .arg(tm->textColor().name()));
+     .arg(tm->textColor().name())
+     .arg(tm->backgroundTertiaryColor().name()));
 }
 
 void DialogTitleBar::setTitle(const QString& title)
