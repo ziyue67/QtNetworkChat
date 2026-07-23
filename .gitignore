@@ -1,6 +1,7 @@
 # Build outputs
 build/
 build-*/
+build_*/
 bin/
 out/
 dist/
@@ -27,6 +28,14 @@ qrc_*.cpp
 Makefile
 Makefile.Debug
 Makefile.Release
+Makefile.Debug.Debug
+Makefile.Debug.Release
+Makefile.mingw
+Makefile.mingw.Debug
+Makefile.mingw.Release
+Makefile.pro
+Makefile.pro.Debug
+Makefile.pro.Release
 .qmake.stash
 
 # IDE / local tooling
@@ -69,4 +78,29 @@ Thumbs.db
 # Local automation / verification artifacts
 automation_status_sample_*/
 automation_status_configured_missing_sample_*/
+
+# Build / configure / commit logs
+*.log
+
+# Python scratch scripts and cache (one-off patch/inspect helpers)
+__pycache__/
+*.pyc
+patch_*.py
+patch2.py
+inspect_*.py
+add_exception_handler.py
+add_logs.py
+fix_search.py
+build_main.py
+run_verify.py
+
+# Misc scratch / temp artifacts
+inspect_out.txt
+patch-qqnt-ui-prebuild.patch
+.commit_marker
+
+# AI / assistant tooling and local plans
+.codex/
+.kun-canvas/
+.kunsdd/
 
