@@ -2,11 +2,11 @@ name: CodeQL Security Scan
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
-  security-events: write
-  actions: read
 
 jobs:
   analyze:
@@ -34,3 +34,12 @@ jobs:
         uses: github/codeql-action/analyze@18420e3271f74589575af831a523c833acda327f # codeql-bundle-v2.26.2
         with:
           category: "/language:${{ matrix.language }}"
+          output: /tmp/codeql-results
+          upload: never
+
+      - name: Upload SARIF results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codeql-${{ matrix.language }}
+          path: /tmp/codeql-results/**/*.sarif
+          if-no-files-found: ignore
