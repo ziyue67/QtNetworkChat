@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
         with:
           version: "6.8.3"
           host: windows
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload package
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: QtNetworkChat-win-x64
           path: dist/QtNetworkChat-win-x64.zip
@@ -76,7 +76,7 @@ jobs:
 
       - name: Upload CI diagnostics
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-build-diagnostics
           path: |
@@ -95,9 +95,9 @@ jobs:
           $summary += ""
           $summary += "| Field | Value |"
           $summary += "|---|---|"
-          $summary += "| Commit | `${{ github.sha }}` |"
-          $summary += "| Event | `${{ github.event_name }}` |"
-          $summary += "| Ref | `${{ github.ref }}` |"
+          $summary += "| Commit | `$env:GITHUB_SHA` |"
+          $summary += "| Event | `$env:GITHUB_EVENT_NAME` |"
+          $summary += "| Ref | `$env:GITHUB_REF` |"
           $summary += "| Qt | `6.8.3 MSVC 2022 x64` |"
           $summary += "| Build step timeout | `30m` |"
           $summary += "| CTest step timeout | `20m` |"
