@@ -5884,6 +5884,7 @@ bool Server::sendFileChunkAndWaitForAck(QTcpSocket* socket,
         &Server::fileChunkAckReceived,
         &loop,
         [&](QTcpSocket* ackSocket, const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason, qint64 ackBytes) {
+            // Ignore late or unrelated acknowledgements from other sockets/transfers.
             if (!socketGuard || ackSocket != socketGuard.data() || ackTransferId != transferId || ackChunkIndex != chunkIndex) return;
             matched = true;
             accepted = ackAccepted;

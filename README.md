@@ -125,6 +125,10 @@ WebSocket listener or WS-to-TCP gateway behind it.
 - `sqlite_to_postgres_migrator`: account database migration utility.
 - `deploy/`: production Docker Compose stack and certificate tooling.
 
+See [architecture and security boundaries](docs/architecture.md) for the
+runtime data flow and [testing coverage](docs/testing-coverage.md) for current
+checks and remaining gaps.
+
 ## Tests
 
 Run the focused checks used for a normal development build:

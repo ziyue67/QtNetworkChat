@@ -1,22 +1,40 @@
 # Testing Coverage
 
-This branch validates the QtNetworkChat backend through CTest, QtNetworkChat tests, protocol drift checks, and selected package/readme contract tests.
+The current CMake suite contains 52 CTest entries. Run the complete suite
+after changes to shared client, server, E2E, or transfer code:
 
-## Core Lanes
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+```
 
-- `QtNetworkChatEngineSmoke` verifies headless engine startup, stdout NDJSON cleanliness, `ready`, basic command acknowledgements, every documented command in `tests/fixtures/protocol_contract.json` is routed by `QtNetworkChatEngine`, and successful contract acknowledgements keep their documented payload shape.
-- `QtNetworkChatEngineEndToEnd` verifies two real `QtNetworkChatEngine` processes can register, connect through `QtNetworkChatServer`, and deliver a private message over Redis routing.
-- `QtNetworkChatProtocolDrift` verifies that docs, C++ fixtures, C++ router helpers, and QtNetworkChat expectations agree on protocol version, command/event coverage, command/event payload shapes, strict command envelope/payload field validation, and the `details.targetFields` contract for target-validation errors.
-- `QtNetworkChatServerRedis`, `RedisServerReadiness`, and `RedisStartupRequirement` verify Redis-backed server readiness and routing behavior.
-- `cargo test` under `QtNetworkChat-QtNetworkChat/src-QtNetworkChat` verifies Rust command wrappers, bridge parsing, event forwarding, and protocol-version guards.
-- `npm run QtNetworkChat build` verifies the QtNetworkChat bundle path and produces the local NSIS installer after the QtNetworkChat are built.
-- Packaging and information-architecture tests verify that release packages include `README.md` and that documentation links remain discoverable; `ReadmeInformationArchitecture` also keeps the backend quick-start commands, B14/BM6 QtNetworkChat packaging contract, and backend/frontend branch ownership wording aligned with `package.json`, `QtNetworkChat.conf.json`, and the branch plan.
-- `RuntimeArtifactHygiene` verifies that Phase 8.4 runtime databases, histories, offline attachment payloads, QtNetworkChat generated output, QtNetworkChat executables, and local package/build artifacts remain ignored and untracked.
+## Covered Paths
 
-## Current Scope
+- E2E envelope validation, provider configuration/runtime gates, and private
+  message delivery.
+- TCP/WebSocket transport, TLS fingerprint helpers, login credential migration,
+  Redis startup/readiness, cross-instance routing, and PostgreSQL protocol smoke.
+- File transfer retry, duplicate chunk acknowledgements, resume state, offline
+  quota, cancellation, and public image delivery.
+- Desktop state managers for sessions, contacts, notifications, composer,
+  transfer cards, and visual style consistency.
+- Headless engine startup, protocol drift, and end-to-end private messaging.
 
-Backend validation should stay scoped to C++ QtNetworkChat, Redis/service behavior, QtNetworkChat QtNetworkChat code, protocol fixtures, and packaging scripts. Frontend rendering and mock UI behavior belong to `codex/QtNetworkChat-frontend`.
+The Linux and Windows workflows build the app and run focused checks. Tagged
+desktop releases also run installer smoke checks; the container workflow builds
+and publishes the server image. A successful installer smoke check is not a
+code-signing certificate: the Windows installer is currently unsigned.
 
-On 2026-06-19, the backend branch completed the 97-test CTest suite in numbered slices (`-I 1,24`, `-I 25,54`, `-I 55,79`, `-I 80,97`). Slicing avoids the local 5-minute command timeout while preserving coverage of every configured CTest entry.
+`E2EEnvelopeProtocol` includes provider-not-linked assertions and is registered
+only when the adapter is not linked. Linked production builds use
+`E2EProductionAdapterRuntime` for provider behavior instead.
 
-Running `npm test -- --run` in the backend branch is not a BM5/BM6 gate because the current Vitest suite is owned by `codex/QtNetworkChat-frontend`; with no `*.test.ts(x)` files present, Vitest exits with `No test files found` and should be interpreted as out of backend scope rather than a backend regression.
+## Remaining Gaps
+
+The certificate-pin unit test checks correct and incorrect certificate
+fingerprints, but does not currently run a full local TLS server to assert
+login-frame ordering. Window menu and notification dialogs are compiled but
+not driven by an automated GUI interaction test. Public WSS and the pinned
+production server must be checked separately from local CTest after deployment
+changes; publishing a new image does not update the pinned server.

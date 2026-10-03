@@ -24,6 +24,8 @@ void QQNTRedisService::configureFromEnvironment() {
 
 bool QQNTRedisService::initialize(QString* error) {
     configureFromEnvironment();
+    // Presence and cross-instance routing require Redis; starting without it would
+    // accept clients while silently losing delivery across server instances.
     if (!m_client->isEnabled()) {
         m_lastError = QStringLiteral("redis-required");
         m_commandReady = false;

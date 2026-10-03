@@ -201,6 +201,7 @@ signals:
 private slots:
     void onReadyRead();
     void onConnected();
+    void onTlsEncrypted();
     void onDisconnected();
     void onError(QAbstractSocket::SocketError socketError);
     void onHeartbeat();
@@ -314,6 +315,7 @@ private:
     QTimer* m_transferCleanupTimer;
     QString m_transportName;
     bool m_webSocketPinAccepted;
+    bool m_tcpTlsPinAccepted;
     QString m_userId;
     QString m_userName;
     QString m_account;

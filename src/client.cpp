@@ -936,6 +936,7 @@ Client::Client(QObject* parent)
     , m_transferCleanupTimer(new QTimer(this))
     , m_transportName(clientTransportName())
     , m_webSocketPinAccepted(false)
+    , m_tcpTlsPinAccepted(false)
     , m_registerMode(false)
     , m_loginFinished(false)
     , m_loginOk(false)
@@ -961,6 +962,8 @@ Client::Client(QObject* parent)
                 });
         connect(m_webSocket, &QWebSocket::sslErrors,
                 this, [this](const QList<QSslError>&) {
+                    // A configured certificate pin is an explicit trust root for self-signed
+                    // deployments. The connected handler checks the peer certificate before login.
                     if (!configuredPinnedTlsFingerprint().isEmpty()
                         || !clientTlsVerifyEnabled()) {
                         m_webSocket->ignoreSslErrors();
@@ -978,9 +981,10 @@ Client::Client(QObject* parent)
         m_socket = createClientSocket(this, tcpTransportUsesTls(m_transportName));
         connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
         if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
-            connect(sslSocket, &QSslSocket::encrypted, this, &Client::onConnected);
+            connect(sslSocket, &QSslSocket::encrypted, this, &Client::onTlsEncrypted);
             connect(sslSocket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
                     this, [sslSocket](const QList<QSslError>&) {
+                        // The TLS handshake must finish before onTlsEncrypted can check the pin.
                         if (!configuredPinnedTlsFingerprint().isEmpty()
                             || !clientTlsVerifyEnabled()) {
                             sslSocket->ignoreSslErrors();
@@ -1019,6 +1023,10 @@ bool Client::isConnected() const {
     if (m_webSocket) {
         return m_webSocketPinAccepted
             && m_webSocket->state() == QAbstractSocket::ConnectedState;
+    }
+    if (qobject_cast<const QSslSocket*>(m_socket)) {
+        return m_tcpTlsPinAccepted
+            && m_socket->state() == QAbstractSocket::ConnectedState;
     }
     return m_socket && m_socket->state() == QAbstractSocket::ConnectedState;
 }
@@ -1107,27 +1115,16 @@ bool Client::connectToServer(const QString& host, quint16 port) {
     }
 
     if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
+        m_tcpTlsPinAccepted = false;
         sslSocket->connectToHostEncrypted(host, port);
         const bool encrypted = sslSocket->waitForEncrypted(5000);
         if (!encrypted) {
-            m_loginError = "TLS 握手失败: " + sslSocket->errorString();
+            if (m_loginError.isEmpty()) {
+                m_loginError = "TLS 握手失败: " + sslSocket->errorString();
+            }
             return false;
         }
-        const QString pinnedFingerprint = configuredPinnedTlsFingerprint();
-        if (!pinnedFingerprint.isEmpty()) {
-            QString actualFingerprint;
-            if (!pinnedCertificateFingerprintMatches(sslSocket->peerCertificate(),
-                                                     pinnedFingerprint,
-                                                     &actualFingerprint)) {
-                m_loginError = QStringLiteral("TLS 证书指纹不匹配: expected=%1 actual=%2")
-                    .arg(normalizedSha256Fingerprint(pinnedFingerprint),
-                         actualFingerprint.isEmpty() ? QStringLiteral("unavailable") : actualFingerprint);
-                sslSocket->disconnectFromHost();
-                emit connectionError(QStringLiteral("TLS 证书指纹不匹配，已断开连接"));
-                return false;
-            }
-        }
-        return true;
+        return m_tcpTlsPinAccepted;
     }
     m_socket->connectToHost(host, port);
     return m_socket->waitForConnected(5000);
@@ -1135,6 +1132,7 @@ bool Client::connectToServer(const QString& host, quint16 port) {
 
 void Client::disconnectFromServer() {
     m_heartbeatTimer->stop();
+    m_tcpTlsPinAccepted = false;
     if (m_webSocket && m_webSocket->state() != QAbstractSocket::UnconnectedState) {
         m_webSocket->close(QWebSocketProtocol::CloseCodeNormal,
                            QStringLiteral("client disconnect"));
@@ -4443,6 +4441,8 @@ bool Client::sendFilePayload(const QString& filePath,
             file.close();
             return false;
         }
+        // Resume state is scoped to this transfer and records acknowledged chunk indexes.
+        // Skipping them avoids replaying accepted bytes after an interrupted connection.
         if (receivedChunkIndexes.contains(chunkIndex)) {
             sentBytes = qMax(sentBytes, qMin(wireFileSize, (chunkIndex + 1) * kTransferChunkBytes));
             ++chunkIndex;
@@ -4715,7 +4715,30 @@ void Client::onConnected() {
     emit connected();
 }
 
+void Client::onTlsEncrypted() {
+    QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket);
+    if (!sslSocket) return;
+    const QString pinnedFingerprint = configuredPinnedTlsFingerprint();
+    if (!pinnedFingerprint.isEmpty()) {
+        QString actualFingerprint;
+        if (!pinnedCertificateFingerprintMatches(sslSocket->peerCertificate(),
+                                                 pinnedFingerprint,
+                                                 &actualFingerprint)) {
+            m_loginError = QStringLiteral("TLS 证书指纹不匹配: expected=%1 actual=%2")
+                .arg(normalizedSha256Fingerprint(pinnedFingerprint),
+                     actualFingerprint.isEmpty() ? QStringLiteral("unavailable") : actualFingerprint);
+            m_tcpTlsPinAccepted = false;
+            sslSocket->abort();
+            emit connectionError(QStringLiteral("TLS 证书指纹不匹配，已断开连接"));
+            return;
+        }
+    }
+    m_tcpTlsPinAccepted = true;
+    onConnected();
+}
+
 void Client::onDisconnected() {
+    m_tcpTlsPinAccepted = false;
     m_heartbeatTimer->stop();
     m_transferCleanupTimer->stop();
     m_incomingFileTransfers.clear();

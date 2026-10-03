@@ -5,6 +5,7 @@
 #include <QEventLoop>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSslSocket>
 #include <QTimer>
 #include <QtWebSockets/QWebSocket>
 #include <QtWebSockets/QWebSocketServer>
@@ -116,5 +117,23 @@ int main(int argc, char** argv) {
     client.disconnectFromServer();
     qunsetenv("QTNETWORKCHAT_TRANSPORT");
     qunsetenv("QTNETWORKCHAT_WEBSOCKET_URL");
+
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tls");
+    qputenv("QTNETWORKCHAT_TLS_PINNED_SHA256", QByteArray(64, 'a'));
+    Client pinnedTlsClient;
+    QSslSocket* tlsSocket = pinnedTlsClient.findChild<QSslSocket*>();
+    bool tlsConnectedSignal = false;
+    QString tlsError;
+    QObject::connect(&pinnedTlsClient, &Client::connected, &app,
+                     [&]() { tlsConnectedSignal = true; });
+    QObject::connect(&pinnedTlsClient, &Client::connectionError, &app,
+                     [&](const QString& error) { tlsError = error; });
+    ok = expect(tlsSocket && QMetaObject::invokeMethod(tlsSocket, "encrypted", Qt::DirectConnection),
+                "TLS encrypted signal should reach the pin gate") && ok;
+    ok = expect(!tlsConnectedSignal && !pinnedTlsClient.isConnected()
+                    && tlsError.contains(QStringLiteral("指纹不匹配")),
+                "a missing or mismatched TLS certificate must be rejected before connected") && ok;
+    qunsetenv("QTNETWORKCHAT_TLS_PINNED_SHA256");
+    qunsetenv("QTNETWORKCHAT_TRANSPORT");
     return ok ? 0 : 1;
 }

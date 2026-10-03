@@ -142,6 +142,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/notificationpanelmanager.cpp
     src/groupmanager.cpp
     src/e2eenvelope.cpp
+    src/e2e_envelope_codec.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
     include/historyattachmentparser.h
@@ -174,6 +175,8 @@ endfunction()
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
+    src/mainwindow_menu.cpp
+    src/mainwindow_notifications.cpp
     src/mainwindow_views.cpp
     src/mainwindow_group_panel.cpp
     src/mainwindow_search.cpp
@@ -340,6 +343,7 @@ add_executable(qqnt_server
     src/server_group.cpp
     src/message.cpp
     src/e2eenvelope.cpp
+    src/e2e_envelope_codec.cpp
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -370,6 +374,7 @@ add_executable(qqnt_engine
     src/server_group.cpp
     src/message.cpp
     src/e2eenvelope.cpp
+    src/e2e_envelope_codec.cpp
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
     src/localfilemanager.cpp
@@ -400,6 +405,7 @@ qtnetworkchat_attach_production_adapter(qqnt_engine)
 add_executable(e2e_rollout_observability_exporter
     tools/e2e_rollout_observability_exporter.cpp
     src/e2eenvelope.cpp
+    src/e2e_envelope_codec.cpp
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/e2eenvelope.h
     include/qtnetworkchat_e2e_provider_api.h
@@ -430,6 +436,7 @@ if(BUILD_TESTING)
         tests/message_serialization_test.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_envelope_codec.cpp
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/message.h
         include/e2eenvelope.h
@@ -444,6 +451,7 @@ if(BUILD_TESTING)
     add_executable(e2e_envelope_test
         tests/e2e_envelope_test.cpp
         src/e2eenvelope.cpp
+        src/e2e_envelope_codec.cpp
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
         include/qtnetworkchat_e2e_provider_api.h
@@ -458,6 +466,7 @@ if(BUILD_TESTING)
     add_executable(e2e_production_adapter_runtime_test
         tests/e2e_production_adapter_runtime_test.cpp
         src/e2eenvelope.cpp
+        src/e2e_envelope_codec.cpp
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
     )
@@ -963,6 +972,7 @@ if(BUILD_TESTING)
             src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_envelope_codec.cpp
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
         include/server.h
@@ -1021,13 +1031,17 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
-    add_test(
-        NAME E2EEnvelopeProtocol
-        COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:e2e_envelope_test>
-            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
-    )
+    # This suite asserts the draft-only, provider-not-linked status contract.
+    # The linked production path is covered by E2EProductionAdapterRuntime.
+    if(NOT QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER)
+        add_test(
+            NAME E2EEnvelopeProtocol
+            COMMAND ${CMAKE_COMMAND}
+                -DTEST_EXE=$<TARGET_FILE:e2e_envelope_test>
+                -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+        )
+    endif()
     add_test(
         NAME E2ECryptoBackendConfig
         COMMAND ${CMAKE_COMMAND}
@@ -1701,6 +1715,7 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_envelope_codec.cpp
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -1731,6 +1746,7 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_envelope_codec.cpp
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}

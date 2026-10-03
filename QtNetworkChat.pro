@@ -19,6 +19,8 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     src/main.cpp \
     src/mainwindow.cpp \
+    src/mainwindow_menu.cpp \
+    src/mainwindow_notifications.cpp \
     src/mainwindow_views.cpp \
     src/mainwindow_group_panel.cpp \
     src/mainwindow_search.cpp \
@@ -43,6 +45,7 @@ SOURCES += \
     src/heartbeatmonitor.cpp \
     src/tlssecurity.cpp \
     src/e2eenvelope.cpp \
+    src/e2e_envelope_codec.cpp \
     src/server.cpp \
     src/server_friend.cpp \
     src/server_group.cpp \
