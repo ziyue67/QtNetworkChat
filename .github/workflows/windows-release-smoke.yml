@@ -1,0 +1,67 @@
+name: Windows Release Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-release:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v1.1.4
+      INSTALLER_NAME: QtNetworkChat-1.1.4-win-x64-setup.exe
+
+    steps:
+      - name: Download and verify published installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern $env:INSTALLER_NAME --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw "Release download failed" }
+          $installer = Join-Path $env:RUNNER_TEMP $env:INSTALLER_NAME
+          $release = (gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0) { throw "Release metadata request failed" }
+          $asset = @($release.assets | Where-Object { $_.name -eq $env:INSTALLER_NAME })
+          if ($asset.Count -ne 1) { throw "Expected exactly one installer asset" }
+          $actual = "sha256:$((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant())"
+          if ($actual -ne $asset[0].digest) { throw "Installer digest mismatch" }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne "NotSigned") { throw "Unexpected signature status: $($signature.Status)" }
+          "Installer digest: $actual" >> $env:GITHUB_STEP_SUMMARY
+          "Authenticode status: $($signature.Status)" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Install, launch, and uninstall without Qt SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = Join-Path $env:RUNNER_TEMP $env:INSTALLER_NAME
+          $installDir = Join-Path $env:RUNNER_TEMP "QtNetworkChat-release-smoke"
+          foreach ($name in @("QT_ROOT_DIR", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH")) {
+            Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+          }
+          $install = Start-Process -FilePath $installer -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)" }
+          foreach ($name in @("QtNetworkChat.exe", "Qt6Core.dll", "Qt6WebSockets.dll", "libcrypto-3-x64.dll", "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll", "platforms\qwindows.dll", "sqldrivers\qsqlite.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $installDir $name) -PathType Leaf)) { throw "Installed runtime missing $name" }
+          }
+          $env:QTNETWORKCHAT_SERVER_HOST = "127.0.0.1"
+          $env:QTNETWORKCHAT_SERVER_PORT = "1"
+          $env:QTNETWORKCHAT_TRANSPORT = "tcp"
+          $app = Start-Process -FilePath (Join-Path $installDir "QtNetworkChat.exe") -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $app.Refresh()
+            if ($app.HasExited) { throw "Installed client exited early with code $($app.ExitCode)" }
+          } finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+          $uninstaller = Join-Path $installDir "unins000.exe"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller missing" }
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with exit code $($uninstall.ExitCode)" }
+          if (Test-Path -LiteralPath (Join-Path $installDir "QtNetworkChat.exe") -PathType Leaf) { throw "Uninstaller left the executable behind" }
+          "Install, startup, and uninstall: passed on a Windows runner without a Qt SDK." >> $env:GITHUB_STEP_SUMMARY
