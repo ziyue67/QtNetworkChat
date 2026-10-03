@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=QtNetworkChat
+Comment=Secure self-hosted desktop chat client
+Exec=QtNetworkChat
+Icon=io.github.ziyue67.qtnetworkchat
+Categories=Network;Chat;InstantMessaging;
+Terminal=false
+StartupNotify=true
+StartupWMClass=QtNetworkChat

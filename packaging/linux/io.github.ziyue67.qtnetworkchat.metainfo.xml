@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ziyue67.qtnetworkchat</id>
+  <name>QtNetworkChat</name>
+  <summary>Secure self-hosted desktop chat client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.ziyue67">
+    <name>ziyue67</name>
+  </developer>
+  <description>
+    <p>
+      QtNetworkChat is a Qt desktop client for self-hosted private and group
+      chat, resumable file transfer, local history, and TLS or WebSocket
+      transports.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.ziyue67.qtnetworkchat.desktop</launchable>
+  <url type="homepage">https://github.com/ziyue67/QtNetworkChat</url>
+  <url type="bugtracker">https://github.com/ziyue67/QtNetworkChat/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.1.3" date="2026-10-03">
+      <description>
+        <p>Align production crypto across desktop platforms and reorganize server modules.</p>
+      </description>
+    </release>
+    <release version="1.1.2" date="2026-10-03">
+      <description>
+        <p>Generate portable AppImage checksum files that can be verified after download.</p>
+      </description>
+    </release>
+    <release version="1.1.1" date="2026-10-03"/>
+  </releases>
+</component>

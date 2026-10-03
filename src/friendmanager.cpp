@@ -1,0 +1,966 @@
+#include "friendmanager.h"
+
+namespace {
+const QString kSearchAddPrefix = QStringLiteral("search_add:");
+
+QString globalSearchTargetDisplayName(const GlobalSearchResultCopyInput& result,
+                                      const QString& fallbackKeyword) {
+    if (result.localGroup || result.entryId.startsWith(QStringLiteral("local_group_"))) {
+        return result.displayName.trimmed().isEmpty()
+            ? QStringLiteral("群聊")
+            : result.displayName.trimmed();
+    }
+    if (!result.displayName.trimmed().isEmpty()) {
+        return result.displayName.trimmed();
+    }
+    if (!result.entryId.trimmed().isEmpty()) {
+        return result.entryId.trimmed();
+    }
+    return fallbackKeyword.trimmed();
+}
+
+QString globalSearchTargetId(const GlobalSearchResultCopyInput& result,
+                             const QString& fallbackKeyword) {
+    QString entryId = result.entryId.trimmed();
+    if (entryId.startsWith(kSearchAddPrefix)) {
+        entryId = entryId.mid(kSearchAddPrefix.size());
+    }
+    if (entryId.startsWith(QStringLiteral("local_group_"))) {
+        entryId = entryId.mid(QStringLiteral("local_group_").size());
+    }
+    if (!entryId.isEmpty()) {
+        return entryId;
+    }
+    return fallbackKeyword.trimmed();
+}
+}
+
+QString FriendManager::contactDisplayName(const QString& userId,
+                                          const QMap<QString, ChatUser>& knownUsers,
+                                          const QMap<QString, QString>& friendNames) {
+    const auto knownIt = knownUsers.constFind(userId);
+    if (knownIt != knownUsers.constEnd() && !knownIt.value().name.trimmed().isEmpty()) {
+        return knownIt.value().name;
+    }
+    return friendNames.value(userId, userId);
+}
+
+bool FriendManager::isContactOnline(const QString& userId,
+                                    const QMap<QString, ChatUser>& knownUsers) {
+    const auto knownIt = knownUsers.constFind(userId);
+    return knownIt != knownUsers.constEnd() && knownIt.value().isOnline;
+}
+
+FriendNoticeUiState FriendManager::noticeUiState(int pendingIncomingCount) {
+    FriendNoticeUiState state;
+    state.pendingCount = qMax(0, pendingIncomingCount);
+    state.hasPending = state.pendingCount > 0;
+    state.text = state.hasPending
+        ? QStringLiteral("好友通知 %1").arg(state.pendingCount)
+        : QStringLiteral("好友通知");
+    state.toolTip = state.hasPending
+        ? QStringLiteral("有 %1 个好友申请待处理").arg(state.pendingCount)
+        : QStringLiteral("查看并处理好友申请");
+    return state;
+}
+
+FriendNoticeRequestDecisionState FriendManager::friendNoticeRequestDecisionState(
+    const QString& userId,
+    const QString& displayName,
+    bool accepted) {
+    FriendNoticeRequestDecisionState state;
+    const QString trimmedId = userId.trimmed();
+    const QString safeName = displayName.trimmed().isEmpty() ? trimmedId : displayName.trimmed();
+    if (accepted) {
+        state.statusMessage = QStringLiteral("已同意 %1 的好友申请").arg(safeName);
+        state.systemMessage = QStringLiteral("已同意好友申请 QQ: %1").arg(trimmedId);
+    } else {
+        state.statusMessage = QStringLiteral("已拒绝 QQ:%1 的好友申请").arg(trimmedId);
+        state.systemMessage = QStringLiteral("已拒绝好友申请 QQ: %1").arg(trimmedId);
+    }
+    return state;
+}
+
+FriendNoticeBulkActionState FriendManager::friendNoticeBulkActionState(
+    FriendNoticeBulkActionKind action,
+    int pendingCount) {
+    FriendNoticeBulkActionState state;
+    const int safeCount = qMax(0, pendingCount);
+    switch (action) {
+    case FriendNoticeBulkActionKind::AcceptAll:
+        state.title = QStringLiteral("一键同意好友申请");
+        state.questionText = QStringLiteral("确定同意全部 %1 个好友申请吗？同意后会加入好友列表。")
+                                 .arg(safeCount);
+        state.emptyStatusMessage = QStringLiteral("暂无好友申请可同意");
+        state.cancelledStatusMessage = QStringLiteral("已取消一键同意");
+        state.successStatusMessage = QStringLiteral("已一键同意 %1 个好友申请").arg(safeCount);
+        state.systemMessage = state.successStatusMessage;
+        break;
+    case FriendNoticeBulkActionKind::RejectAll:
+        state.title = QStringLiteral("一键拒绝好友申请");
+        state.questionText = QStringLiteral("确定拒绝全部 %1 个好友申请吗？").arg(safeCount);
+        state.emptyStatusMessage = QStringLiteral("暂无好友申请可拒绝");
+        state.cancelledStatusMessage = QStringLiteral("已取消一键拒绝");
+        state.successStatusMessage = QStringLiteral("已一键拒绝 %1 个好友申请").arg(safeCount);
+        state.systemMessage = state.successStatusMessage;
+        break;
+    case FriendNoticeBulkActionKind::ClearAll:
+        state.title = QStringLiteral("清空好友申请");
+        state.questionText = QStringLiteral("确定清空 %1 个待处理好友申请吗？清空不会自动回复对方。")
+                                 .arg(safeCount);
+        state.emptyStatusMessage = QStringLiteral("暂无好友申请可清空");
+        state.cancelledStatusMessage = QStringLiteral("已取消清空好友申请");
+        state.successStatusMessage = QStringLiteral("好友申请已清空");
+        state.systemMessage.clear();
+        break;
+    }
+    return state;
+}
+
+bool FriendManager::matchesFilter(const QString& id, const QString& name, const QString& filter) {
+    const QString trimmed = filter.trimmed();
+    return trimmed.isEmpty()
+        || id.contains(trimmed, Qt::CaseInsensitive)
+        || name.contains(trimmed, Qt::CaseInsensitive);
+}
+
+QString FriendManager::relationLabel(const QString& userId,
+                                     const QString& currentUserId,
+                                     const QStringList& friendIds,
+                                     const QStringList& pendingOutgoingFriendRequests,
+                                     const QMap<QString, ChatUser>& knownUsers) {
+    if (userId.isEmpty()) {
+        return QStringLiteral("未知");
+    }
+    if (userId == currentUserId) {
+        return QStringLiteral("我");
+    }
+    if (friendIds.contains(userId)) {
+        return isContactOnline(userId, knownUsers) ? QStringLiteral("好友在线") : QStringLiteral("好友离线");
+    }
+    if (pendingOutgoingFriendRequests.contains(userId)) {
+        return QStringLiteral("申请中");
+    }
+    return isContactOnline(userId, knownUsers) ? QStringLiteral("在线成员") : QStringLiteral("可申请");
+}
+
+FriendManagerListUiState FriendManager::managerListUiState(
+    const QString& currentUserId,
+    const QStringList& friendIds,
+    const QStringList& localGroupIds,
+    const QMap<QString, QString>& friendNames,
+    const QMap<QString, ChatUser>& knownUsers,
+    const QString& filter) {
+    FriendManagerListUiState state;
+    const QString trimmedFilter = filter.trimmed();
+
+    for (const QString& id : friendIds) {
+        const QString name = friendNames.value(id, id);
+        const bool online = isContactOnline(id, knownUsers);
+        if (online) {
+            ++state.onlineCount;
+        } else {
+            ++state.offlineCount;
+        }
+        if (!matchesFilter(id, name, trimmedFilter)) {
+            continue;
+        }
+        ++state.visibleCount;
+    }
+
+    state.subTitle = QStringLiteral("当前 QQ：%1 · 好友 %2 人 · 可见 %3 人")
+                         .arg(currentUserId)
+                         .arg(friendIds.size())
+                         .arg(state.visibleCount);
+    state.statsText = QStringLiteral("在线 %1 · 离线 %2 · 本地群 %3")
+                          .arg(state.onlineCount)
+                          .arg(state.offlineCount)
+                          .arg(localGroupIds.size());
+    if (state.visibleCount == 0) {
+        state.emptyText = trimmedFilter.isEmpty()
+            ? QStringLiteral("当前没有可见的好友入口\n可直接发起好友申请，或稍后刷新好友列表。")
+            : QStringLiteral("没有匹配的好友入口\n可直接搜索并申请 QQ:%1").arg(trimmedFilter);
+        state.emptyEntryId = trimmedFilter.isEmpty() ? QString() : kSearchAddPrefix + trimmedFilter;
+    }
+    return state;
+}
+
+FriendManagerListRenderUiState FriendManager::managerListRenderUiState(
+    const QString& currentUserId,
+    const QStringList& friendIds,
+    const QStringList& localGroupIds,
+    const QMap<QString, QString>& friendNames,
+    const QMap<QString, ChatUser>& knownUsers,
+    const QString& filter) {
+    FriendManagerListRenderUiState state;
+    state.summary = managerListUiState(currentUserId, friendIds, localGroupIds, friendNames, knownUsers, filter);
+
+    for (const QString& id : friendIds) {
+        const QString name = friendNames.value(id, id);
+        const bool online = isContactOnline(id, knownUsers);
+        if (!matchesFilter(id, name, filter)) {
+            continue;
+        }
+
+        FriendManagerListEntryUiState entry;
+        entry.entryId = id;
+        entry.text = QStringLiteral("%1\nQQ:%2 · %3 · 好友")
+            .arg(name,
+                 id,
+                 online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        state.entries.append(entry);
+    }
+
+    if (state.entries.isEmpty()) {
+        FriendManagerListEntryUiState placeholder;
+        placeholder.entryId = state.summary.emptyEntryId;
+        placeholder.text = state.summary.emptyText;
+        placeholder.placeholder = true;
+        placeholder.muted = true;
+        state.entries.append(placeholder);
+    }
+
+    return state;
+}
+
+FriendManagerSelectionPreviewUiState FriendManager::managerSelectionPreviewUiState(const QString& entryId,
+                                                                                   const QString& displayName,
+                                                                                   bool online,
+                                                                                   bool canInviteCurrentGroup) {
+    FriendManagerSelectionPreviewUiState state;
+    state.text = managerSelectionPreviewText(entryId, displayName, online, canInviteCurrentGroup);
+    return state;
+}
+
+FriendManagerContactCopyState FriendManager::managerContactCopyState(
+    const QList<FriendManagerContactCopyInput>& contacts,
+    bool onlineOnly) {
+    FriendManagerContactCopyState state;
+    for (const FriendManagerContactCopyInput& contact : contacts) {
+        const QString userId = contact.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        if (onlineOnly && !contact.online) {
+            continue;
+        }
+        const QString displayName = contact.displayName.trimmed().isEmpty()
+            ? userId
+            : contact.displayName.trimmed();
+        if (onlineOnly) {
+            state.rows << QStringLiteral("在线好友 QQ:%1 昵称:%2")
+                .arg(userId, displayName);
+        } else {
+            state.rows << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                .arg(userId,
+                     displayName,
+                     contact.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+    state.emptyStatusMessage = onlineOnly
+        ? QStringLiteral("当前筛选没有在线好友")
+        : QStringLiteral("当前筛选没有可复制好友");
+    state.copiedStatusMessage = onlineOnly
+        ? QStringLiteral("已复制 %1 个在线好友").arg(state.rows.size())
+        : QStringLiteral("已复制 %1 个可见好友").arg(state.rows.size());
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::friendManagerSearchSummaryCardState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QString& keyword,
+    int totalFriendCount,
+    int localGroupCount,
+    const QList<FriendManagerVisibleTargetSummary>& visibleTargets) {
+    GlobalSearchSelectionCopyState state;
+    QStringList rows;
+    rows << QStringLiteral("好友管理搜索卡片");
+    rows << QStringLiteral("关键词:%1").arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部好友") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+
+    int visibleCount = 0;
+    for (const FriendManagerVisibleTargetSummary& target : visibleTargets) {
+        const QString userId = target.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        if (userId.startsWith(kSearchAddPrefix)) {
+            rows << QStringLiteral("可继续搜索并申请 QQ:%1").arg(userId.mid(kSearchAddPrefix.size()));
+            continue;
+        }
+        rows << QStringLiteral("好友：%1 · QQ:%2 · %3")
+            .arg(target.displayName.trimmed().isEmpty() ? userId : target.displayName.trimmed(),
+                 userId,
+                 target.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        ++visibleCount;
+    }
+    rows << QStringLiteral("可见好友:%1 · 全部好友:%2 · 本地群:%3")
+        .arg(visibleCount)
+        .arg(totalFriendCount)
+        .arg(localGroupCount);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::friendManagerMediaPackState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QString& keyword,
+    int totalFriendCount,
+    const FriendManagerVisibleTargetSummary& selectedTarget) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = selectedTarget.userId.trimmed();
+    const QString targetName = selectedTarget.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("可见好友") : userId)
+        : selectedTarget.displayName.trimmed();
+
+    QStringList rows;
+    rows << QStringLiteral("好友媒体包 · 目标:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("批量可见") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("当前筛选:%1 · 全部好友:%2")
+        .arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部好友") : keyword.trimmed())
+        .arg(totalFriendCount);
+    rows << QStringLiteral("推荐流程：先打开私聊，再按需要发送图片、视频或闪传文件。");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 与常用文档压缩包。");
+    rows << QStringLiteral("发起话术：%1，你好，我是 %2（QQ:%3），稍后给你发图片、视频或文件，请注意查收。")
+        .arg(targetName, currentUserName, currentUserId);
+    rows << QStringLiteral("回执话术：已收到来自 %1 的媒体文件，保存后我会尽快查看。").arg(currentUserName);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::friendManagerBatchMediaPlanState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QString& keyword,
+    const QList<FriendManagerVisibleTargetSummary>& visibleTargets) {
+    GlobalSearchSelectionCopyState state;
+    QStringList targets;
+    int onlineCount = 0;
+    int offlineCount = 0;
+    for (const FriendManagerVisibleTargetSummary& target : visibleTargets) {
+        const QString userId = target.userId.trimmed();
+        if (userId.isEmpty() || userId.startsWith(kSearchAddPrefix)) {
+            continue;
+        }
+        if (target.online) {
+            ++onlineCount;
+        } else {
+            ++offlineCount;
+        }
+        const QString displayName = target.displayName.trimmed().isEmpty() ? userId : target.displayName.trimmed();
+        targets << QStringLiteral("%1(QQ:%2,%3)")
+            .arg(displayName,
+                 userId,
+                 target.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+    }
+
+    QStringList rows;
+    rows << QStringLiteral("好友批量媒体计划 · 筛选:%1")
+        .arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部好友") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 可见:%3 · 在线:%4 · 离线:%5")
+        .arg(currentUserId,
+             currentUserName,
+             QString::number(targets.size()),
+             QString::number(onlineCount),
+             QString::number(offlineCount));
+    rows << QStringLiteral("目标列表:%1").arg(targets.isEmpty() ? QStringLiteral("无可见好友") : targets.join(QStringLiteral("、")));
+    rows << QStringLiteral("1. 先处理在线好友，再为离线好友准备查收话术。");
+    rows << QStringLiteral("2. 图片/GIF/视频走图片视频入口，大文件走闪传文件。");
+    rows << QStringLiteral("3. 发送后可在聊天记录里补充媒体流程、查收话术和回执。");
+    rows << QStringLiteral("4. 按筛选关键词分批发送，避免漏掉目标好友。");
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::friendManagerMediaGuideText(const QString& currentUserId,
+                                                   const QString& currentUserName,
+                                                   const QString& keyword,
+                                                   int visibleCount,
+                                                   int totalFriendCount) {
+    QStringList rows;
+    rows << QStringLiteral("好友管理上传指南 · 我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("当前筛选:%1").arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部好友") : keyword.trimmed());
+    rows << QStringLiteral("可见好友:%1 · 全部好友:%2").arg(visibleCount).arg(totalFriendCount);
+    rows << QStringLiteral("可向好友发送图片/视频，也可用闪传文件发送文档、压缩包和媒体文件。");
+    rows << QStringLiteral("聊天记录右键可继续复制媒体卡片、查收话术和回执摘要。");
+    return rows.join(QChar('\n'));
+}
+
+GlobalSearchSelectionCopyState FriendManager::quickAddSearchSummaryCardState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QString& keyword,
+    const QList<FriendManagerVisibleTargetSummary>& candidates) {
+    GlobalSearchSelectionCopyState state;
+    QStringList rows;
+    rows << QStringLiteral("好友申请搜索卡片");
+    rows << QStringLiteral("关键词:%1").arg(keyword.trimmed().isEmpty() ? QStringLiteral("推荐好友") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    for (const FriendManagerVisibleTargetSummary& candidate : candidates) {
+        const QString userId = candidate.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        const QString displayName = candidate.displayName.trimmed().isEmpty() ? userId : candidate.displayName.trimmed();
+        rows << QStringLiteral("候选 QQ:%1 昵称:%2 状态:%3")
+            .arg(userId,
+                 displayName,
+                 candidate.online ? QStringLiteral("在线") : QStringLiteral("待搜索"));
+    }
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::quickAddMediaPackState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const FriendManagerVisibleTargetSummary& target) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("待搜索好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友媒体包 · 目标:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("待搜索") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("通过好友申请后可直接发送图片/视频，也可使用闪传文件");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和文档压缩包");
+    rows << QStringLiteral("申请话术：%1，你好，我是 %2（QQ:%3），通过好友申请后我可以把图片/视频/文件发给你。")
+        .arg(targetName, currentUserName, currentUserId);
+    rows << QStringLiteral("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::quickAddChecklistState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    int currentFriendCount,
+    const FriendManagerVisibleTargetSummary& target) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("待搜索好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友申请清单 · 目标:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("待搜索") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 已有好友:%3")
+        .arg(currentUserId, currentUserName, QString::number(currentFriendCount));
+    rows << QStringLiteral("1. 输入或选择 QQ 账号，先确认昵称和在线状态");
+    rows << QStringLiteral("2. 点击搜索并申请，或复制申请话术发给对方");
+    rows << QStringLiteral("3. 通过后可发送图片/GIF/视频，也可闪传文件和压缩包");
+    rows << QStringLiteral("4. 发送后在聊天记录右键复制媒体卡片、查收话术和回执");
+    rows << QStringLiteral("申请话术：%1，你好，我是 %2（QQ:%3），方便通过好友申请后收发图片视频和文件吗？")
+        .arg(targetName, currentUserName, currentUserId);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::quickAddMediaGuideText(const QString& currentUserId,
+                                              const QString& currentUserName,
+                                              const QString& targetId) {
+    QStringList rows;
+    rows << QStringLiteral("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("目标QQ:%1").arg(targetId.trimmed().isEmpty() ? QStringLiteral("待搜索好友") : targetId.trimmed());
+    rows << QStringLiteral("通过好友申请后可直接发送图片/视频，也可用闪传文件发送文档和压缩包");
+    rows << QStringLiteral("支持 mp4、mov、avi、mkv、wmv、flv、webm，聊天记录可复制媒体卡片");
+    return rows.join(QChar('\n'));
+}
+
+GlobalSearchSelectionCopyState FriendManager::friendNoticeMediaPackState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    int pendingCount,
+    const FriendManagerVisibleTargetSummary& target) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("新好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友申请媒体包 · 申请人:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("待选择") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 待处理申请:%3")
+        .arg(currentUserId, currentUserName, QString::number(pendingCount));
+    rows << QStringLiteral("同意好友后可直接私聊，点击 图片/视频 或 闪传文件 发送媒体");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包");
+    rows << QStringLiteral("通过话术：%1，你好，我是 %2（QQ:%3），我会通过你的好友申请，之后可以发图片/视频/文件给你。")
+        .arg(targetName, currentUserName, currentUserId);
+    rows << QStringLiteral("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::friendNoticeApplicantCardText(const QString& userId,
+                                                     const QString& displayName) {
+    const QString trimmedId = userId.trimmed();
+    const QString trimmedName = displayName.trimmed().isEmpty() ? trimmedId : displayName.trimmed();
+    return QStringLiteral("QQ:%1\n昵称:%2\n来源:好友申请")
+        .arg(trimmedId, trimmedName);
+}
+
+QString FriendManager::friendNoticeReplyText(const QString& targetName,
+                                             const QString& currentUserName,
+                                             const QString& currentUserId) {
+    const QString safeTargetName = targetName.trimmed().isEmpty()
+        ? QStringLiteral("朋友")
+        : targetName.trimmed();
+    return QStringLiteral("%1，你好，我是 %2（QQ:%3）。我已看到你的好友申请，稍后可以通过后继续私聊，也可以邀请你加入群聊沟通。")
+        .arg(safeTargetName, currentUserName, currentUserId);
+}
+
+QString FriendManager::friendNoticeBulkCopyText(const QStringList& pendingFriendRequests,
+                                                const QMap<QString, QString>& friendNames,
+                                                const QString& currentUserName,
+                                                const QString& currentUserId) {
+    QStringList rows;
+    for (const QString& id : pendingFriendRequests) {
+        const QString trimmedId = id.trimmed();
+        if (trimmedId.isEmpty()) {
+            continue;
+        }
+        const QString displayName = friendNames.value(trimmedId, trimmedId).trimmed().isEmpty()
+            ? trimmedId
+            : friendNames.value(trimmedId, trimmedId).trimmed();
+        rows << QStringLiteral("好友申请 QQ:%1 昵称:%2 回复:%3")
+                    .arg(trimmedId,
+                         displayName,
+                         friendNoticeReplyText(displayName, currentUserName, currentUserId));
+    }
+    return rows.join(QChar('\n'));
+}
+
+GlobalSearchSelectionCopyState FriendManager::friendNoticeBatchPlanState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    int pendingCount,
+    const QString& keyword,
+    const QList<FriendManagerVisibleTargetSummary>& applicants) {
+    GlobalSearchSelectionCopyState state;
+    QStringList applicantRows;
+    for (const FriendManagerVisibleTargetSummary& applicant : applicants) {
+        const QString userId = applicant.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        const QString displayName = applicant.displayName.trimmed().isEmpty() ? userId : applicant.displayName.trimmed();
+        applicantRows << QStringLiteral("%1(QQ:%2)").arg(displayName, userId);
+    }
+    QStringList rows;
+    rows << QStringLiteral("好友申请处理计划 · 筛选:%1")
+        .arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部申请") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 待处理:%3 · 可见:%4")
+        .arg(currentUserId,
+             currentUserName,
+             QString::number(pendingCount),
+             QString::number(applicantRows.size()));
+    rows << QStringLiteral("申请人:%1").arg(applicantRows.isEmpty() ? QStringLiteral("无可见申请") : applicantRows.join(QStringLiteral("、")));
+    rows << QStringLiteral("1. 先复制申请媒体包确认目标和后续发送内容");
+    rows << QStringLiteral("2. 同意后从好友管理或私聊入口发送图片/视频/闪传文件");
+    rows << QStringLiteral("3. 对方离线时复制查收话术，在线时直接发送媒体");
+    rows << QStringLiteral("4. 聊天记录右键复制媒体流程、回执话术和保存路径");
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::friendNoticeMediaGuideText(const QString& currentUserId,
+                                                  const QString& currentUserName,
+                                                  const FriendManagerVisibleTargetSummary& target) {
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("新好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("申请人:%1 · QQ:%2").arg(targetName, userId.isEmpty() ? QStringLiteral("待选择") : userId);
+    rows << QStringLiteral("同意好友后可发送图片/视频，也可用闪传文件发送文档、压缩包和媒体文件");
+    rows << QStringLiteral("聊天记录右键可复制媒体卡片和查收话术");
+    return rows.join(QChar('\n'));
+}
+
+GlobalSearchResultCopyState FriendManager::globalSearchResultCopyState(
+    const QList<GlobalSearchResultCopyInput>& results,
+    bool onlineOnly) {
+    GlobalSearchResultCopyState state;
+    for (const GlobalSearchResultCopyInput& result : results) {
+        const QString entryId = result.entryId.trimmed();
+        if (entryId.isEmpty()) {
+            continue;
+        }
+        if (entryId.startsWith(kSearchAddPrefix)) {
+            if (!onlineOnly) {
+                state.rows << QStringLiteral("搜索并申请 QQ:%1")
+                    .arg(entryId.mid(kSearchAddPrefix.size()));
+            }
+            continue;
+        }
+        if (result.localGroup || entryId.startsWith(QStringLiteral("local_group_"))) {
+            if (!onlineOnly) {
+                const QString groupNumber = entryId.startsWith(QStringLiteral("local_group_"))
+                    ? entryId.mid(QStringLiteral("local_group_").size())
+                    : entryId;
+                const QString groupName = result.displayName.trimmed().isEmpty()
+                    ? QStringLiteral("群聊")
+                    : result.displayName.trimmed();
+                state.rows << QStringLiteral("群聊 QQ:%1 名称:%2")
+                    .arg(groupNumber, groupName);
+            }
+            continue;
+        }
+        if (onlineOnly && !result.online) {
+            continue;
+        }
+        const QString displayName = result.displayName.trimmed().isEmpty()
+            ? entryId
+            : result.displayName.trimmed();
+        if (onlineOnly) {
+            state.rows << QStringLiteral("在线搜索结果 QQ:%1 昵称:%2 关系:%3")
+                .arg(entryId,
+                     displayName,
+                     result.friendContact ? QStringLiteral("好友") : QStringLiteral("可申请"));
+        } else {
+            state.rows << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                .arg(entryId,
+                     displayName,
+                     result.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+    state.emptyStatusMessage = onlineOnly
+        ? QStringLiteral("当前搜索结果没有在线用户")
+        : QStringLiteral("当前搜索结果没有可复制条目");
+    state.copiedStatusMessage = onlineOnly
+        ? QStringLiteral("已复制 %1 个在线搜索结果").arg(state.rows.size())
+        : QStringLiteral("已复制 %1 条搜索结果").arg(state.rows.size());
+    return state;
+}
+
+QString FriendManager::globalSearchInviteText(const QString& currentUserId,
+                                              const QString& currentUserName,
+                                              const GlobalSearchResultCopyInput& selectedResult,
+                                              const QString& fallbackKeyword) {
+    const QString entryId = selectedResult.entryId.trimmed();
+    const QString targetId = globalSearchTargetId(selectedResult, fallbackKeyword);
+    const QString targetName = globalSearchTargetDisplayName(selectedResult, fallbackKeyword);
+    if (entryId.startsWith(QStringLiteral("local_group_")) || selectedResult.localGroup) {
+        return QStringLiteral("我想邀请你加入群聊 %1，一起在群里沟通。").arg(targetName);
+    }
+    return QStringLiteral("你好，我是 %1（QQ:%2），通过 QQ 搜索找到你，方便加个好友吗？")
+        .arg(currentUserName, currentUserId.isEmpty() ? targetId : currentUserId);
+}
+
+GlobalSearchSelectionCopyState FriendManager::globalSearchInviteCardState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const GlobalSearchResultCopyInput& selectedResult,
+    const QString& fallbackKeyword) {
+    GlobalSearchSelectionCopyState state;
+    const QString entryId = selectedResult.entryId.trimmed();
+    const QString targetId = globalSearchTargetId(selectedResult, fallbackKeyword);
+    if (targetId.isEmpty()) {
+        return state;
+    }
+
+    QString title;
+    QString detail;
+    if (entryId.startsWith(QStringLiteral("local_group_")) || selectedResult.localGroup) {
+        title = QStringLiteral("邀请加入群聊：%1")
+            .arg(globalSearchTargetDisplayName(selectedResult, fallbackKeyword));
+        detail = QStringLiteral("群号:%1 · 成员:%2 · 邀请人:%3(QQ:%4)")
+            .arg(targetId,
+                 QString::number(qMax(0, selectedResult.memberCount)),
+                 currentUserName,
+                 currentUserId);
+    } else {
+        title = QStringLiteral("好友邀请：%1")
+            .arg(globalSearchTargetDisplayName(selectedResult, fallbackKeyword).isEmpty()
+                     ? QStringLiteral("QQ搜索")
+                     : globalSearchTargetDisplayName(selectedResult, fallbackKeyword));
+        detail = QStringLiteral("目标QQ:%1 · 我的QQ:%2 · 昵称:%3 · 可搜索后直接添加")
+            .arg(targetId, currentUserId, currentUserName);
+    }
+    state.text = title + QChar('\n') + detail;
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::globalSearchSummaryCardState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QList<GlobalSearchResultCopyInput>& results,
+    const QString& keyword) {
+    GlobalSearchSelectionCopyState state;
+    QStringList rows;
+    rows << QStringLiteral("综合搜索卡片");
+    rows << QStringLiteral("关键词:%1").arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+
+    int userCount = 0;
+    int friendCount = 0;
+    int groupCount = 0;
+    for (const GlobalSearchResultCopyInput& result : results) {
+        const QString entryId = result.entryId.trimmed();
+        if (entryId.isEmpty()) {
+            continue;
+        }
+        if (entryId.startsWith(kSearchAddPrefix)) {
+            rows << QStringLiteral("继续搜索并申请 QQ:%1").arg(entryId.mid(kSearchAddPrefix.size()));
+        } else if (result.localGroup || entryId.startsWith(QStringLiteral("local_group_"))) {
+            ++groupCount;
+            rows << QStringLiteral("群聊 QQ:%1 名称:%2 成员:%3")
+                .arg(globalSearchTargetId(result, keyword),
+                     globalSearchTargetDisplayName(result, keyword),
+                     QString::number(qMax(0, result.memberCount)));
+        } else {
+            const bool isFriend = result.friendContact;
+            if (isFriend) {
+                ++friendCount;
+            } else {
+                ++userCount;
+            }
+            rows << QStringLiteral("%1 QQ:%2 昵称:%3 状态:%4")
+                .arg(isFriend ? QStringLiteral("好友") : QStringLiteral("用户"),
+                     entryId,
+                     globalSearchTargetDisplayName(result, keyword),
+                     result.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+    rows << QStringLiteral("匹配好友:%1 · 可申请用户:%2 · 群聊:%3")
+        .arg(friendCount)
+        .arg(userCount)
+        .arg(groupCount);
+    state.text = rows.join(QChar('\n'));
+    state.valid = !rows.isEmpty();
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::globalSearchMediaPackState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const GlobalSearchResultCopyInput& selectedResult,
+    const QString& keyword) {
+    GlobalSearchSelectionCopyState state;
+    const QString trimmedKeyword = keyword.trimmed();
+    const QString entryId = selectedResult.entryId.trimmed();
+    QString targetName = trimmedKeyword.isEmpty() ? QStringLiteral("全部搜索结果") : trimmedKeyword;
+    QString targetId = globalSearchTargetId(selectedResult, keyword);
+    QString relation = QStringLiteral("搜索结果");
+
+    if (entryId.startsWith(QStringLiteral("local_group_")) || selectedResult.localGroup) {
+        targetName = globalSearchTargetDisplayName(selectedResult, keyword);
+        relation = QStringLiteral("群聊");
+    } else if (!targetId.isEmpty()) {
+        targetName = globalSearchTargetDisplayName(selectedResult, keyword);
+        relation = selectedResult.friendContact ? QStringLiteral("好友") : QStringLiteral("可申请用户");
+    }
+
+    QStringList rows;
+    rows << QStringLiteral("综合搜索媒体包 · 目标:%1 · QQ:%2 · 类型:%3")
+        .arg(targetName,
+             targetId.isEmpty() ? QStringLiteral("批量搜索") : targetId,
+             relation);
+    rows << QStringLiteral("关键词:%1 · 我的QQ:%2 · 昵称:%3")
+        .arg(trimmedKeyword.isEmpty() ? QStringLiteral("全部") : trimmedKeyword,
+             currentUserId,
+             currentUserName);
+    rows << QStringLiteral("可先打开/申请搜索结果，再发送图片/视频或闪传文件");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包");
+    rows << QStringLiteral("邀请话术：你好，我是 %1（QQ:%2），通过综合搜索找到你，可以通过好友申请或进群后收发媒体文件。")
+        .arg(currentUserName, currentUserId);
+    rows << QStringLiteral("查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(targetName);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::globalSearchBatchMediaPlanState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QList<GlobalSearchResultCopyInput>& results,
+    const QString& keyword) {
+    GlobalSearchSelectionCopyState state;
+    QStringList users;
+    QStringList groups;
+    int friendCount = 0;
+    int addableCount = 0;
+
+    for (const GlobalSearchResultCopyInput& result : results) {
+        const QString entryId = result.entryId.trimmed();
+        if (entryId.isEmpty()) {
+            continue;
+        }
+        if (entryId.startsWith(kSearchAddPrefix)) {
+            users << QStringLiteral("待搜索QQ:%1").arg(entryId.mid(kSearchAddPrefix.size()));
+        } else if (result.localGroup || entryId.startsWith(QStringLiteral("local_group_"))) {
+            groups << QStringLiteral("%1(群号:%2,成员:%3)")
+                .arg(globalSearchTargetDisplayName(result, keyword),
+                     globalSearchTargetId(result, keyword),
+                     QString::number(qMax(0, result.memberCount)));
+        } else {
+            const bool isFriend = result.friendContact;
+            if (isFriend) {
+                ++friendCount;
+            } else {
+                ++addableCount;
+            }
+            users << QStringLiteral("%1(QQ:%2,%3,%4)")
+                .arg(globalSearchTargetDisplayName(result, keyword),
+                     entryId,
+                     isFriend ? QStringLiteral("好友") : QStringLiteral("可申请"),
+                     result.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+
+    QStringList rows;
+    rows << QStringLiteral("综合搜索批量媒体计划 · 关键词:%1")
+        .arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 好友结果:%3 · 可申请:%4 · 群聊:%5")
+        .arg(currentUserId,
+             currentUserName,
+             QString::number(friendCount),
+             QString::number(addableCount),
+             QString::number(groups.size()));
+    rows << QStringLiteral("用户目标:%1").arg(users.isEmpty() ? QStringLiteral("无") : users.join(QStringLiteral("、")));
+    rows << QStringLiteral("群聊目标:%1").arg(groups.isEmpty() ? QStringLiteral("无") : groups.join(QStringLiteral("、")));
+    rows << QStringLiteral("1. 先打开好友或群聊结果，未成为好友先发送申请或复制申请话术");
+    rows << QStringLiteral("2. 图片/GIF/视频走图片视频入口，文档和压缩包走闪传文件");
+    rows << QStringLiteral("3. 发送后右键聊天记录复制媒体流程、查收话术、回执和保存路径");
+    rows << QStringLiteral("4. 可见用户建群后可统一发送群媒体文件");
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::globalSearchMediaGuideText(const QString& currentUserId,
+                                                  const QString& currentUserName,
+                                                  const QString& currentChatDisplayName) {
+    QStringList rows;
+    rows << QStringLiteral("上传指南 · 我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("图片/视频：支持 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm");
+    rows << QStringLiteral("闪传文件：支持文档、压缩包和媒体文件");
+    rows << QStringLiteral("聊天记录右键：可复制媒体卡片和查收话术");
+    rows << QStringLiteral("当前会话:%1").arg(currentChatDisplayName.trimmed().isEmpty()
+                                                 ? QStringLiteral("公共聊天室")
+                                                 : currentChatDisplayName.trimmed());
+    return rows.join(QChar('\n'));
+}
+
+QString FriendManager::managerSelectionPreviewText(const QString& entryId,
+                                                   const QString& displayName,
+                                                   bool online,
+                                                   bool canInviteCurrentGroup) {
+    if (entryId.isEmpty()) {
+        return QStringLiteral("先选中一个好友，再决定打开私聊、复制名片、整理邀请语或邀请进当前群聊。");
+    }
+    if (entryId.startsWith(kSearchAddPrefix)) {
+        return QStringLiteral("当前没有匹配好友\n可直接搜索并申请 QQ:%1，或继续调整筛选词。")
+            .arg(entryId.mid(kSearchAddPrefix.size()));
+    }
+    return QStringLiteral("好友工作区\n昵称：%1\nQQ：%2\n状态：%3\n下一步：%4")
+        .arg(displayName,
+             entryId,
+             online ? QStringLiteral("在线") : QStringLiteral("离线"),
+             canInviteCurrentGroup
+                 ? QStringLiteral("可打开私聊、复制名片，或直接邀请进当前群聊")
+                 : QStringLiteral("可打开私聊、复制名片，或先切到群聊后再邀请"));
+}
+
+FriendQuickAddSuggestionUiState FriendManager::quickAddSuggestionUiState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QStringList& friendIds,
+    const QStringList& pendingOutgoingFriendRequests,
+    const QMap<QString, ChatUser>& knownUsers,
+    const QMap<QString, QString>& friendNames,
+    const QString& filter,
+    int maxVisible) {
+    FriendQuickAddSuggestionUiState state;
+    const QString trimmedFilter = filter.trimmed();
+    const int visibleLimit = qMax(0, maxVisible);
+    QString firstPreviewId;
+    QString firstPreviewName;
+
+    for (auto it = knownUsers.constBegin(); it != knownUsers.constEnd(); ++it) {
+        const ChatUser& user = it.value();
+        if (user.id == currentUserId || friendIds.contains(user.id)) {
+            continue;
+        }
+        const bool matches = matchesFilter(user.id, user.name, trimmedFilter);
+        if (pendingOutgoingFriendRequests.contains(user.id)) {
+            if (matches) {
+                ++state.pendingCandidates;
+            }
+            continue;
+        }
+
+        ++state.onlineCandidates;
+        if (!matches) {
+            continue;
+        }
+
+        if (state.visibleCount < visibleLimit) {
+            FriendQuickAddSuggestionEntryUiState entry;
+            entry.entryId = user.id;
+            entry.text = QStringLiteral("QQ:%1 · %2 · 在线 · 双击添加").arg(user.id, user.name);
+            state.entries.append(entry);
+        }
+        if (firstPreviewId.isEmpty()) {
+            firstPreviewId = user.id;
+            firstPreviewName = user.name;
+        }
+        ++state.visibleCount;
+    }
+
+    state.statsText = trimmedFilter.isEmpty()
+        ? QStringLiteral("在线推荐 %1 人 · 已有好友 %2 人").arg(state.onlineCandidates).arg(friendIds.size())
+        : QStringLiteral("匹配推荐 %1 人 · 输入回车可搜索 QQ:%2").arg(state.visibleCount).arg(trimmedFilter);
+    if (state.pendingCandidates > 0) {
+        state.statsText += QStringLiteral(" · 申请中 %1 人").arg(state.pendingCandidates);
+    }
+
+    if (state.visibleCount > visibleLimit) {
+        FriendQuickAddSuggestionEntryUiState moreEntry;
+        moreEntry.text = QStringLiteral("还有 %1 位匹配用户，可缩小关键词继续筛选").arg(state.visibleCount - visibleLimit);
+        moreEntry.placeholder = true;
+        moreEntry.muted = true;
+        moreEntry.enabled = false;
+        state.entries.append(moreEntry);
+    }
+
+    if (state.entries.isEmpty()) {
+        FriendQuickAddSuggestionEntryUiState placeholder;
+        placeholder.entryId = trimmedFilter;
+        placeholder.text = trimmedFilter.isEmpty()
+            ? QStringLiteral("输入 QQ 号后回车搜索并申请")
+            : QStringLiteral("回车搜索并申请 QQ:%1").arg(trimmedFilter);
+        placeholder.placeholder = true;
+        placeholder.muted = true;
+        placeholder.enabled = !placeholder.entryId.isEmpty();
+        state.entries.append(placeholder);
+    }
+
+    const QString previewId = firstPreviewId.isEmpty() ? trimmedFilter : firstPreviewId;
+    const QString previewName = firstPreviewName.isEmpty()
+        ? (previewId.isEmpty()
+            ? QStringLiteral("待搜索好友")
+            : contactDisplayName(previewId, knownUsers, friendNames))
+        : firstPreviewName;
+    state.previewText = QStringLiteral("邀请预览：%1（QQ:%2）\n你好，我是 %3（QQ:%4），方便加个好友吗？")
+        .arg(previewName,
+             previewId.isEmpty() ? QStringLiteral("-") : previewId,
+             currentUserName,
+             currentUserId);
+    return state;
+}

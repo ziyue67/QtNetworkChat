@@ -1,0 +1,85 @@
+#ifndef CLIENTSTORAGE_H
+#define CLIENTSTORAGE_H
+
+#include <QMap>
+#include <QString>
+#include <QStringList>
+
+class QPixmap;
+
+class ClientStorage {
+public:
+    explicit ClientStorage(QString userName = QString());
+
+    QString userName() const;
+    void setUserName(const QString& userName);
+
+    static QString appDataRootDirectory();
+    static void setAppDataRootDirectory(const QString& directoryPath);
+    static void resetAppDataRootDirectory();
+
+    QString friendFilePath() const;
+    QString friendGroupFilePath() const;
+    QString groupFilePath() const;
+    QString avatarFilePath() const;
+    QString peerAvatarFilePath(const QString& userId) const;
+    bool savePeerAvatar(const QString& userId, const QByteArray& pngData) const;
+    QPixmap loadPeerAvatar(const QString& userId) const;
+    bool savePeerAvatarToSqlite(const QString& databasePath,
+                                const QString& userId,
+                                const QString& avatarPath) const;
+    QMap<QString, QString> loadPeerAvatarIndexFromSqlite(const QString& databasePath) const;
+
+    bool readLegacyFriends(QStringList* friendIds, QMap<QString, QString>* friendNames) const;
+    bool writeLegacyFriends(const QStringList& friendIds,
+                            const QMap<QString, QString>& friendNames) const;
+
+    // Friend groups are a local-only concept (no server protocol). Persist a
+    // friendId -> groupName map plus any custom empty group names to a per-user
+    // text file, mirroring the legacy-friends format.
+    bool readFriendGroups(QMap<QString, QString>* friendGroups,
+                          QStringList* customGroups) const;
+    bool writeFriendGroups(const QMap<QString, QString>& friendGroups,
+                           const QStringList& customGroups) const;
+    bool loadFriendGroupsFromSqlite(const QString& databasePath,
+                                    QMap<QString, QString>* friendGroups,
+                                    QStringList* customGroups) const;
+    bool saveFriendGroupsToSqlite(const QString& databasePath,
+                                  const QMap<QString, QString>& friendGroups,
+                                  const QStringList& customGroups) const;
+    bool readLegacyLocalGroups(const QString& currentUserId,
+                               QStringList* groupIds,
+                               QMap<QString, QString>* groupNames,
+                               QMap<QString, QStringList>* groupMembers,
+                               QMap<QString, QString>* groupAnnouncements) const;
+    bool writeLegacyLocalGroups(const QString& currentUserId,
+                                const QStringList& groupIds,
+                                const QMap<QString, QString>& groupNames,
+                                const QMap<QString, QStringList>& groupMembers,
+                                const QMap<QString, QString>& groupAnnouncements) const;
+
+    bool saveProfileToSqlite(const QString& databasePath,
+                             const QString& userId,
+                             const QString& userName,
+                             const QString& avatarPath) const;
+    bool saveFriendsToSqlite(const QString& databasePath,
+                             const QStringList& friendIds,
+                             const QMap<QString, QString>& friendNames,
+                             const QStringList& pendingIncoming,
+                             const QStringList& pendingOutgoing) const;
+    bool saveLocalGroupsToSqlite(const QString& databasePath,
+                                 const QString& currentUserId,
+                                 const QStringList& groupIds,
+                                 const QMap<QString, QString>& groupNames,
+                                 const QMap<QString, QStringList>& groupMembers,
+                                 const QMap<QString, QString>& groupAnnouncements) const;
+
+private:
+    QString appDataDirectory() const;
+    QString safeUserName() const;
+    QString safeToken(const QString& value, const QString& fallback) const;
+
+    QString m_userName;
+};
+
+#endif // CLIENTSTORAGE_H

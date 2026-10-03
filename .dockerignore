@@ -1,0 +1,16 @@
+.git
+.github
+build
+build-*
+build_*
+dist
+docs
+screenshots
+scripts
+tests
+*.log
+*.ps1
+*.sqlite
+*.sqlite3
+deploy/.env
+deploy/nginx/certs/*

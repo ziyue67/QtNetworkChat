@@ -1,0 +1,381 @@
+#ifndef TRANSFERMANAGER_H
+#define TRANSFERMANAGER_H
+
+#include <QFileInfo>
+#include <QList>
+#include <QJsonObject>
+#include <QString>
+
+struct TransferActionUiState {
+    bool visible = false;
+    bool enabled = false;
+    QString toolTip;
+};
+
+struct TransferDiagnosticCopyUiState {
+    TransferActionUiState action;
+    QString clipboardText;
+    QString emptyStatusMessage;
+    QString copiedStatusMessage;
+};
+
+struct TransferClearRecoveryPrompt {
+    QString fileName;
+    QString title;
+    QString message;
+    QString noSavedStatusMessage;
+    QString keptStatusMessage;
+    QString clearedSystemMessage;
+    QString clearedStatusMessage;
+    QString clearFailedSystemMessage;
+    QString clearFailedStatusMessage;
+};
+
+struct TransferResumeBlockedPrompt {
+    QString fileName;
+    QString targetName;
+    QString reason;
+    QString title;
+    QString message;
+    QString systemMessage;
+    QString hintText;
+    QString statusMessage;
+    QString clearedSystemMessage;
+    QString clearedHintText;
+    QString clearedStatusMessage;
+};
+
+struct TransferResumeResultState {
+    bool succeeded = false;
+    bool canceled = false;
+    bool failed = false;
+    QString fileName;
+    QString targetName;
+    QString reason;
+    QString systemMessage;
+    QString hintText;
+    QString statusMessage;
+    QString failureTitle;
+    QString failureMessage;
+    QString clearedSystemMessage;
+    QString clearedHintText;
+    QString clearedStatusMessage;
+};
+
+struct TransferRecoveryUiState {
+    bool hasSavedTransfer = false;
+    bool canAutoResume = false;
+    bool resumeVisible = false;
+    bool resumeEnabled = false;
+    bool clearVisible = false;
+    bool clearEnabled = false;
+    bool e2eFileEncrypted = false;
+    QString recoverySource;
+    QString recoveryAction;
+    QString recoveryMode;
+    QString recoveryReason;
+    QString fileName;
+    QString targetName;
+    QString detail;
+    QString resumeToolTip;
+    QString clearToolTip;
+    QString announceMessage;
+    QString statusMessage;
+    TransferActionUiState resumeAction;
+    TransferActionUiState clearAction;
+};
+
+struct TransferStatusEvent {
+    QString message;
+    QString chatHintText;
+    QString statusBarMessage;
+    QString actionHint;
+    QString diagnostic;
+    int statusBarTimeoutMs = 4200;
+    bool copyActionVisible = false;
+    bool copyActionEnabled = false;
+    QString copyActionToolTip;
+    TransferDiagnosticCopyUiState copyDiagnostic;
+};
+
+struct TransferProgressUiState {
+    QString labelText;
+    QString manifestSummary;
+    int percent = 0;
+};
+
+struct TransferWorkspaceCardState {
+    QString stageText;
+    QString summaryText;
+    QString detailText;
+    QString actionText;
+};
+
+struct TransferSendUiState {
+    QString hintText;
+    QString statusMessage;
+    QString systemMessage;
+    QString cardText;
+    QString receiptText;
+    QString warningTitle;
+    QString warningMessage;
+    int statusTimeoutMs = 3000;
+};
+
+struct TransferSelectionPlan {
+    QString dialogTitle;
+    QString filters;
+    QString confirmKind;
+    QString canceledHint;
+    QString canceledStatus;
+    QString preparingKind;
+};
+
+struct TransferSelectionUiState {
+    bool accepted = false;
+    bool showFailureDialog = false;
+    bool showConfirmDialog = false;
+    QString filePath;
+    QFileInfo fileInfo;
+    QString fileSize;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 0;
+    QString dialogTitle;
+    QString dialogMessage;
+    QString confirmKind;
+};
+
+struct TransferSelectionFeedbackPlan {
+    enum class DialogKind {
+        None,
+        Warning,
+        Question
+    };
+
+    DialogKind dialogKind = DialogKind::None;
+    bool requiresConfirmation = false;
+    bool stopSelection = false;
+    QString dialogTitle;
+    QString dialogMessage;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 0;
+};
+
+struct TransferMediaSelection {
+    bool isVideo = false;
+    QString mediaType;
+};
+
+struct TransferMediaPreviewPlan {
+    QString text;
+    bool isVideo = false;
+    bool alignRight = false;
+};
+
+struct TransferChatListItemUiState {
+    QString text;
+    QString toolTip;
+    QString foregroundRole;
+    QString backgroundRole;
+    bool alignRight = false;
+};
+
+struct TransferReceiveSaveUiState {
+    bool saved = false;
+    QString savedItemText;
+    QString savedItemToolTip;
+    bool savedIntegrityFailed = false;
+    QString receiptCardText;
+    QString receiptCardToolTip;
+    QString receiptReplyText;
+    QString receiptReplyToolTip;
+    QString failedItemText;
+    QString eventReason;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 3000;
+    TransferChatListItemUiState savedItem;
+    TransferChatListItemUiState receiptCardItem;
+    TransferChatListItemUiState receiptReplyItem;
+    TransferChatListItemUiState failedItem;
+};
+
+struct TransferReceiveRenderPlan {
+    QList<TransferChatListItemUiState> chatItems;
+    QString eventReason;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 3000;
+};
+
+class TransferManager {
+public:
+    static TransferRecoveryUiState recoveryUiState(bool hasSavedTransfer,
+                                                   bool clientConnected,
+                                                   const QJsonObject& state,
+                                                   const QJsonObject& recoveryStatus,
+                                                   bool announce = false);
+    static TransferStatusEvent statusEvent(const QString& fileName,
+                                           const QString& transferId,
+                                           const QString& reason,
+                                           qint64 receivedBytes = 0,
+                                           qint64 totalBytes = 0);
+    static TransferWorkspaceCardState idleWorkspaceState(bool connected,
+                                                         bool hasSavedTransfer,
+                                                         bool canAutoResume);
+    static TransferWorkspaceCardState recoveryWorkspaceState(const TransferRecoveryUiState& uiState);
+    static TransferWorkspaceCardState clearedRecoveryWorkspaceState(const QString& fileName);
+    static TransferWorkspaceCardState resumeBlockedWorkspaceState(const TransferResumeBlockedPrompt& prompt);
+    static TransferWorkspaceCardState resumeResultWorkspaceState(const TransferResumeResultState& resultState);
+    static TransferWorkspaceCardState statusWorkspaceState(const QString& fileName,
+                                                           const QString& transferId,
+                                                           const QString& reason,
+                                                           qint64 receivedBytes = 0,
+                                                           qint64 totalBytes = 0);
+    static TransferDiagnosticCopyUiState diagnosticCopyUiState(const QString& diagnostic);
+    static TransferClearRecoveryPrompt clearRecoveryPrompt(const QJsonObject& state);
+    static TransferResumeBlockedPrompt resumeBlockedPrompt(const QJsonObject& state,
+                                                           const QJsonObject& recoveryStatus);
+    static TransferResumeResultState resumeResultState(const QString& fileName,
+                                                       const QString& targetName,
+                                                       bool resumed,
+                                                       bool canceled,
+                                                       const QString& rejectReason);
+    static TransferProgressUiState sendingInitialState(const QString& kind,
+                                                       const QString& fileName,
+                                                       const QString& targetName);
+    static TransferProgressUiState sendingCancelState(const QString& kind,
+                                                      const QString& fileName);
+    static TransferProgressUiState sendingProgressState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& targetName,
+                                                        qint64 bytesPrepared,
+                                                        qint64 totalBytes);
+    static TransferProgressUiState sendingPreparedState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& targetName,
+                                                        qint64 totalBytes,
+                                                        qint64 chunkSize,
+                                                        qint64 chunkCount,
+                                                        const QString& fileHash);
+    static TransferWorkspaceCardState preparingSendWorkspaceState(const QString& kind,
+                                                                  const QString& fileName,
+                                                                  const QString& fileSize,
+                                                                  const QString& targetName);
+    static TransferWorkspaceCardState sendingProgressWorkspaceState(const QString& kind,
+                                                                    const QString& fileName,
+                                                                    const QString& targetName,
+                                                                    qint64 bytesPrepared,
+                                                                    qint64 totalBytes,
+                                                                    bool resumeFlow = false);
+    static TransferWorkspaceCardState sendingPreparedWorkspaceState(const QString& kind,
+                                                                    const QString& fileName,
+                                                                    const QString& targetName,
+                                                                    qint64 totalBytes,
+                                                                    qint64 chunkSize,
+                                                                    qint64 chunkCount,
+                                                                    const QString& fileHash,
+                                                                    bool resumeFlow = false);
+    static TransferSendUiState publicGroupRemovedState(const QString& kind);
+    static TransferSendUiState disconnectedSendState(const QString& kind, const QString& targetName);
+    static TransferSendUiState canceledSendState(const QString& kind, const QString& fileName);
+    static TransferSendUiState failedSendState(const QString& kind,
+                                               const QString& fileName,
+                                               const QString& fileSize,
+                                               const QString& targetName);
+    static TransferWorkspaceCardState canceledSendWorkspaceState(const QString& kind,
+                                                                 const QString& fileName,
+                                                                 const QString& targetName);
+    static TransferWorkspaceCardState failedSendWorkspaceState(const QString& kind,
+                                                               const QString& fileName,
+                                                               const QString& fileSize,
+                                                               const QString& targetName);
+    static TransferSelectionPlan fileSelectionPlan();
+    static TransferSelectionPlan mediaSelectionPlan();
+    static TransferSelectionUiState transferSelectionUiState(const TransferSelectionPlan& selectionPlan,
+                                                             const QString& selectedPath);
+    static TransferSelectionFeedbackPlan transferSelectionFeedbackPlan(const TransferSelectionUiState& selectionState);
+    static TransferSelectionUiState resolveTransferSelectionUiState(const TransferSelectionUiState& pendingState,
+                                                                    bool confirmed);
+    static TransferMediaSelection mediaSelection(const QFileInfo& info);
+    static TransferMediaPreviewPlan localMediaPreviewPlan(const QString& fileName,
+                                                          const QString& fileSize,
+                                                          bool isVideo);
+    static TransferMediaPreviewPlan remoteMediaPreviewPlan(const QString& cardText,
+                                                           bool isVideo);
+    static TransferMediaPreviewPlan receivedMediaPreviewPlan(const QString& receivedName,
+                                                             const QString& receivedSize,
+                                                             const QString& manifestSuffix);
+    static TransferSendUiState preparingSendState(const QString& kind,
+                                                  const QString& fileName,
+                                                  const QString& fileSize,
+                                                  const QString& targetName);
+    static TransferSendUiState localSendCompletedState(const QString& kind,
+                                                       const QString& fileName,
+                                                       const QString& fileSize,
+                                                       const QString& targetName,
+                                                       const QString& completedAt);
+    static TransferWorkspaceCardState localSendCompletedWorkspaceState(const QString& kind,
+                                                                       const QString& fileName,
+                                                                       const QString& fileSize,
+                                                                       const QString& targetName,
+                                                                       const QString& completedAt);
+    static TransferSendUiState remoteSendCompletedState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& fileSize,
+                                                        const QString& targetName,
+                                                        const QString& completedAt,
+                                                        const QString& transferSummary = QString());
+    static TransferWorkspaceCardState remoteSendCompletedWorkspaceState(const QString& kind,
+                                                                        const QString& fileName,
+                                                                        const QString& fileSize,
+                                                                        const QString& targetName,
+                                                                        const QString& completedAt,
+                                                                        const QString& transferSummary = QString());
+    static TransferReceiveSaveUiState receivedTransferSaveUiState(const QString& kind,
+                                                                  const QString& receivedName,
+                                                                  const QString& receivedSize,
+                                                                  const QString& displayName,
+                                                                  const QString& manifestSuffix,
+                                                                  const QString& integrityText,
+                                                                  const QString& integritySuffix,
+                                                                  const QString& savePath,
+                                                                  bool saved,
+                                                                  bool integrityFailed);
+    static TransferReceiveRenderPlan receivedTransferRenderPlan(const TransferReceiveSaveUiState& uiState);
+    static TransferReceiveRenderPlan receivedTransferPersistenceRenderPlan(const QString& kind,
+                                                                          const QString& receivedName,
+                                                                          const QString& receivedSize,
+                                                                          const QString& displayName,
+                                                                          const QString& manifestSuffix,
+                                                                          const QString& integrityText,
+                                                                          const QString& integritySuffix,
+                                                                          const QString& savePath,
+                                                                          bool saved);
+    static TransferWorkspaceCardState receivedTransferWorkspaceState(const QString& kind,
+                                                                     const QString& receivedName,
+                                                                     const QString& receivedSize,
+                                                                     const QString& displayName,
+                                                                     const QString& manifestSuffix,
+                                                                     const QString& integrityText,
+                                                                     const QString& integritySuffix,
+                                                                     const QString& savePath,
+                                                                     bool saved);
+    static TransferProgressUiState resumeInitialState(const QString& fileName,
+                                                      const QString& targetName);
+    static TransferProgressUiState resumeCancelState(const QString& fileName);
+    static TransferProgressUiState resumeProgressState(const QString& fileName,
+                                                       const QString& targetName,
+                                                       qint64 bytesPrepared,
+                                                       qint64 totalBytes);
+    static TransferProgressUiState resumePreparedState(const QString& fileName,
+                                                       const QString& targetName,
+                                                       qint64 totalBytes,
+                                                       qint64 chunkSize,
+                                                       qint64 chunkCount,
+                                                       const QString& fileHash);
+};
+
+#endif // TRANSFERMANAGER_H

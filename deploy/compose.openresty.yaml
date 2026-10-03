@@ -1,0 +1,4 @@
+services:
+  nginx:
+    profiles:
+      - bundled-proxy

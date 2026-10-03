@@ -1,0 +1,144 @@
+name: Linux Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            appstream \
+            cmake \
+            desktop-file-utils \
+            libpq-dev \
+            libssl-dev \
+            ninja-build \
+            qt6-base-dev \
+            qt6-multimedia-dev \
+            qt6-websockets-dev \
+            xvfb
+
+      - name: Validate Linux packaging metadata
+        run: |
+          bash -n scripts/package-linux-appimage.sh
+          desktop-file-validate packaging/linux/io.github.ziyue67.qtnetworkchat.desktop
+          appstreamcli validate --pedantic packaging/linux/io.github.ziyue67.qtnetworkchat.metainfo.xml
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQTNETWORKCHAT_DEFAULT_SERVER_HOST=qt.ziyuexc.top \
+            -DQTNETWORKCHAT_DEFAULT_SERVER_PORT=443 \
+            -DQTNETWORKCHAT_DEFAULT_TRANSPORT=wss \
+            -DQTNETWORKCHAT_DEFAULT_WEBSOCKET_PATH=/ws \
+            -DQTNETWORKCHAT_DEFAULT_TLS=ON \
+            -DQTNETWORKCHAT_DEFAULT_TLS_VERIFY=ON \
+            -DQTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO=ON \
+            -DQTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER=ON
+
+      - name: Build deliverables and focused tests
+        run: |
+          cmake --build build --parallel --target \
+            QtNetworkChat \
+            qqnt_server \
+            message_serialization_test \
+            tls_security_test \
+            websocket_transport_test \
+            e2e_production_adapter_runtime_test
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build --output-on-failure \
+            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|E2EProductionAdapterRuntime)$'
+
+      - name: Package Linux client
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          package="QtNetworkChat-$version-linux-x64"
+          mkdir -p "dist/$package/ui"
+          install -m 0755 build/QtNetworkChat "dist/$package/QtNetworkChat"
+          install -m 0644 README.md LICENSE "dist/$package/"
+          install -m 0644 ui/style-qqnt.qss ui/style-qqnt-dark.qss "dist/$package/ui/"
+          tar -C dist -czf "dist/$package.tar.gz" "$package"
+
+      - name: Download pinned AppImage tools
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          curl --fail --location --retry 5 \
+            --output linuxdeploy-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
+          echo 'c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d  linuxdeploy-x86_64.AppImage' | sha256sum --check
+          curl --fail --location --retry 5 \
+            --output linuxdeploy-plugin-qt-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          echo 'cfc1055b2b9dbc08412b579f20990b7b41a17b61beaa5847dc9477c96c9e9617  linuxdeploy-plugin-qt-x86_64.AppImage' | sha256sum --check
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
+
+      - name: Package Linux AppImage
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          LINUXDEPLOY: ${{ github.workspace }}/linuxdeploy-x86_64.AppImage
+          LINUXDEPLOY_PLUGIN_QT: ${{ github.workspace }}/linuxdeploy-plugin-qt-x86_64.AppImage
+        run: |
+          ./scripts/package-linux-appimage.sh \
+            --build-dir build \
+            --output-dir dist \
+            --version "${GITHUB_REF_NAME#v}"
+          test -f dist/QtNetworkChat.AppDir/usr/bin/ui/style-qqnt.qss
+          test -f dist/QtNetworkChat.AppDir/usr/bin/ui/style-qqnt-dark.qss
+          test -f dist/QtNetworkChat.AppDir/usr/plugins/platforms/libqxcb.so
+          test -f dist/QtNetworkChat.AppDir/usr/plugins/tls/libqopensslbackend.so
+          (cd dist && sha256sum --check "QtNetworkChat-${GITHUB_REF_NAME#v}-linux-x86_64.AppImage.sha256")
+
+      - name: Smoke test Linux AppImage
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set +e
+          timeout 10 xvfb-run -a env \
+            APPIMAGE_EXTRACT_AND_RUN=1 \
+            QT_QPA_PLATFORM=xcb \
+            QTNETWORKCHAT_SERVER_HOST=127.0.0.1 \
+            QTNETWORKCHAT_SERVER_PORT=1 \
+            QTNETWORKCHAT_TRANSPORT=tcp \
+            dist/*.AppImage
+          status=$?
+          set -e
+          test "$status" -eq 124
+
+      - name: Upload Linux package
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: QtNetworkChat-linux-x64
+          path: |
+            dist/*.tar.gz
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+          if-no-files-found: error
+
+      - name: Attach Linux package to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.AppImage dist/*.AppImage.sha256 --clobber

@@ -1,0 +1,982 @@
+#include "transfermanager.h"
+
+#include "filetransferstatus.h"
+#include "localfilemanager.h"
+
+#include <QFileInfo>
+#include <QStringList>
+#include <QtGlobal>
+
+namespace {
+QString savedTransferFileName(const QJsonObject& state) {
+    const QFileInfo info(state.value(QStringLiteral("filePath")).toString());
+    return info.fileName().isEmpty() ? QStringLiteral("未命名文件") : info.fileName();
+}
+
+QString savedTransferTargetName(const QJsonObject& state) {
+    const QString receiverId = state.value(QStringLiteral("receiverId")).toString().trimmed();
+    return receiverId.isEmpty() ? QStringLiteral("公共聊天室") : QStringLiteral("QQ:%1").arg(receiverId);
+}
+
+QString humanTransferSize(qint64 bytes) {
+    const double size = static_cast<double>(bytes);
+    if (size < 1024.0) return QStringLiteral("%1 B").arg(bytes);
+    if (size < 1024.0 * 1024.0) return QStringLiteral("%1 KB").arg(size / 1024.0, 0, 'f', 1);
+    if (size < 1024.0 * 1024.0 * 1024.0) return QStringLiteral("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 1);
+    return QStringLiteral("%1 GB").arg(size / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
+}
+
+QString transferManifestSummary(qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash) {
+    QStringList parts;
+    if (chunkCount > 0) {
+        parts << QStringLiteral("%1片").arg(chunkCount);
+    }
+    if (chunkSize > 0) {
+        parts << QStringLiteral("分片%1").arg(humanTransferSize(chunkSize));
+    }
+    const QString trimmedHash = fileHash.trimmed();
+    if (!trimmedHash.isEmpty()) {
+        parts << QStringLiteral("SHA-256 %1").arg(trimmedHash.left(12));
+    }
+    if (parts.isEmpty() && totalBytes > 0) {
+        parts << humanTransferSize(totalBytes);
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
+QString recoverySourceLabel(const QString& recoveryMode,
+                            const QString& recoveryReason,
+                            const QString& recoveryAction) {
+    const QString mode = recoveryMode.trimmed().toLower();
+    const QString reason = recoveryReason.trimmed().toLower();
+    const QString action = recoveryAction.trimmed().toLower();
+    if (reason.contains(QStringLiteral("same-wire")) || action.contains(QStringLiteral("same-wire"))) {
+        return QStringLiteral("same-wire 本机密文缓存");
+    }
+    if (reason.contains(QStringLiteral("filesystem-object"))
+            || action.contains(QStringLiteral("filesystem-object"))) {
+        return QStringLiteral("filesystem object 密文回读");
+    }
+    if (reason.contains(QStringLiteral("s3-object"))
+            || action.contains(QStringLiteral("s3-object"))
+            || reason.contains(QStringLiteral("reviewed-s3"))
+            || action.contains(QStringLiteral("reviewed-s3"))) {
+        return QStringLiteral("reviewed S3 密文回读");
+    }
+    if (reason.contains(QStringLiteral("offline-object"))
+            || action.contains(QStringLiteral("offline-object"))
+            || reason.contains(QStringLiteral("offline-mirror"))
+            || action.contains(QStringLiteral("offline-mirror"))) {
+        return QStringLiteral("reviewed offline mirror 密文回读");
+    }
+    if (reason.contains(QStringLiteral("object-recovery-ready")) || action.contains(QStringLiteral("object-wire-envelope"))) {
+        return QStringLiteral("object/offline 密文回读");
+    }
+    if (reason.contains(QStringLiteral("object")) || action.contains(QStringLiteral("object"))) {
+        return QStringLiteral("object/offline 候选证据");
+    }
+    if (mode == QLatin1String("resend") || action.contains(QStringLiteral("resend"))) {
+        return QStringLiteral("手动重发");
+    }
+    return QStringLiteral("普通续传");
+}
+
+int transferPercent(qint64 bytesPrepared, qint64 totalBytes) {
+    return totalBytes > 0
+        ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
+        : 0;
+}
+
+QString transferActionHint(const FileTransferStatusInfo& info) {
+    if (info.category == QLatin1String("completed")
+            || info.category == QLatin1String("receive-completed")
+            || info.category == QLatin1String("receive-saved")) {
+        return QStringLiteral("文件状态已完成，无需处理。");
+    }
+    if (info.category == QLatin1String("prepared")
+            || info.category == QLatin1String("receive-started")
+            || info.category == QLatin1String("resumed")) {
+        return QStringLiteral("保持窗口在线，等待后续分片确认或完成回执。");
+    }
+    if (info.category == QLatin1String("fallback-retained")
+            || info.category == QLatin1String("receiver-disconnected")) {
+        return QStringLiteral("可等待对方重新上线自动回放；若长时间未送达，再重新发送。");
+    }
+    if (info.category == QLatin1String("object-readback-unavailable")
+            || info.category == QLatin1String("object-write-failed")) {
+        return QStringLiteral("保留诊断并稍后重试；若对象存储持续异常，请重新发送或切回普通文件路径。");
+    }
+    if (info.category == QLatin1String("receive-save-failed")) {
+        return QStringLiteral("请检查下载目录权限、磁盘空间或安全软件拦截后重试。");
+    }
+    if (info.category == QLatin1String("receive-open-failed")) {
+        return QStringLiteral("请从聊天记录复制保存路径后手动检查文件是否仍存在。");
+    }
+    if (info.category == QLatin1String("chunk-delivery-failed")
+            || info.category == QLatin1String("timeout")
+            || info.category == QLatin1String("retryable")) {
+        return QStringLiteral("可稍后重试；客户端会优先保留续传或离线兜底证据。");
+    }
+    if (info.category == QLatin1String("integrity")
+            || info.category == QLatin1String("missing")) {
+        return QStringLiteral("为避免错误文件送达，请重新选择原文件发送。");
+    }
+    if (info.category == QLatin1String("size")) {
+        return QStringLiteral("请确认文件未被修改，且大小在服务端允许范围内。");
+    }
+    if (info.category == QLatin1String("auth")) {
+        return QStringLiteral("请确认账号、群成员身份或会话权限后再发送。");
+    }
+    return info.retryable
+        ? QStringLiteral("可稍后重试；必要时复制诊断给值班人员。")
+        : QStringLiteral("请复制诊断并根据原因重新发送或联系值班人员。");
+}
+
+int transferStatusTimeout(const FileTransferStatusInfo& info) {
+    if (info.category == QLatin1String("completed")
+            || info.category == QLatin1String("receive-completed")
+            || info.category == QLatin1String("receive-saved")) {
+        return 2600;
+    }
+    if (info.retryable) {
+        return 5200;
+    }
+    return 4600;
+}
+
+QString transferProgressSummary(qint64 bytesPrepared, qint64 totalBytes) {
+    if (totalBytes > 0) {
+        return QStringLiteral("%1 / %2").arg(humanTransferSize(bytesPrepared), humanTransferSize(totalBytes));
+    }
+    if (bytesPrepared > 0) {
+        return QStringLiteral("已处理 %1").arg(humanTransferSize(bytesPrepared));
+    }
+    return QStringLiteral("等待首个分片进度");
+}
+
+QString trimmedOrFallback(const QString& text, const QString& fallback) {
+    const QString trimmed = text.trimmed();
+    return trimmed.isEmpty() ? fallback : trimmed;
+}
+}
+
+TransferRecoveryUiState TransferManager::recoveryUiState(bool hasSavedTransfer,
+                                                         bool clientConnected,
+                                                         const QJsonObject& state,
+                                                         const QJsonObject& recoveryStatus,
+                                                         bool announce) {
+    TransferRecoveryUiState result;
+    result.hasSavedTransfer = hasSavedTransfer;
+    result.canAutoResume = recoveryStatus.value(QStringLiteral("canAutoResume")).toBool(false);
+    result.resumeVisible = hasSavedTransfer;
+    result.resumeEnabled = hasSavedTransfer && clientConnected && result.canAutoResume;
+    result.clearVisible = hasSavedTransfer;
+    result.clearEnabled = hasSavedTransfer;
+    result.resumeAction.visible = result.resumeVisible;
+    result.resumeAction.enabled = result.resumeEnabled;
+    result.clearAction.visible = result.clearVisible;
+    result.clearAction.enabled = result.clearEnabled;
+
+    if (!hasSavedTransfer) {
+        result.resumeToolTip = QStringLiteral("暂无可恢复的未完成发送");
+        result.clearToolTip = QStringLiteral("暂无可清除的恢复记录");
+        result.resumeAction.toolTip = result.resumeToolTip;
+        result.clearAction.toolTip = result.clearToolTip;
+        return result;
+    }
+
+    result.fileName = savedTransferFileName(state);
+    result.targetName = savedTransferTargetName(state);
+    result.detail = QStringLiteral("检测到未完成发送：%1 -> %2").arg(result.fileName, result.targetName);
+    result.e2eFileEncrypted = recoveryStatus.value(QStringLiteral("e2eFileEncrypted")).toBool(false);
+    result.recoveryAction = recoveryStatus.value(QStringLiteral("action")).toString();
+    result.recoveryMode = recoveryStatus.value(QStringLiteral("recoveryMode")).toString();
+    result.recoveryReason = recoveryStatus.value(QStringLiteral("reason")).toString();
+    result.recoverySource = recoverySourceLabel(result.recoveryMode, result.recoveryReason, result.recoveryAction);
+    result.resumeToolTip = result.canAutoResume
+        ? result.detail
+        : result.detail + QStringLiteral("（需要重新发送，原因：%1）").arg(result.recoveryReason);
+    result.clearToolTip = QStringLiteral("清除恢复记录：") + result.detail;
+    result.resumeAction.toolTip = result.resumeToolTip;
+    result.clearAction.toolTip = result.clearToolTip;
+
+    if (announce) {
+        if (result.canAutoResume) {
+            result.announceMessage = result.detail + QStringLiteral("，可通过菜单“恢复未完成发送”继续，或清除恢复记录。");
+            result.statusMessage = QStringLiteral("可恢复未完成发送：") + result.fileName;
+        } else {
+            result.announceMessage = result.detail
+                + QStringLiteral("，%1文件恢复策略为“重新发送”，不会自动续传；可重新选择文件发送或清除恢复记录。")
+                    .arg(result.e2eFileEncrypted ? QStringLiteral("端到端加密") : result.recoveryMode);
+            result.statusMessage = QStringLiteral("未完成发送需要重新发送：") + result.fileName;
+        }
+    }
+    return result;
+}
+
+TransferStatusEvent TransferManager::statusEvent(const QString& fileName,
+                                                 const QString& transferId,
+                                                 const QString& reason,
+                                                 qint64 receivedBytes,
+                                                 qint64 totalBytes) {
+    TransferStatusEvent result;
+    const FileTransferStatusInfo info = describeFileTransferReason(reason);
+    result.message = fileTransferStatusEventMessage(fileName, transferId, reason, receivedBytes, totalBytes);
+    result.actionHint = transferActionHint(info);
+    result.chatHintText = QStringLiteral("%1 · %2").arg(info.title, result.actionHint);
+    result.statusBarMessage = result.message + QStringLiteral(" · ") + result.actionHint;
+    result.statusBarTimeoutMs = transferStatusTimeout(info);
+    result.diagnostic = fileTransferStatusDiagnostic(fileName, transferId, reason, receivedBytes, totalBytes);
+    result.copyActionVisible = true;
+    result.copyActionEnabled = true;
+    result.copyActionToolTip = QStringLiteral("复制最近一次文件传输准备、续传、完成、失败或离线兜底状态诊断");
+    result.copyDiagnostic = diagnosticCopyUiState(result.diagnostic);
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::idleWorkspaceState(bool connected,
+                                                               bool hasSavedTransfer,
+                                                               bool canAutoResume) {
+    TransferWorkspaceCardState result;
+    result.stageText = connected ? QStringLiteral("等待新传输") : QStringLiteral("等待连接恢复");
+    if (hasSavedTransfer) {
+        result.summaryText = canAutoResume
+            ? QStringLiteral("检测到未完成发送，可继续恢复")
+            : QStringLiteral("检测到未完成发送，需要重新发送");
+        result.detailText = connected
+            ? QStringLiteral("可从菜单恢复未完成发送，或清除恢复记录后重新开始。")
+            : QStringLiteral("连接恢复后可处理未完成发送记录。");
+        result.actionText = canAutoResume
+            ? QStringLiteral("优先动作：恢复未完成发送或继续等待服务端状态同步")
+            : QStringLiteral("优先动作：重新选择原文件发送，必要时先清除恢复记录");
+        return result;
+    }
+
+    result.summaryText = connected
+        ? QStringLiteral("Redis 主链路正常，可发送文件、图片、离线附件和跨实例回执")
+        : QStringLiteral("当前只保留本地视图、历史消息和草稿");
+    result.detailText = connected
+        ? QStringLiteral("最近一次文件生命周期会显示在这里，包括准备、送达、离线兜底、接收保存和失败建议。")
+        : QStringLiteral("待重连后会恢复文件状态事件、续传检查和跨实例回放。");
+    result.actionText = connected
+        ? QStringLiteral("优先动作：选择文件或图片/视频开始一次新传输")
+        : QStringLiteral("优先动作：等待重连，避免在未知链路状态下重复发送");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::recoveryWorkspaceState(const TransferRecoveryUiState& uiState) {
+    TransferWorkspaceCardState result;
+    if (!uiState.hasSavedTransfer) {
+        return idleWorkspaceState(true, false, false);
+    }
+
+    result.stageText = uiState.canAutoResume ? QStringLiteral("未完成发送待恢复") : QStringLiteral("未完成发送待重发");
+    result.summaryText = QStringLiteral("%1 -> %2").arg(uiState.fileName, uiState.targetName);
+    result.detailText = uiState.canAutoResume
+        ? QStringLiteral("恢复记录已保留，当前链路允许自动续传。")
+        : QStringLiteral("恢复记录已保留，但当前策略要求重新发送。原因：%1")
+              .arg(trimmedOrFallback(uiState.recoveryReason, QStringLiteral("saved-transfer-requires-resend")));
+    result.actionText = uiState.canAutoResume
+        ? QStringLiteral("优先动作：通过菜单恢复未完成发送，或先清除恢复记录")
+        : QStringLiteral("优先动作：重新选择原文件发送，或清除恢复记录后继续");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::clearedRecoveryWorkspaceState(const QString& fileName) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("恢复记录已清除");
+    result.summaryText = trimmedOrFallback(fileName, QStringLiteral("未命名文件"));
+    result.detailText = QStringLiteral("旧的未完成发送状态已删除，不会再自动恢复。");
+    result.actionText = QStringLiteral("优先动作：如仍需传输，请重新选择文件发送");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::resumeBlockedWorkspaceState(const TransferResumeBlockedPrompt& prompt) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("续传被策略拦截");
+    result.summaryText = QStringLiteral("%1 -> %2").arg(prompt.fileName, prompt.targetName);
+    result.detailText = QStringLiteral("当前未完成发送不会自动续传。原因：%1").arg(prompt.reason);
+    result.actionText = QStringLiteral("优先动作：重新发送原文件，或清除恢复记录");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::resumeResultWorkspaceState(const TransferResumeResultState& resultState) {
+    TransferWorkspaceCardState result;
+    if (resultState.succeeded) {
+        result.stageText = QStringLiteral("恢复发送已完成");
+        result.summaryText = QStringLiteral("%1 -> %2").arg(resultState.fileName, resultState.targetName);
+        result.detailText = QStringLiteral("未完成发送已经恢复并完成，旧恢复记录已清理。");
+        result.actionText = QStringLiteral("优先动作：继续当前会话，等待对端查收或发送下一份文件");
+        return result;
+    }
+    if (resultState.canceled) {
+        result.stageText = QStringLiteral("恢复发送已取消");
+        result.summaryText = QStringLiteral("%1 -> %2").arg(resultState.fileName, resultState.targetName);
+        result.detailText = QStringLiteral("本次恢复已取消，原恢复记录仍可继续使用。");
+        result.actionText = QStringLiteral("优先动作：稍后再次恢复，或清除恢复记录后重新发送");
+        return result;
+    }
+
+    result.stageText = QStringLiteral("恢复发送失败");
+    result.summaryText = QStringLiteral("%1 -> %2").arg(resultState.fileName, resultState.targetName);
+    result.detailText = QStringLiteral("恢复记录已保留。原因：%1").arg(trimmedOrFallback(resultState.reason, QStringLiteral("恢复失败")));
+    result.actionText = QStringLiteral("优先动作：稍后重试恢复，或清除恢复记录后重新发送");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::statusWorkspaceState(const QString& fileName,
+                                                                 const QString& transferId,
+                                                                 const QString& reason,
+                                                                 qint64 receivedBytes,
+                                                                 qint64 totalBytes) {
+    Q_UNUSED(transferId);
+
+    const FileTransferStatusInfo info = describeFileTransferReason(reason);
+    TransferWorkspaceCardState result;
+    result.stageText = info.title;
+    result.summaryText = trimmedOrFallback(fileName, QStringLiteral("未命名文件"));
+    if (totalBytes > 0) {
+        result.summaryText += QStringLiteral(" · %1/%2 字节")
+            .arg(qBound<qint64>(0, receivedBytes, totalBytes))
+            .arg(totalBytes);
+    } else if (receivedBytes > 0) {
+        result.summaryText += QStringLiteral(" · 已确认 %1 字节").arg(receivedBytes);
+    }
+    result.detailText = info.detail;
+    result.actionText = transferActionHint(info);
+    return result;
+}
+
+TransferDiagnosticCopyUiState TransferManager::diagnosticCopyUiState(const QString& diagnostic) {
+    TransferDiagnosticCopyUiState result;
+    result.clipboardText = diagnostic.trimmed();
+    result.action.visible = true;
+    result.action.enabled = !result.clipboardText.isEmpty();
+    result.action.toolTip = QStringLiteral("复制最近一次文件传输准备、续传、完成、失败或离线兜底状态诊断");
+    result.emptyStatusMessage = QStringLiteral("暂无可复制的文件状态诊断");
+    result.copiedStatusMessage = QStringLiteral("最近文件状态诊断已复制");
+    return result;
+}
+
+TransferClearRecoveryPrompt TransferManager::clearRecoveryPrompt(const QJsonObject& state) {
+    TransferClearRecoveryPrompt result;
+    result.fileName = savedTransferFileName(state);
+    result.title = QStringLiteral("清除恢复记录");
+    result.message = QStringLiteral("清除“%1”的未完成发送恢复记录？\n清除后不会删除本地文件，但需要重新手动发送。")
+        .arg(result.fileName);
+    result.noSavedStatusMessage = QStringLiteral("暂无可清除的恢复记录");
+    result.keptStatusMessage = QStringLiteral("已保留恢复记录：") + result.fileName;
+    result.clearedSystemMessage = QStringLiteral("已清除未完成发送恢复记录：") + result.fileName;
+    result.clearedStatusMessage = QStringLiteral("已清除恢复记录：") + result.fileName;
+    result.clearFailedSystemMessage = QStringLiteral("清除未完成发送恢复记录失败：") + result.fileName;
+    result.clearFailedStatusMessage = QStringLiteral("清除恢复记录失败：") + result.fileName;
+    return result;
+}
+
+TransferResumeBlockedPrompt TransferManager::resumeBlockedPrompt(const QJsonObject& state,
+                                                                 const QJsonObject& recoveryStatus) {
+    TransferResumeBlockedPrompt result;
+    result.fileName = savedTransferFileName(state);
+    result.targetName = savedTransferTargetName(state);
+    result.reason = recoveryStatus.value(QStringLiteral("reason")).toString(QStringLiteral("saved-transfer-requires-resend"));
+    result.title = QStringLiteral("需要重新发送");
+    result.systemMessage = QStringLiteral("未完成发送不能自动续传：%1 -> %2（%3）。请重新发送该文件，或清除恢复记录。")
+        .arg(result.fileName, result.targetName, result.reason);
+    result.hintText = QStringLiteral("未完成发送需重新发送 · %1").arg(result.fileName);
+    result.statusMessage = QStringLiteral("端到端加密文件需重新发送：") + result.fileName;
+    result.message = QStringLiteral("文件：%1\n目标：%2\n原因：%3\n\n该未完成发送不会自动续传。请重新选择文件发送；也可以现在清除恢复记录。")
+        .arg(result.fileName, result.targetName, result.reason);
+    result.clearedSystemMessage = QStringLiteral("已清除未完成发送恢复记录：") + result.fileName;
+    result.clearedHintText = QStringLiteral("已清除未完成发送恢复记录 · ") + result.fileName;
+    result.clearedStatusMessage = QStringLiteral("已清除恢复记录：") + result.fileName;
+    return result;
+}
+
+TransferResumeResultState TransferManager::resumeResultState(const QString& fileName,
+                                                             const QString& targetName,
+                                                             bool resumed,
+                                                             bool canceled,
+                                                             const QString& rejectReason) {
+    TransferResumeResultState result;
+    result.succeeded = resumed;
+    result.canceled = !resumed && canceled;
+    result.failed = !resumed && !canceled;
+    result.fileName = fileName;
+    result.targetName = targetName;
+    result.reason = rejectReason.isEmpty() ? QStringLiteral("恢复失败") : rejectReason;
+    if (result.succeeded) {
+        result.systemMessage = QStringLiteral("已恢复并完成未完成发送：%1 -> %2").arg(fileName, targetName);
+        result.hintText = QStringLiteral("未完成发送已恢复 · %1 · %2").arg(fileName, targetName);
+        result.statusMessage = QStringLiteral("未完成发送已恢复完成：") + fileName;
+        return result;
+    }
+    if (result.canceled) {
+        result.systemMessage = QStringLiteral("已取消恢复未完成发送：") + fileName;
+        result.hintText = QStringLiteral("已取消恢复未完成发送 · ") + fileName;
+        result.statusMessage = QStringLiteral("已取消恢复发送：") + fileName;
+        return result;
+    }
+    result.systemMessage = QStringLiteral("恢复未完成发送失败：%1 -> %2（%3）。恢复记录已保留，可稍后重试。")
+        .arg(fileName, targetName, result.reason);
+    result.hintText = QStringLiteral("恢复未完成发送失败 · %1 · %2").arg(fileName, result.reason);
+    result.statusMessage = QStringLiteral("恢复未完成发送失败：") + result.reason;
+    result.failureTitle = QStringLiteral("恢复未完成发送失败");
+    result.failureMessage = QStringLiteral("文件：%1\n目标：%2\n原因：%3\n\n恢复记录已保留，可稍后通过菜单“恢复未完成发送”重试；也可以现在清除这条恢复记录。")
+        .arg(fileName, targetName, result.reason);
+    result.clearedSystemMessage = QStringLiteral("已清除未完成发送恢复记录：") + fileName;
+    result.clearedHintText = QStringLiteral("已清除未完成发送恢复记录 · ") + fileName;
+    result.clearedStatusMessage = QStringLiteral("已清除恢复记录：") + fileName;
+    return result;
+}
+
+TransferProgressUiState TransferManager::sendingInitialState(const QString& kind,
+                                                             const QString& fileName,
+                                                             const QString& targetName) {
+    TransferProgressUiState result;
+    result.labelText = QStringLiteral("正在分片读取%1...\n%2 -> %3").arg(kind, fileName, targetName);
+    return result;
+}
+
+TransferProgressUiState TransferManager::sendingCancelState(const QString& kind,
+                                                            const QString& fileName) {
+    TransferProgressUiState result;
+    result.labelText = QStringLiteral("正在取消%1发送...\n%2").arg(kind, fileName);
+    return result;
+}
+
+TransferProgressUiState TransferManager::sendingProgressState(const QString& kind,
+                                                              const QString& fileName,
+                                                              const QString& targetName,
+                                                              qint64 bytesPrepared,
+                                                              qint64 totalBytes) {
+    TransferProgressUiState result;
+    result.percent = transferPercent(bytesPrepared, totalBytes);
+    result.labelText = QStringLiteral("正在分片发送%1到 %2\n%3 · %4 / %5")
+        .arg(kind,
+             targetName,
+             fileName,
+             humanTransferSize(bytesPrepared),
+             humanTransferSize(totalBytes));
+    return result;
+}
+
+TransferProgressUiState TransferManager::sendingPreparedState(const QString& kind,
+                                                              const QString& fileName,
+                                                              const QString& targetName,
+                                                              qint64 totalBytes,
+                                                              qint64 chunkSize,
+                                                              qint64 chunkCount,
+                                                              const QString& fileHash) {
+    TransferProgressUiState result;
+    result.manifestSummary = transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash);
+    result.labelText = QStringLiteral("%1校验清单已生成\n%2 -> %3\n%4")
+        .arg(kind, fileName, targetName, result.manifestSummary);
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::preparingSendWorkspaceState(const QString& kind,
+                                                                        const QString& fileName,
+                                                                        const QString& fileSize,
+                                                                        const QString& targetName) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("准备发送%1").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = QStringLiteral("正在读取本地文件并准备分片，大小 %1。").arg(fileSize);
+    result.actionText = QStringLiteral("优先动作：保持当前会话在线，等待清单生成和分片发送");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::sendingProgressWorkspaceState(const QString& kind,
+                                                                          const QString& fileName,
+                                                                          const QString& targetName,
+                                                                          qint64 bytesPrepared,
+                                                                          qint64 totalBytes,
+                                                                          bool resumeFlow) {
+    TransferWorkspaceCardState result;
+    result.stageText = resumeFlow ? QStringLiteral("恢复发送进行中") : QStringLiteral("%1发送进行中").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = QStringLiteral("当前进度 %1。").arg(transferProgressSummary(bytesPrepared, totalBytes));
+    result.actionText = QStringLiteral("优先动作：保持窗口在线，等待 ACK、离线兜底或完成回执");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::sendingPreparedWorkspaceState(const QString& kind,
+                                                                          const QString& fileName,
+                                                                          const QString& targetName,
+                                                                          qint64 totalBytes,
+                                                                          qint64 chunkSize,
+                                                                          qint64 chunkCount,
+                                                                          const QString& fileHash,
+                                                                          bool resumeFlow) {
+    TransferWorkspaceCardState result;
+    result.stageText = resumeFlow ? QStringLiteral("恢复发送清单已就绪") : QStringLiteral("%1清单已生成").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash);
+    if (result.detailText.isEmpty()) {
+        result.detailText = QStringLiteral("客户端已完成分片清单准备。");
+    }
+    result.actionText = resumeFlow
+        ? QStringLiteral("优先动作：等待缺失分片补发和服务端恢复确认")
+        : QStringLiteral("优先动作：等待分片送达、离线回放或最终完成回执");
+    return result;
+}
+
+TransferSendUiState TransferManager::publicGroupRemovedState(const QString& kind) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("%1发送暂停 · 当前账号已不在公共群，等待重新邀请").arg(kind);
+    result.statusMessage = QStringLiteral("当前账号已不在公共群，暂不能发送%1").arg(kind);
+    result.statusTimeoutMs = 3000;
+    return result;
+}
+
+TransferSendUiState TransferManager::disconnectedSendState(const QString& kind, const QString& targetName) {
+    TransferSendUiState result;
+    const QString safeTarget = targetName.trimmed().isEmpty() ? QStringLiteral("公共聊天室") : targetName.trimmed();
+    result.hintText = QStringLiteral("%1发送暂停 · %2 已断开").arg(kind, safeTarget);
+    result.statusMessage = QStringLiteral("已断开连接，暂不能发送%1到 %2").arg(kind, safeTarget);
+    result.statusTimeoutMs = 3000;
+    return result;
+}
+
+TransferSendUiState TransferManager::canceledSendState(const QString& kind, const QString& fileName) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("已取消发送%1 · %2").arg(kind, fileName);
+    result.statusMessage = QStringLiteral("已取消发送%1：%2").arg(kind, fileName);
+    result.statusTimeoutMs = 2200;
+    return result;
+}
+
+TransferSendUiState TransferManager::failedSendState(const QString& kind,
+                                                     const QString& fileName,
+                                                     const QString& fileSize,
+                                                     const QString& targetName) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("%1发送失败 · %2 · %3").arg(kind, fileName, targetName);
+    result.statusMessage = QStringLiteral("%1发送失败：%2").arg(kind, fileName);
+    result.warningTitle = QStringLiteral("发送失败");
+    result.warningMessage = QStringLiteral("%1“%2”（%3）未发送到 %4，请检查连接状态或稍后重试。")
+        .arg(kind, fileName, fileSize, targetName);
+    result.statusTimeoutMs = 3000;
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::canceledSendWorkspaceState(const QString& kind,
+                                                                       const QString& fileName,
+                                                                       const QString& targetName) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("%1发送已取消").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = QStringLiteral("本次发送已由当前客户端取消，未再继续推送后续分片。");
+    result.actionText = QStringLiteral("优先动作：确认目标会话后重新发送，或切换到其他会话");
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::failedSendWorkspaceState(const QString& kind,
+                                                                     const QString& fileName,
+                                                                     const QString& fileSize,
+                                                                     const QString& targetName) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("%1发送失败").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = QStringLiteral("本次发送未完成：%1，大小 %2。").arg(fileName, fileSize);
+    result.actionText = QStringLiteral("优先动作：检查连接、Redis/对象存储链路或稍后重新发送");
+    return result;
+}
+
+TransferSelectionPlan TransferManager::fileSelectionPlan() {
+    TransferSelectionPlan result;
+    result.dialogTitle = QStringLiteral("选择文件");
+    result.filters = QStringLiteral("常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
+    result.confirmKind = QStringLiteral("文件");
+    result.canceledHint = QStringLiteral("文件发送已取消");
+    result.canceledStatus = QStringLiteral("已取消选择文件");
+    result.preparingKind = QStringLiteral("文件");
+    return result;
+}
+
+TransferSelectionPlan TransferManager::mediaSelectionPlan() {
+    TransferSelectionPlan result;
+    result.dialogTitle = QStringLiteral("选择图片或视频");
+    result.filters = QStringLiteral("图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
+    result.confirmKind = QStringLiteral("媒体文件");
+    result.canceledHint = QStringLiteral("图片/视频发送已取消");
+    result.canceledStatus = QStringLiteral("已取消选择图片/视频");
+    result.preparingKind = QStringLiteral("媒体文件");
+    return result;
+}
+
+TransferSelectionUiState TransferManager::transferSelectionUiState(const TransferSelectionPlan& selectionPlan,
+                                                                   const QString& selectedPath) {
+    TransferSelectionUiState state;
+    state.confirmKind = selectionPlan.confirmKind;
+
+    const LocalTransferSelectionDecision decision =
+        LocalFileManager::transferSelectionDecision(selectedPath,
+                                                    selectionPlan.confirmKind,
+                                                    selectionPlan.canceledHint,
+                                                    selectionPlan.canceledStatus);
+    if (decision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog) {
+        state.showFailureDialog = true;
+        state.hintText = decision.hintText;
+        state.statusMessage = decision.statusMessage;
+        state.statusTimeoutMs = decision.statusTimeoutMs;
+        state.dialogTitle = decision.dialogTitle;
+        state.dialogMessage = decision.dialogMessage;
+        return state;
+    }
+
+    if (!decision.accepted
+        && decision.action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
+        state.hintText = decision.hintText;
+        state.statusMessage = decision.statusMessage;
+        state.statusTimeoutMs = decision.statusTimeoutMs;
+        return state;
+    }
+
+    state.filePath = decision.filePath;
+    state.fileInfo = decision.fileInfo;
+    state.fileSize = decision.fileSize;
+    if (decision.action == LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
+        state.showConfirmDialog = true;
+        state.dialogTitle = decision.dialogTitle;
+        state.dialogMessage = decision.dialogMessage;
+        return state;
+    }
+
+    state.accepted = true;
+    return state;
+}
+
+TransferSelectionFeedbackPlan TransferManager::transferSelectionFeedbackPlan(const TransferSelectionUiState& selectionState) {
+    TransferSelectionFeedbackPlan plan;
+    plan.hintText = selectionState.hintText;
+    plan.statusMessage = selectionState.statusMessage;
+    plan.statusTimeoutMs = selectionState.statusTimeoutMs;
+
+    if (selectionState.showFailureDialog) {
+        plan.dialogKind = TransferSelectionFeedbackPlan::DialogKind::Warning;
+        plan.dialogTitle = selectionState.dialogTitle;
+        plan.dialogMessage = selectionState.dialogMessage;
+        plan.stopSelection = true;
+        return plan;
+    }
+
+    if (selectionState.showConfirmDialog) {
+        plan.dialogKind = TransferSelectionFeedbackPlan::DialogKind::Question;
+        plan.dialogTitle = selectionState.dialogTitle;
+        plan.dialogMessage = selectionState.dialogMessage;
+        plan.requiresConfirmation = true;
+        return plan;
+    }
+
+    if (!selectionState.accepted) {
+        plan.stopSelection = true;
+    }
+    return plan;
+}
+
+TransferSelectionUiState TransferManager::resolveTransferSelectionUiState(const TransferSelectionUiState& pendingState,
+                                                                          bool confirmed) {
+    if (!pendingState.showConfirmDialog) {
+        return pendingState;
+    }
+
+    TransferSelectionUiState state;
+    state.filePath = pendingState.filePath;
+    state.fileInfo = pendingState.fileInfo;
+    state.fileSize = pendingState.fileSize;
+    state.confirmKind = pendingState.confirmKind;
+    if (confirmed) {
+        state.accepted = true;
+        return state;
+    }
+
+    state.hintText = QStringLiteral("已取消发送%1").arg(pendingState.confirmKind);
+    state.statusMessage = state.hintText;
+    state.statusTimeoutMs = 2600;
+    return state;
+}
+
+TransferMediaSelection TransferManager::mediaSelection(const QFileInfo& info) {
+    const QString suffix = info.suffix().toLower();
+    const bool isVideo = QStringList{QStringLiteral("mp4"),
+                                     QStringLiteral("mov"),
+                                     QStringLiteral("avi"),
+                                     QStringLiteral("mkv"),
+                                     QStringLiteral("wmv"),
+                                     QStringLiteral("flv"),
+                                     QStringLiteral("webm")}.contains(suffix);
+    TransferMediaSelection result;
+    result.isVideo = isVideo;
+    result.mediaType = isVideo ? QStringLiteral("视频") : QStringLiteral("图片");
+    return result;
+}
+
+TransferMediaPreviewPlan TransferManager::localMediaPreviewPlan(const QString& fileName,
+                                                                const QString& fileSize,
+                                                                bool isVideo) {
+    TransferMediaPreviewPlan result;
+    result.isVideo = isVideo;
+    result.alignRight = false;
+    result.text = isVideo
+        ? QStringLiteral("视频文件 · %1 · %2 · 可在文件目录中打开").arg(fileName, fileSize)
+        : QStringLiteral("%1 · %2").arg(fileName, fileSize);
+    return result;
+}
+
+TransferMediaPreviewPlan TransferManager::remoteMediaPreviewPlan(const QString& cardText,
+                                                                 bool isVideo) {
+    TransferMediaPreviewPlan result;
+    result.text = cardText;
+    result.isVideo = isVideo;
+    result.alignRight = true;
+    return result;
+}
+
+TransferMediaPreviewPlan TransferManager::receivedMediaPreviewPlan(const QString& receivedName,
+                                                                   const QString& receivedSize,
+                                                                   const QString& manifestSuffix) {
+    TransferMediaPreviewPlan result;
+    result.text = QStringLiteral("%1 · %2%3").arg(receivedName, receivedSize, manifestSuffix);
+    result.isVideo = false;
+    result.alignRight = false;
+    return result;
+}
+
+TransferSendUiState TransferManager::preparingSendState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& fileSize,
+                                                        const QString& targetName) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("准备发送%1到 %2 · %3 · %4").arg(kind, targetName, fileName, fileSize);
+    result.statusMessage = result.hintText;
+    result.statusTimeoutMs = 1800;
+    return result;
+}
+
+TransferSendUiState TransferManager::localSendCompletedState(const QString& kind,
+                                                             const QString& fileName,
+                                                             const QString& fileSize,
+                                                             const QString& targetName,
+                                                             const QString& completedAt) {
+    TransferSendUiState result;
+    result.systemMessage = QStringLiteral("%1发送详情：%2 · %3 · 到 %4").arg(kind, fileName, fileSize, targetName);
+    result.cardText = QStringLiteral("发送%1成功").arg(kind);
+    result.receiptText = QStringLiteral("%1查收话术 · 我已发送%1 %2 到 %3，请注意查收。 · 右键聊天记录可复制")
+        .arg(kind, fileName, targetName);
+    result.hintText = QStringLiteral("已发送%1到 %2 · %3 · %4").arg(kind, targetName, fileSize, completedAt);
+    result.statusMessage = QStringLiteral("已发送%1到 %2 · %3").arg(kind, targetName, fileSize);
+    result.statusTimeoutMs = 2200;
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::localSendCompletedWorkspaceState(const QString& kind,
+                                                                             const QString& fileName,
+                                                                             const QString& fileSize,
+                                                                             const QString& targetName,
+                                                                             const QString& completedAt) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("%1已写入本地群会话").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = QStringLiteral("本地群会话已落入聊天记录，大小 %1，时间 %2。").arg(fileSize, completedAt);
+    result.actionText = QStringLiteral("优先动作：继续扩展本地群会话，或邀请更多好友进入该群");
+    return result;
+}
+
+TransferSendUiState TransferManager::remoteSendCompletedState(const QString& kind,
+                                                              const QString& fileName,
+                                                              const QString& fileSize,
+                                                              const QString& targetName,
+                                                              const QString& completedAt,
+                                                              const QString& transferSummary) {
+    TransferSendUiState result;
+    const QString transferSuffix = transferSummary.trimmed().isEmpty()
+        ? QString()
+        : QStringLiteral(" · %1").arg(transferSummary.trimmed());
+    result.systemMessage = QStringLiteral("已发送%1: %2 · %3 · 到 %4%5").arg(kind, fileName, fileSize, targetName, transferSuffix);
+    result.cardText = QStringLiteral("发送%1成功").arg(kind);
+    result.receiptText = QStringLiteral("%1查收话术 · 我已发送%1 %2 到 %3，请注意查收。 · 右键聊天记录可复制")
+        .arg(kind, fileName, targetName);
+    result.hintText = QStringLiteral("已发送%1到 %2 · %3 · %4%5").arg(kind, targetName, fileSize, completedAt, transferSuffix);
+    result.statusMessage = QStringLiteral("已发送%1到 %2 · %3%4").arg(kind, targetName, fileSize, transferSuffix);
+    result.statusTimeoutMs = 2600;
+    return result;
+}
+
+TransferWorkspaceCardState TransferManager::remoteSendCompletedWorkspaceState(const QString& kind,
+                                                                              const QString& fileName,
+                                                                              const QString& fileSize,
+                                                                              const QString& targetName,
+                                                                              const QString& completedAt,
+                                                                              const QString& transferSummary) {
+    TransferWorkspaceCardState result;
+    result.stageText = QStringLiteral("%1已送达").arg(kind);
+    result.summaryText = QStringLiteral("%1 -> %2").arg(fileName, targetName);
+    result.detailText = QStringLiteral("完成时间 %1，大小 %2%3")
+        .arg(completedAt,
+             fileSize,
+             transferSummary.trimmed().isEmpty() ? QString() : QStringLiteral(" · %1").arg(transferSummary.trimmed()));
+    result.actionText = QStringLiteral("优先动作：等待对端查收，或继续发送下一份资料");
+    return result;
+}
+
+TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QString& kind,
+                                                                        const QString& receivedName,
+                                                                        const QString& receivedSize,
+                                                                        const QString& displayName,
+                                                                        const QString& manifestSuffix,
+                                                                        const QString& integrityText,
+                                                                        const QString& integritySuffix,
+                                                                        const QString& savePath,
+                                                                        bool saved,
+                                                                        bool integrityFailed) {
+    Q_UNUSED(integrityText)
+    TransferReceiveSaveUiState result;
+    if (saved) {
+        result.saved = true;
+        result.savedItemText = QStringLiteral("%1接收成功").arg(kind);
+        result.savedItemToolTip = QStringLiteral("双击打开文件；右键可复制保存路径或打开目录\n%1\n%2 · %3%4%5")
+            .arg(savePath, receivedName, receivedSize, manifestSuffix, integritySuffix);
+        result.savedIntegrityFailed = integrityFailed;
+        result.receiptCardText = QStringLiteral("%1接收成功").arg(kind);
+        result.receiptCardToolTip = QStringLiteral("%1已保存到：%2").arg(kind, savePath);
+        result.receiptReplyText = QStringLiteral("%1接收成功").arg(kind);
+        result.receiptReplyToolTip = result.savedItemToolTip;
+        result.eventReason = integrityFailed ? QStringLiteral("hash") : QStringLiteral("receive-saved");
+        result.hintText = QStringLiteral("已接收%1 · %2 · %3 · 来自 %4%5%6")
+            .arg(kind, receivedName, receivedSize, displayName, manifestSuffix, integritySuffix);
+        result.statusMessage = QStringLiteral("%1已保存到下载目录 · %2%3%4")
+            .arg(kind, receivedSize, manifestSuffix, integritySuffix);
+        result.statusTimeoutMs = 3000;
+        result.savedItem.text = result.savedItemText;
+        result.savedItem.toolTip = result.savedItemToolTip;
+        result.savedItem.foregroundRole = integrityFailed ? QStringLiteral("danger") : QStringLiteral("success");
+        result.savedItem.alignRight = false;
+        result.receiptCardItem.text = result.receiptCardText;
+        result.receiptCardItem.toolTip = result.receiptCardToolTip;
+        result.receiptCardItem.foregroundRole = QStringLiteral("success");
+        result.receiptCardItem.backgroundRole = QStringLiteral("success-soft");
+        result.receiptCardItem.alignRight = false;
+        result.receiptReplyItem.text = result.receiptReplyText;
+        result.receiptReplyItem.toolTip = result.receiptReplyToolTip;
+        result.receiptReplyItem.foregroundRole = QStringLiteral("muted");
+        result.receiptReplyItem.backgroundRole = QStringLiteral("muted-soft");
+        result.receiptReplyItem.alignRight = false;
+        return result;
+    }
+
+    result.failedItemText = QStringLiteral("%1保存失败 · %2 · %3 · 请检查下载目录权限")
+        .arg(kind, receivedName, receivedSize);
+    result.eventReason = QStringLiteral("receive-save-failed");
+    result.hintText = QStringLiteral("%1保存失败 · %2 · 来自 %3").arg(kind, receivedName, displayName);
+    result.statusMessage = QStringLiteral("%1保存失败，请检查下载目录权限").arg(kind);
+    result.statusTimeoutMs = 3200;
+    result.failedItem.text = result.failedItemText;
+    result.failedItem.foregroundRole = QStringLiteral("danger");
+    result.failedItem.backgroundRole = QStringLiteral("danger-soft");
+    result.failedItem.alignRight = false;
+    return result;
+}
+
+TransferReceiveRenderPlan TransferManager::receivedTransferRenderPlan(const TransferReceiveSaveUiState& uiState) {
+    TransferReceiveRenderPlan result;
+    result.eventReason = uiState.eventReason;
+    result.hintText = uiState.hintText;
+    result.statusMessage = uiState.statusMessage;
+    result.statusTimeoutMs = uiState.statusTimeoutMs;
+    if (uiState.saved) {
+        result.chatItems.append(uiState.savedItem);
+    } else {
+        result.chatItems.append(uiState.failedItem);
+    }
+    return result;
+}
+
+TransferReceiveRenderPlan TransferManager::receivedTransferPersistenceRenderPlan(const QString& kind,
+                                                                                 const QString& receivedName,
+                                                                                 const QString& receivedSize,
+                                                                                 const QString& displayName,
+                                                                                 const QString& manifestSuffix,
+                                                                                 const QString& integrityText,
+                                                                                 const QString& integritySuffix,
+                                                                                 const QString& savePath,
+                                                                                 bool saved) {
+    const bool integrityFailed = integrityText.startsWith(QStringLiteral("完整性校验失败"));
+    const TransferReceiveSaveUiState uiState = receivedTransferSaveUiState(kind,
+                                                                           receivedName,
+                                                                           receivedSize,
+                                                                           displayName,
+                                                                           manifestSuffix,
+                                                                           integrityText,
+                                                                           integritySuffix,
+                                                                           savePath,
+                                                                           saved,
+                                                                           integrityFailed);
+    return receivedTransferRenderPlan(uiState);
+}
+
+TransferWorkspaceCardState TransferManager::receivedTransferWorkspaceState(const QString& kind,
+                                                                           const QString& receivedName,
+                                                                           const QString& receivedSize,
+                                                                           const QString& displayName,
+                                                                           const QString& manifestSuffix,
+                                                                           const QString& integrityText,
+                                                                           const QString& integritySuffix,
+                                                                           const QString& savePath,
+                                                                           bool saved) {
+    TransferWorkspaceCardState result;
+    result.stageText = saved ? QStringLiteral("%1接收已落盘").arg(kind) : QStringLiteral("%1接收保存失败").arg(kind);
+    result.summaryText = QStringLiteral("%1 <- %2").arg(receivedName, displayName);
+    if (saved) {
+        result.detailText = QStringLiteral("已保存到 %1 · %2%3%4")
+            .arg(savePath, receivedSize, manifestSuffix, integritySuffix);
+        result.actionText = integrityText.startsWith(QStringLiteral("完整性校验失败"))
+            ? QStringLiteral("优先动作：保留样本并联系发送方重新发送原文件")
+            : QStringLiteral("优先动作：可从聊天记录双击打开文件，或复制保存路径转发给同事");
+        return result;
+    }
+
+    result.detailText = QStringLiteral("已收到 %1（%2），但写入下载目录失败。").arg(receivedName, receivedSize);
+    result.actionText = QStringLiteral("优先动作：检查目录权限、磁盘空间或安全软件后重试");
+    return result;
+}
+
+TransferProgressUiState TransferManager::resumeInitialState(const QString& fileName,
+                                                            const QString& targetName) {
+    TransferProgressUiState result;
+    result.labelText = QStringLiteral("正在恢复发送\n%1 -> %2").arg(fileName, targetName);
+    return result;
+}
+
+TransferProgressUiState TransferManager::resumeCancelState(const QString& fileName) {
+    TransferProgressUiState result;
+    result.labelText = QStringLiteral("正在取消恢复发送...\n") + fileName;
+    return result;
+}
+
+TransferProgressUiState TransferManager::resumeProgressState(const QString& fileName,
+                                                             const QString& targetName,
+                                                             qint64 bytesPrepared,
+                                                             qint64 totalBytes) {
+    TransferProgressUiState result;
+    result.percent = transferPercent(bytesPrepared, totalBytes);
+    result.labelText = QStringLiteral("正在恢复发送\n%1 -> %2\n%3 / %4")
+        .arg(fileName,
+             targetName,
+             humanTransferSize(bytesPrepared),
+             humanTransferSize(totalBytes));
+    return result;
+}
+
+TransferProgressUiState TransferManager::resumePreparedState(const QString& fileName,
+                                                             const QString& targetName,
+                                                             qint64 totalBytes,
+                                                             qint64 chunkSize,
+                                                             qint64 chunkCount,
+                                                             const QString& fileHash) {
+    TransferProgressUiState result;
+    result.manifestSummary = transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash);
+    result.labelText = QStringLiteral("恢复发送校验清单已生成\n%1 -> %2\n%3")
+        .arg(fileName, targetName, result.manifestSummary);
+    return result;
+}

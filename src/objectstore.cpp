@@ -1,0 +1,1257 @@
+#include "objectstore.h"
+
+#include <QBuffer>
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QDirIterator>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
+#include <QMap>
+#include <QMessageAuthenticationCode>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSslConfiguration>
+#include <QSslError>
+#include <QSslSocket>
+#include <QTimer>
+#include <QUrl>
+#include <QUuid>
+#include <QVariant>
+
+#include <algorithm>
+#include <memory>
+#include <utility>
+
+namespace {
+QString normalizeExtension(const QString& extension) {
+    QString normalized = extension.trimmed();
+    if (normalized.isEmpty()) {
+        return QString();
+    }
+    if (normalized.startsWith('.')) {
+        normalized.remove(0, 1);
+    }
+    static const QRegularExpression validExtension(QStringLiteral("^[A-Za-z0-9_-]{1,32}$"));
+    if (!validExtension.match(normalized).hasMatch()) {
+        return QString();
+    }
+    return "." + normalized;
+}
+
+QString sha256Hex(const QByteArray& data) {
+    return QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+}
+
+QByteArray hmacSha256(const QByteArray& key, const QByteArray& message) {
+    return QMessageAuthenticationCode::hash(message, key, QCryptographicHash::Sha256);
+}
+
+QString fileSha256Hex(QFile& file) {
+    QCryptographicHash hasher(QCryptographicHash::Sha256);
+    while (!file.atEnd()) {
+        const QByteArray chunk = file.read(256 * 1024);
+        if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+            return QString();
+        }
+        hasher.addData(chunk);
+    }
+    return QString::fromLatin1(hasher.result().toHex());
+}
+
+bool envFlagDefaultTrue(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    if (value.isEmpty()) {
+        return true;
+    }
+    return !(value == "0" || value == "false" || value == "no" || value == "off");
+}
+
+bool envFlagDefaultFalse(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+int envIntInRange(const char* name, int defaultValue, int minValue, int maxValue) {
+    const QByteArray value = qgetenv(name).trimmed();
+    if (value.isEmpty()) {
+        return defaultValue;
+    }
+
+    bool ok = false;
+    const int parsed = value.toInt(&ok);
+    if (!ok || parsed < minValue || parsed > maxValue) {
+        return defaultValue;
+    }
+    return parsed;
+}
+
+QString collapseHeaderWhitespace(const QString& value) {
+    static const QRegularExpression whitespace(QStringLiteral("\\s+"));
+    return QString(value).replace(whitespace, QStringLiteral(" ")).trimmed();
+}
+
+QString canonicalUri(const QUrl& url) {
+    const QString path = url.path(QUrl::FullyEncoded);
+    return path.isEmpty() ? QStringLiteral("/") : path;
+}
+
+QString canonicalQueryString(const QUrl& url) {
+    const QString query = url.query(QUrl::FullyEncoded);
+    if (query.isEmpty()) {
+        return QString();
+    }
+
+    QStringList parts = query.split('&', Qt::KeepEmptyParts);
+    std::sort(parts.begin(), parts.end());
+    return parts.join('&');
+}
+
+QString s3HostHeader(const QUrl& url) {
+    QString host = url.host(QUrl::FullyEncoded);
+    const int port = url.port();
+    const bool includePort = port > 0
+        && !((url.scheme() == QStringLiteral("https") && port == 443)
+             || (url.scheme() == QStringLiteral("http") && port == 80));
+    if (includePort) {
+        host += QStringLiteral(":%1").arg(port);
+    }
+    return host;
+}
+
+QString normalizedS3Region(const S3ObjectStoreConfig& config) {
+    const QString region = config.region.trimmed();
+    return region.isEmpty() ? QStringLiteral("us-east-1") : region;
+}
+
+QString normalizedAmzDate(const QString& amzDate) {
+    const QString trimmed = amzDate.trimmed();
+    if (!trimmed.isEmpty()) {
+        return trimmed;
+    }
+    return QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'"));
+}
+
+bool looksLikeSha256HexObjectHash(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.size() != 64) return false;
+    for (const QChar& ch : trimmed) {
+        const ushort c = ch.toLatin1();
+        const bool isHex = (c >= '0' && c <= '9')
+            || (c >= 'a' && c <= 'f')
+            || (c >= 'A' && c <= 'F');
+        if (!isHex) return false;
+    }
+    return true;
+}
+
+LargeFileDeliveredReceiptDecision retainedLargeFileDecision(const QString& reason) {
+    LargeFileDeliveredReceiptDecision decision;
+    decision.reason = reason;
+    return decision;
+}
+
+QString s3ReasonFromText(const QString& text) {
+    const QString error = text.trimmed();
+    static const QMap<QString, QString> s3ReasonTokens = {
+        {QStringLiteral("timeout"), QStringLiteral("timeout")},
+        {QStringLiteral("network_error"), QStringLiteral("network")},
+        {QStringLiteral("tls_error"), QStringLiteral("tls")},
+        {QStringLiteral("auth_or_permission_error"), QStringLiteral("auth")},
+        {QStringLiteral("not_found"), QStringLiteral("not_found")},
+        {QStringLiteral("retryable_client_status"), QStringLiteral("retryable")},
+        {QStringLiteral("server_error"), QStringLiteral("server")},
+        {QStringLiteral("client_error"), QStringLiteral("client")},
+        {QStringLiteral("unknown_status"), QStringLiteral("unknown")},
+        {QStringLiteral("invalid_request"), QStringLiteral("unknown")}
+    };
+    for (auto it = s3ReasonTokens.constBegin(); it != s3ReasonTokens.constEnd(); ++it) {
+        if (error.contains(it.key(), Qt::CaseInsensitive)) {
+            return it.value();
+        }
+    }
+    if (error.contains(QStringLiteral("TLS"), Qt::CaseInsensitive)) {
+        return QStringLiteral("tls");
+    }
+    if (error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)) {
+        return QStringLiteral("timeout");
+    }
+    if (error.contains(QStringLiteral("network"), Qt::CaseInsensitive)
+        || error.contains(QStringLiteral("socket"), Qt::CaseInsensitive)) {
+        return QStringLiteral("network");
+    }
+    return QString();
+}
+}
+
+FilesystemObjectStore::FilesystemObjectStore(const QString& rootDir)
+    : m_rootDir(QDir::cleanPath(rootDir)) {
+}
+
+QString FilesystemObjectStore::rootDir() const {
+    return m_rootDir;
+}
+
+QString FilesystemObjectStore::generateObjectKey(const QString& extension) {
+    return QUuid::createUuid().toString(QUuid::WithoutBraces) + normalizeExtension(extension);
+}
+
+bool FilesystemObjectStore::isValidObjectKey(const QString& objectKey) {
+    static const QRegularExpression validKey(QStringLiteral("^[A-Za-z0-9_-]{8,64}(\\.[A-Za-z0-9_-]{1,32})?$"));
+    const QString trimmed = objectKey.trimmed();
+    return trimmed == objectKey
+        && !trimmed.isEmpty()
+        && !trimmed.contains("..")
+        && !trimmed.contains('/')
+        && !trimmed.contains('\\')
+        && !trimmed.contains(':')
+        && validKey.match(trimmed).hasMatch();
+}
+
+QString FilesystemObjectStore::objectPath(const QString& objectKey) const {
+    if (m_rootDir.isEmpty() || !isValidObjectKey(objectKey)) {
+        return QString();
+    }
+
+    const QString rootPath = QDir(m_rootDir).absolutePath();
+    const QString candidatePath = QDir(rootPath).absoluteFilePath(objectKey);
+    const QString cleanRoot = QDir::cleanPath(rootPath);
+    const QString cleanCandidate = QDir::cleanPath(candidatePath);
+#ifdef Q_OS_WIN
+    const bool insideRoot = cleanCandidate.compare(cleanRoot, Qt::CaseInsensitive) != 0
+        && cleanCandidate.startsWith(cleanRoot + "/", Qt::CaseInsensitive);
+#else
+    const bool insideRoot = cleanCandidate != cleanRoot
+        && cleanCandidate.startsWith(cleanRoot + "/");
+#endif
+    return insideRoot ? cleanCandidate : QString();
+}
+
+bool FilesystemObjectStore::writeObject(const QByteArray& data,
+                                        QString* objectKey,
+                                        QString* fileHash,
+                                        QString* error,
+                                        const QString& extension) const {
+    if (objectKey) {
+        objectKey->clear();
+    }
+    if (fileHash) {
+        fileHash->clear();
+    }
+    if (error) {
+        error->clear();
+    }
+    if (m_rootDir.isEmpty()) {
+        if (error) *error = QStringLiteral("对象存储根目录未配置");
+        return false;
+    }
+    if (!QDir().mkpath(m_rootDir)) {
+        if (error) *error = QStringLiteral("对象存储根目录不可写");
+        return false;
+    }
+
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const QString key = generateObjectKey(extension);
+        const QString path = objectPath(key);
+        if (path.isEmpty() || QFile::exists(path)) {
+            continue;
+        }
+
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) {
+            if (error) *error = file.errorString();
+            return false;
+        }
+        if (file.write(data) != data.size()) {
+            if (error) *error = file.errorString();
+            return false;
+        }
+        if (!file.commit()) {
+            if (error) *error = file.errorString();
+            return false;
+        }
+        if (objectKey) *objectKey = key;
+        if (fileHash) *fileHash = sha256Hex(data);
+        return true;
+    }
+
+    if (error) *error = QStringLiteral("无法生成唯一对象 key");
+    return false;
+}
+
+FilesystemObjectStore::ValidationResult FilesystemObjectStore::validateObject(const QString& objectKey,
+                                                                              qint64 expectedSize,
+                                                                              const QString& expectedHash) const {
+    ValidationResult result;
+    const QString path = objectPath(objectKey);
+    if (path.isEmpty()) {
+        result.error = QStringLiteral("对象 key 非法");
+        return result;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        result.error = QStringLiteral("对象不存在或不可读");
+        return result;
+    }
+
+    result.size = file.size();
+    if (expectedSize >= 0 && result.size != expectedSize) {
+        result.error = QStringLiteral("对象大小不一致");
+        return result;
+    }
+
+    result.fileHash = fileSha256Hex(file);
+    if (result.fileHash.isEmpty()) {
+        result.error = QStringLiteral("对象哈希计算失败");
+        return result;
+    }
+    if (!expectedHash.trimmed().isEmpty()
+        && result.fileHash.compare(expectedHash.trimmed(), Qt::CaseInsensitive) != 0) {
+        result.error = QStringLiteral("对象哈希不一致");
+        return result;
+    }
+
+    result.ok = true;
+    return result;
+}
+
+std::unique_ptr<QIODevice> FilesystemObjectStore::openObject(const QString& objectKey) const {
+    const QString path = objectPath(objectKey);
+    if (path.isEmpty()) {
+        return {};
+    }
+
+    auto file = std::make_unique<QFile>(path);
+    if (!file->open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    return file;
+}
+
+bool FilesystemObjectStore::removeObject(const QString& objectKey) const {
+    const QString path = objectPath(objectKey);
+    return !path.isEmpty() && QFile::remove(path);
+}
+
+int FilesystemObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys) const {
+    if (removedKeys) {
+        removedKeys->clear();
+    }
+    if (ttlMs < 0 || m_rootDir.isEmpty() || !QDir(m_rootDir).exists()) {
+        return 0;
+    }
+
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    int removed = 0;
+    QDirIterator it(m_rootDir, QDir::Files | QDir::NoDotAndDotDot);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QFileInfo info(path);
+        const QString key = info.fileName();
+        if (!isValidObjectKey(key)) {
+            continue;
+        }
+        if (info.lastModified().toUTC().msecsTo(now) <= ttlMs) {
+            continue;
+        }
+        if (QFile::remove(path)) {
+            ++removed;
+            if (removedKeys) {
+                removedKeys->append(key);
+            }
+        }
+    }
+    return removed;
+}
+
+S3ObjectStore::S3ObjectStore(const S3ObjectStoreConfig& config)
+    : S3ObjectStore(config, {}) {
+}
+
+S3ObjectStore::S3ObjectStore(const S3ObjectStoreConfig& config, S3RequestExecutor requestExecutor)
+    : m_config(config) {
+    m_config.prefix = normalizeS3ObjectPrefix(m_config.prefix);
+    m_requestExecutor = std::move(requestExecutor);
+}
+
+S3ObjectStoreConfig S3ObjectStore::config() const {
+    return m_config;
+}
+
+bool S3ObjectStore::writeObject(const QByteArray& data,
+                                QString* objectKey,
+                                QString* fileHash,
+                                QString* error,
+                                const QString& extension) const {
+    if (objectKey) {
+        objectKey->clear();
+    }
+    if (fileHash) {
+        fileHash->clear();
+    }
+    if (!m_requestExecutor) {
+        if (error) {
+            *error = QStringLiteral("S3对象存储后端暂未实现");
+        }
+        return false;
+    }
+
+    const QString generatedKey = FilesystemObjectStore::generateObjectKey(extension);
+    const QString hash = sha256Hex(data);
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, generatedKey, QStringLiteral("PUT"), data);
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        if (error) {
+            *error = QStringLiteral("S3 PUT 请求构造失败");
+        }
+        return false;
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request, data);
+    if (!execution.result.http.ok) {
+        if (error) {
+            *error = QStringLiteral("S3 PUT 请求失败: %1").arg(execution.result.http.reason);
+            if (!execution.result.error.isEmpty()) {
+                *error += QStringLiteral(" %1").arg(redactS3ErrorText(m_config, execution.result.error));
+            }
+        }
+        return false;
+    }
+
+    if (objectKey) {
+        *objectKey = generatedKey;
+    }
+    if (fileHash) {
+        *fileHash = hash;
+    }
+    if (error) {
+        error->clear();
+    }
+    return true;
+}
+
+ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objectKey,
+                                                            qint64 expectedSize,
+                                                            const QString& expectedHash) const {
+    ValidationResult result;
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        result.error = QStringLiteral("S3 object key 非法");
+        return result;
+    }
+    if (!m_requestExecutor) {
+        result.error = QStringLiteral("S3对象存储后端暂未实现");
+        return result;
+    }
+
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("HEAD"), QByteArray());
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        result.error = QStringLiteral("S3 HEAD 请求构造失败");
+        return result;
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
+    if (!execution.result.http.ok) {
+        result.error = QStringLiteral("S3 HEAD 请求失败: %1").arg(execution.result.http.reason);
+        if (!execution.result.error.isEmpty()) {
+            result.error += QStringLiteral(" %1").arg(redactS3ErrorText(m_config, execution.result.error));
+        }
+        return result;
+    }
+
+    const auto headerValue = [&execution](const QString& name) {
+        for (auto it = execution.headers.constBegin(); it != execution.headers.constEnd(); ++it) {
+            if (it.key().compare(name, Qt::CaseInsensitive) == 0) {
+                return it.value().trimmed();
+            }
+        }
+        return QString();
+    };
+
+    bool sizeOk = false;
+    result.size = headerValue(QStringLiteral("content-length")).toLongLong(&sizeOk);
+    if (!sizeOk || result.size < 0) {
+        result.error = QStringLiteral("S3 HEAD 响应缺少有效 Content-Length");
+        return result;
+    }
+    if (expectedSize >= 0 && result.size != expectedSize) {
+        result.error = QStringLiteral("S3对象大小不一致");
+        return result;
+    }
+
+    result.fileHash = headerValue(QStringLiteral("x-amz-meta-sha256")).toLower();
+    const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
+    if (!normalizedExpectedHash.isEmpty()) {
+        if (!result.fileHash.isEmpty() && result.fileHash != normalizedExpectedHash) {
+            result.error = QStringLiteral("S3对象哈希不一致");
+            return result;
+        }
+    }
+
+    const S3SignedObjectRequest getRequest = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("GET"), QByteArray());
+    if (getRequest.method.isEmpty() || !getRequest.request.url().isValid()) {
+        result = {};
+        result.error = QStringLiteral("S3 GET 请求构造失败");
+        return result;
+    }
+
+    const S3RequestExecutionResult getExecution = m_requestExecutor(getRequest, QByteArray());
+    if (!getExecution.result.http.ok) {
+        result = {};
+        result.error = QStringLiteral("S3 GET 请求失败: %1").arg(getExecution.result.http.reason);
+        if (!getExecution.result.error.isEmpty()) {
+            result.error += QStringLiteral(" %1").arg(redactS3ErrorText(m_config, getExecution.result.error));
+        }
+        return result;
+    }
+
+    return validateS3ObjectBody(getExecution.body, expectedSize, expectedHash);
+}
+
+std::unique_ptr<QIODevice> S3ObjectStore::openObject(const QString& objectKey) const {
+    m_lastOpenFailureReason.clear();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        m_lastOpenFailureReason = QStringLiteral("unknown");
+        return {};
+    }
+    if (!m_requestExecutor) {
+        m_lastOpenFailureReason = QStringLiteral("object-store-unavailable");
+        return {};
+    }
+
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("GET"), QByteArray());
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        m_lastOpenFailureReason = QStringLiteral("unknown");
+        return {};
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
+    if (!execution.result.http.ok) {
+        m_lastOpenFailureReason = s3FailureReasonForLog(execution.result);
+        return {};
+    }
+
+    auto buffer = std::make_unique<QBuffer>();
+    buffer->setData(execution.body);
+    if (!buffer->open(QIODevice::ReadOnly)) {
+        m_lastOpenFailureReason = QStringLiteral("unknown");
+        return {};
+    }
+    return buffer;
+}
+
+QString S3ObjectStore::lastOpenFailureReason() const {
+    return m_lastOpenFailureReason;
+}
+
+bool S3ObjectStore::removeObject(const QString& objectKey) const {
+    m_lastRemoveFailureReason.clear();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        m_lastRemoveFailureReason = QStringLiteral("unknown");
+        return false;
+    }
+    if (!m_requestExecutor) {
+        m_lastRemoveFailureReason = QStringLiteral("object-store-unavailable");
+        return false;
+    }
+
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("DELETE"), QByteArray());
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        m_lastRemoveFailureReason = QStringLiteral("unknown");
+        return false;
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
+    if (!execution.result.http.ok) {
+        m_lastRemoveFailureReason = s3FailureReasonForLog(execution.result);
+        return false;
+    }
+    return true;
+}
+
+QString S3ObjectStore::lastRemoveFailureReason() const {
+    return m_lastRemoveFailureReason;
+}
+
+int S3ObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys) const {
+    Q_UNUSED(ttlMs);
+    if (removedKeys) {
+        removedKeys->clear();
+    }
+    return 0;
+}
+
+QString normalizeObjectStoreType(const QString& storeType) {
+    const QString normalized = storeType.trimmed().toLower();
+    return normalized.isEmpty() ? QStringLiteral("filesystem") : normalized;
+}
+
+bool isSupportedObjectStoreType(const QString& storeType) {
+    const QString normalized = normalizeObjectStoreType(storeType);
+    return normalized == QStringLiteral("filesystem")
+        || normalized == QStringLiteral("s3");
+}
+
+QString normalizeS3ObjectPrefix(const QString& prefix) {
+    QString normalized = prefix.trimmed();
+    while (normalized.startsWith('/')) {
+        normalized.remove(0, 1);
+    }
+    while (normalized.endsWith('/')) {
+        normalized.chop(1);
+    }
+    return normalized.isEmpty() ? QString() : normalized + "/";
+}
+
+bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error) {
+    if (error) {
+        error->clear();
+    }
+
+    const QUrl endpoint(config.endpoint.trimmed());
+    if (!endpoint.isValid()
+        || endpoint.host().isEmpty()
+        || (endpoint.scheme() != QStringLiteral("https") && endpoint.scheme() != QStringLiteral("http"))) {
+        if (error) *error = QStringLiteral("S3 endpoint 必须是有效的 http/https URL");
+        return false;
+    }
+
+    static const QRegularExpression validBucket(QStringLiteral("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"));
+    const QString bucket = config.bucket.trimmed();
+    if (!validBucket.match(bucket).hasMatch()
+        || bucket.contains(QStringLiteral(".."))
+        || bucket.contains(QStringLiteral(".-"))
+        || bucket.contains(QStringLiteral("-."))) {
+        if (error) *error = QStringLiteral("S3 bucket 名称非法");
+        return false;
+    }
+
+    if (config.accessKey.trimmed().isEmpty()) {
+        if (error) *error = QStringLiteral("S3 access key 未配置");
+        return false;
+    }
+    if (config.secretKey.trimmed().isEmpty()) {
+        if (error) *error = QStringLiteral("S3 secret key 未配置");
+        return false;
+    }
+
+    const QString prefix = normalizeS3ObjectPrefix(config.prefix);
+    static const QRegularExpression validPrefix(QStringLiteral("^[A-Za-z0-9._/-]*$"));
+    if (prefix.contains(QStringLiteral(".."))
+        || prefix.contains('\\')
+        || prefix.contains(':')
+        || prefix.contains(QStringLiteral("//"))
+        || !validPrefix.match(prefix).hasMatch()) {
+        if (error) *error = QStringLiteral("S3 object key 前缀非法");
+        return false;
+    }
+
+    return true;
+}
+
+S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment() {
+    S3ObjectStoreConfig config;
+    config.endpoint = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT")).trimmed();
+    config.bucket = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_BUCKET")).trimmed();
+    config.region = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_REGION")).trimmed();
+    config.accessKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY")).trimmed();
+    config.secretKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY")).trimmed();
+    config.sessionToken = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN")).trimmed();
+    config.prefix = normalizeS3ObjectPrefix(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX")));
+    config.tlsVerify = envFlagDefaultTrue("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
+    config.requestTimeoutMs = envIntInRange("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", 30000, 1000, 300000);
+    return config;
+}
+
+bool s3ObjectStoreEnabledFromEnvironment() {
+    return envFlagDefaultFalse("QTNETWORKCHAT_OBJECT_S3_ENABLE");
+}
+
+QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey) {
+    QString configError;
+    if (!validateS3ObjectStoreConfig(config, &configError)
+        || !FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        return {};
+    }
+
+    QUrl url(config.endpoint.trimmed());
+    QString path = url.path();
+    if (!path.endsWith('/')) {
+        path += "/";
+    }
+    path += config.bucket.trimmed() + "/" + normalizeS3ObjectPrefix(config.prefix) + objectKey.trimmed();
+    url.setPath(path);
+    return url;
+}
+
+bool isSupportedS3ObjectMethod(const QString& method) {
+    const QString normalized = method.trimmed().toUpper();
+    return normalized == QStringLiteral("PUT")
+        || normalized == QStringLiteral("GET")
+        || normalized == QStringLiteral("HEAD")
+        || normalized == QStringLiteral("DELETE");
+}
+
+S3HttpResult classifyS3HttpStatus(int statusCode) {
+    S3HttpResult result;
+
+    if (statusCode == 200 || statusCode == 201 || statusCode == 204 || statusCode == 206) {
+        result.kind = S3HttpResultKind::Success;
+        result.ok = true;
+        result.reason = QStringLiteral("success");
+        return result;
+    }
+
+    if (statusCode == 404) {
+        result.kind = S3HttpResultKind::NotFound;
+        result.reason = QStringLiteral("not_found");
+        return result;
+    }
+
+    if (statusCode == 401 || statusCode == 403) {
+        result.kind = S3HttpResultKind::AuthError;
+        result.reason = QStringLiteral("auth_or_permission_error");
+        return result;
+    }
+
+    if (statusCode == 408 || statusCode == 409 || statusCode == 425 || statusCode == 429) {
+        result.kind = S3HttpResultKind::Retryable;
+        result.retryable = true;
+        result.reason = QStringLiteral("retryable_client_status");
+        return result;
+    }
+
+    if (statusCode >= 500 && statusCode <= 599) {
+        result.kind = S3HttpResultKind::ServerError;
+        result.retryable = true;
+        result.reason = QStringLiteral("server_error");
+        return result;
+    }
+
+    if (statusCode >= 400 && statusCode <= 499) {
+        result.kind = S3HttpResultKind::ClientError;
+        result.reason = QStringLiteral("client_error");
+        return result;
+    }
+
+    result.kind = S3HttpResultKind::Unknown;
+    result.reason = QStringLiteral("unknown_status");
+    return result;
+}
+
+QString redactS3ErrorText(const S3ObjectStoreConfig& config, const QString& text) {
+    QString redacted = text;
+    const QString marker = QStringLiteral("<redacted>");
+    const auto redactLiteral = [&redacted, &marker](const QString& value) {
+        const QString trimmed = value.trimmed();
+        if (!trimmed.isEmpty()) {
+            redacted.replace(trimmed, marker, Qt::CaseSensitive);
+        }
+    };
+
+    redactLiteral(config.accessKey);
+    redactLiteral(config.secretKey);
+    redactLiteral(config.sessionToken);
+
+    redacted.replace(QRegularExpression(QStringLiteral("Authorization\\s*[:=]\\s*AWS4-HMAC-SHA256[^\\r\\n]*"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("Authorization=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("Credential=[^,\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("Credential=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("Signature=[^,\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("Signature=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("X-Amz-Credential=[^&\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("X-Amz-Credential=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("X-Amz-Signature=[^&\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("X-Amz-Signature=<redacted>"));
+    return redacted;
+}
+
+S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
+                                         int statusCode,
+                                         const QString& errorText,
+                                         bool timedOut,
+                                         bool tlsFailed) {
+    S3RequestResult result;
+    result.statusCode = statusCode;
+    result.timeout = timedOut;
+    result.tlsError = tlsFailed;
+    result.networkError = !errorText.trimmed().isEmpty();
+    result.error = redactS3ErrorText(config, errorText);
+
+    if (timedOut) {
+        result.http.kind = S3HttpResultKind::Retryable;
+        result.http.retryable = true;
+        result.http.reason = QStringLiteral("timeout");
+        if (result.error.isEmpty()) {
+            result.error = QStringLiteral("S3 request timed out");
+        }
+        return result;
+    }
+
+    if (tlsFailed) {
+        result.http.kind = S3HttpResultKind::AuthError;
+        result.http.reason = QStringLiteral("tls_error");
+        if (result.error.isEmpty()) {
+            result.error = QStringLiteral("S3 TLS verification failed");
+        }
+        return result;
+    }
+
+    if (result.networkError) {
+        result.http.kind = S3HttpResultKind::Retryable;
+        result.http.retryable = true;
+        result.http.reason = QStringLiteral("network_error");
+        return result;
+    }
+
+    result.http = classifyS3HttpStatus(statusCode);
+    return result;
+}
+
+QString s3FailureReasonForLog(const S3RequestResult& result) {
+    if (result.http.ok) {
+        return QStringLiteral("success");
+    }
+    if (result.timeout) {
+        return QStringLiteral("timeout");
+    }
+    if (result.tlsError) {
+        return QStringLiteral("tls");
+    }
+    if (result.networkError) {
+        return QStringLiteral("network");
+    }
+    switch (result.http.kind) {
+    case S3HttpResultKind::NotFound:
+        return QStringLiteral("not_found");
+    case S3HttpResultKind::AuthError:
+        return QStringLiteral("auth");
+    case S3HttpResultKind::Retryable:
+        return QStringLiteral("retryable");
+    case S3HttpResultKind::ClientError:
+        return QStringLiteral("client");
+    case S3HttpResultKind::ServerError:
+        return QStringLiteral("server");
+    case S3HttpResultKind::Success:
+        return QStringLiteral("success");
+    case S3HttpResultKind::Unknown:
+        break;
+    }
+    return QStringLiteral("unknown");
+}
+
+QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& result) {
+    if (result.ok) {
+        return QStringLiteral("success");
+    }
+    if (result.error.contains(QString::fromUtf8("大小"))) {
+        return QStringLiteral("size");
+    }
+    if (result.error.contains(QString::fromUtf8("哈希")) || result.error.contains(QStringLiteral("SHA-256"))) {
+        return QStringLiteral("hash");
+    }
+    const QString s3Reason = s3ReasonFromText(result.error);
+    if (!s3Reason.isEmpty()) {
+        return s3Reason;
+    }
+    return QStringLiteral("validation_error");
+}
+
+QString objectStoreOpenFailureReasonForLog(const QString& storeType,
+                                           const QString& openError) {
+    const QString normalizedStoreType = normalizeObjectStoreType(storeType);
+    const QString error = openError.trimmed();
+    if (normalizedStoreType == QStringLiteral("s3")) {
+        const QString s3Reason = s3ReasonFromText(error);
+        if (!s3Reason.isEmpty()) {
+            return s3Reason;
+        }
+    }
+    if (!error.isEmpty()) {
+        return QStringLiteral("object-open-failed");
+    }
+    return QStringLiteral("object-open-failed");
+}
+
+QString objectStoreRemoveFailureReasonForLog(const QString& storeType,
+                                             const QString& removeError) {
+    const QString normalizedStoreType = normalizeObjectStoreType(storeType);
+    const QString error = removeError.trimmed();
+    if (normalizedStoreType == QStringLiteral("s3")) {
+        const QString s3Reason = s3ReasonFromText(error);
+        if (!s3Reason.isEmpty()) {
+            return s3Reason;
+        }
+    }
+    if (!error.isEmpty()) {
+        return QStringLiteral("object-delete-failed");
+    }
+    return QStringLiteral("object-delete-failed");
+}
+
+QString objectStoreWriteFailureReasonForLog(const QString& storeType,
+                                            bool storeAvailable,
+                                            const QString& writeError,
+                                            const QString& expectedHash,
+                                            const QString& actualHash) {
+    if (!storeAvailable) {
+        return QStringLiteral("object-store-unavailable");
+    }
+
+    const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
+    const QString normalizedActualHash = actualHash.trimmed().toLower();
+    if (!normalizedExpectedHash.isEmpty()
+        && !normalizedActualHash.isEmpty()
+        && normalizedExpectedHash != normalizedActualHash) {
+        return QStringLiteral("hash");
+    }
+
+    const QString normalizedStoreType = normalizeObjectStoreType(storeType);
+    const QString error = writeError.trimmed();
+    if (normalizedStoreType == QStringLiteral("s3")) {
+        const QString s3Reason = s3ReasonFromText(error);
+        if (!s3Reason.isEmpty()) {
+            return s3Reason;
+        }
+    }
+
+    return QStringLiteral("write_failed");
+}
+
+LargeFileDeliveredReceiptDecision evaluateLargeFileDeliveredReceiptCleanup(
+    const LargeFileDeliveredReceipt& receipt,
+    const LargeFileDeliveredFallback& fallback) {
+    const QString receiptSourceInstanceId = receipt.sourceInstanceId.trimmed();
+    const QString receiptTransferId = receipt.transferId.trimmed();
+    const QString receiptReceiverId = receipt.receiverId.trimmed();
+    const QString receiptObjectKey = receipt.objectKey.trimmed();
+    const QString receiptFileHash = receipt.fileHash.trimmed();
+    if (receiptSourceInstanceId.isEmpty()
+        || receiptTransferId.isEmpty()
+        || receiptReceiverId.isEmpty()
+        || !FilesystemObjectStore::isValidObjectKey(receiptObjectKey)
+        || !looksLikeSha256HexObjectHash(receiptFileHash)
+        || receipt.confirmedBytes <= 0) {
+        return retainedLargeFileDecision(QStringLiteral("invalid-receipt"));
+    }
+
+    const QString fallbackSourceInstanceId = fallback.sourceInstanceId.trimmed();
+    const QString fallbackTransferId = fallback.transferId.trimmed();
+    const QString fallbackReceiverId = fallback.receiverId.trimmed();
+    const QString fallbackObjectKey = fallback.objectKey.trimmed();
+    const QString fallbackFileHash = fallback.fileHash.trimmed();
+    if (fallbackSourceInstanceId.isEmpty()
+        || fallbackTransferId.isEmpty()
+        || fallbackReceiverId.isEmpty()
+        || !FilesystemObjectStore::isValidObjectKey(fallbackObjectKey)
+        || !looksLikeSha256HexObjectHash(fallbackFileHash)
+        || fallback.fileSize <= 0) {
+        return retainedLargeFileDecision(QStringLiteral("invalid-payload"));
+    }
+
+    if (receiptSourceInstanceId != fallbackSourceInstanceId
+        || receiptTransferId != fallbackTransferId
+        || receiptReceiverId != fallbackReceiverId
+        || receiptObjectKey != fallbackObjectKey
+        || receiptFileHash.compare(fallbackFileHash, Qt::CaseInsensitive) != 0) {
+        return retainedLargeFileDecision(QStringLiteral("receipt-not-matched"));
+    }
+
+    if (receipt.confirmedBytes < fallback.fileSize) {
+        return retainedLargeFileDecision(QStringLiteral("confirmed-bytes-insufficient"));
+    }
+
+    LargeFileDeliveredReceiptDecision decision;
+    decision.shouldCleanup = true;
+    decision.reason = QStringLiteral("cleaned");
+    return decision;
+}
+
+S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,
+                                                const S3SignedObjectRequest& request,
+                                                const QByteArray& body) {
+    S3RequestExecutionResult execution;
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        execution.result.statusCode = 0;
+        execution.result.error = QStringLiteral("S3 request is invalid");
+        execution.result.http.kind = S3HttpResultKind::Unknown;
+        execution.result.http.reason = QStringLiteral("invalid_request");
+        return execution;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkReply* reply = nullptr;
+    if (request.method == QByteArrayLiteral("HEAD")) {
+        reply = manager.head(request.request);
+    } else if (request.method == QByteArrayLiteral("GET")) {
+        reply = manager.get(request.request);
+    } else {
+        reply = manager.sendCustomRequest(request.request, request.method, body);
+    }
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+
+    bool timedOut = false;
+    bool tlsFailed = false;
+    QString tlsErrorText;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timeoutTimer, &QTimer::timeout, [&]() {
+        timedOut = true;
+        if (reply->isRunning()) {
+            reply->abort();
+        }
+        loop.quit();
+    });
+#if QT_CONFIG(ssl)
+    QObject::connect(reply, &QNetworkReply::sslErrors, [&](const QList<QSslError>& errors) {
+        tlsFailed = true;
+        QStringList messages;
+        for (const QSslError& error : errors) {
+            messages.append(error.errorString());
+        }
+        tlsErrorText = messages.join(QStringLiteral("; "));
+    });
+#endif
+
+    const int timeoutMs = config.requestTimeoutMs > 0 ? config.requestTimeoutMs : 30000;
+    timeoutTimer.start(timeoutMs);
+    loop.exec();
+    timeoutTimer.stop();
+
+    const QVariant statusAttribute = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+    const int statusCode = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
+    QString errorText;
+    if (reply->error() != QNetworkReply::NoError) {
+        errorText = reply->errorString();
+    }
+    if (!tlsErrorText.isEmpty()) {
+        errorText = errorText.isEmpty()
+            ? tlsErrorText
+            : QStringLiteral("%1; %2").arg(errorText, tlsErrorText);
+    }
+
+    const QList<QNetworkReply::RawHeaderPair> rawHeaders = reply->rawHeaderPairs();
+    for (const QNetworkReply::RawHeaderPair& header : rawHeaders) {
+        execution.headers.insert(QString::fromLatin1(header.first), QString::fromLatin1(header.second));
+    }
+    execution.body = reply->readAll();
+    execution.result = s3RequestResultFromReply(config, statusCode, errorText, timedOut, tlsFailed);
+    reply->deleteLater();
+    return execution;
+}
+
+ObjectStore::ValidationResult validateS3ObjectBody(const QByteArray& body,
+                                                   qint64 expectedSize,
+                                                   const QString& expectedHash) {
+    ObjectStore::ValidationResult result;
+    result.size = body.size();
+    if (expectedSize >= 0 && result.size != expectedSize) {
+        result.error = QStringLiteral("S3对象大小不一致");
+        return result;
+    }
+
+    result.fileHash = sha256Hex(body);
+    const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
+    if (!normalizedExpectedHash.isEmpty() && result.fileHash != normalizedExpectedHash) {
+        result.error = QStringLiteral("S3对象哈希不一致");
+        return result;
+    }
+
+    result.ok = true;
+    return result;
+}
+
+QString s3PayloadSha256Hex(const QByteArray& payload) {
+    return sha256Hex(payload);
+}
+
+QString s3CredentialScope(const QString& date, const QString& region) {
+    return QStringLiteral("%1/%2/s3/aws4_request").arg(date.trimmed(), region.trimmed());
+}
+
+QString s3CanonicalRequest(const QString& method,
+                           const QUrl& url,
+                           const QMap<QString, QString>& headers,
+                           const QString& payloadSha256Hex,
+                           QString* signedHeaders) {
+    if (signedHeaders) {
+        signedHeaders->clear();
+    }
+
+    QMap<QString, QString> canonicalHeaders;
+    for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
+        const QString name = it.key().trimmed().toLower();
+        if (name.isEmpty()) {
+            continue;
+        }
+        canonicalHeaders.insert(name, collapseHeaderWhitespace(it.value()));
+    }
+
+    QStringList headerLines;
+    QStringList signedHeaderNames;
+    for (auto it = canonicalHeaders.constBegin(); it != canonicalHeaders.constEnd(); ++it) {
+        headerLines.append(QStringLiteral("%1:%2\n").arg(it.key(), it.value()));
+        signedHeaderNames.append(it.key());
+    }
+
+    const QString signedHeaderText = signedHeaderNames.join(';');
+    if (signedHeaders) {
+        *signedHeaders = signedHeaderText;
+    }
+
+    return QStringLiteral("%1\n%2\n%3\n%4\n%5\n%6")
+        .arg(method.trimmed().toUpper(),
+             canonicalUri(url),
+             canonicalQueryString(url),
+             headerLines.join(QString()),
+             signedHeaderText,
+             payloadSha256Hex.trimmed().toLower());
+}
+
+QString s3StringToSign(const QString& amzDate,
+                       const QString& credentialScope,
+                       const QString& canonicalRequest) {
+    const QString canonicalHash = sha256Hex(canonicalRequest.toUtf8());
+    return QStringLiteral("AWS4-HMAC-SHA256\n%1\n%2\n%3")
+        .arg(amzDate.trimmed(), credentialScope.trimmed(), canonicalHash);
+}
+
+QString s3SignatureHex(const QString& secretKey,
+                       const QString& date,
+                       const QString& region,
+                       const QString& stringToSign) {
+    const QByteArray kDate = hmacSha256(QByteArrayLiteral("AWS4") + secretKey.toUtf8(), date.trimmed().toUtf8());
+    const QByteArray kRegion = hmacSha256(kDate, region.trimmed().toUtf8());
+    const QByteArray kService = hmacSha256(kRegion, QByteArrayLiteral("s3"));
+    const QByteArray kSigning = hmacSha256(kService, QByteArrayLiteral("aws4_request"));
+    return QString::fromLatin1(hmacSha256(kSigning, stringToSign.toUtf8()).toHex());
+}
+
+QString s3AuthorizationHeader(const QString& accessKey,
+                              const QString& credentialScope,
+                              const QString& signedHeaders,
+                              const QString& signatureHex) {
+    return QStringLiteral("AWS4-HMAC-SHA256 Credential=%1/%2,SignedHeaders=%3,Signature=%4")
+        .arg(accessKey.trimmed(),
+             credentialScope.trimmed(),
+             signedHeaders.trimmed(),
+             signatureHex.trimmed().toLower());
+}
+
+S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
+                                            const QString& objectKey,
+                                            const QString& method,
+                                            const QByteArray& payload,
+                                            const QString& amzDate) {
+    S3SignedObjectRequest result;
+    result.method = method.trimmed().toUpper().toLatin1();
+
+    const QUrl url = s3ObjectUrl(config, objectKey);
+    if (!url.isValid() || result.method.isEmpty() || !isSupportedS3ObjectMethod(QString::fromLatin1(result.method))) {
+        result.method.clear();
+        return result;
+    }
+
+    const QString requestDate = normalizedAmzDate(amzDate);
+    const QString credentialDate = requestDate.left(8);
+    const QString region = normalizedS3Region(config);
+    result.payloadSha256Hex = s3PayloadSha256Hex(payload);
+
+    QMap<QString, QString> headers;
+    headers.insert(QStringLiteral("host"), s3HostHeader(url));
+    headers.insert(QStringLiteral("x-amz-content-sha256"), result.payloadSha256Hex);
+    headers.insert(QStringLiteral("x-amz-date"), requestDate);
+    const QString sessionToken = config.sessionToken.trimmed();
+    if (!sessionToken.isEmpty()) {
+        headers.insert(QStringLiteral("x-amz-security-token"), sessionToken);
+    }
+
+    const QString canonicalRequest = s3CanonicalRequest(QString::fromLatin1(result.method),
+                                                        url,
+                                                        headers,
+                                                        result.payloadSha256Hex,
+                                                        &result.signedHeaders);
+    const QString credentialScope = s3CredentialScope(credentialDate, region);
+    const QString stringToSign = s3StringToSign(requestDate, credentialScope, canonicalRequest);
+    const QString signature = s3SignatureHex(config.secretKey, credentialDate, region, stringToSign);
+    result.authorizationHeader = s3AuthorizationHeader(config.accessKey,
+                                                       credentialScope,
+                                                       result.signedHeaders,
+                                                       signature);
+
+    result.request = QNetworkRequest(url);
+    result.request.setRawHeader("host", headers.value(QStringLiteral("host")).toLatin1());
+    result.request.setRawHeader("x-amz-content-sha256", result.payloadSha256Hex.toLatin1());
+    result.request.setRawHeader("x-amz-date", requestDate.toLatin1());
+    if (!sessionToken.isEmpty()) {
+        result.request.setRawHeader("x-amz-security-token", sessionToken.toUtf8());
+    }
+    result.request.setRawHeader("Authorization", result.authorizationHeader.toLatin1());
+    result.request.setTransferTimeout(config.requestTimeoutMs);
+#if QT_CONFIG(ssl)
+    if (url.scheme() == QStringLiteral("https") && !config.tlsVerify) {
+        QSslConfiguration sslConfig = result.request.sslConfiguration();
+        sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+        result.request.setSslConfiguration(sslConfig);
+    }
+#endif
+    return result;
+}
+
+std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
+                                               const QString& rootDir,
+                                               QString* error) {
+    if (error) {
+        error->clear();
+    }
+
+    const QString normalizedType = normalizeObjectStoreType(storeType);
+    if (normalizedType == QStringLiteral("s3")) {
+        QString configError;
+        const S3ObjectStoreConfig config = s3ObjectStoreConfigFromEnvironment();
+        if (!validateS3ObjectStoreConfig(config, &configError)) {
+            if (error) {
+                *error = QStringLiteral("S3对象存储配置无效: %1").arg(configError);
+            }
+            return {};
+        }
+        if (!s3ObjectStoreEnabledFromEnvironment()) {
+            if (error) {
+                *error = QStringLiteral("S3对象存储后端未启用，请设置 QTNETWORKCHAT_OBJECT_S3_ENABLE=1 后再使用真实网络后端");
+            }
+            return {};
+        }
+        if (error) {
+            error->clear();
+        }
+        return std::make_unique<S3ObjectStore>(config, [config](const S3SignedObjectRequest& request, const QByteArray& body) {
+            return executeS3ObjectRequest(config, request, body);
+        });
+    }
+
+    if (normalizedType != QStringLiteral("filesystem")) {
+        if (error) {
+            *error = QStringLiteral("对象存储后端暂不支持: %1").arg(normalizedType);
+        }
+        return {};
+    }
+
+    const QString cleanRoot = QDir::cleanPath(rootDir.trimmed());
+    if (cleanRoot.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("对象存储根目录未配置");
+        }
+        return {};
+    }
+
+    return std::make_unique<FilesystemObjectStore>(cleanRoot);
+}

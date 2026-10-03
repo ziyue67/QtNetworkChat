@@ -1,0 +1,594 @@
+param(
+    [string]$OutputDir = "build-qt6-mingw\automation-tasks",
+
+    [int]$AckExpiryHours = 72,
+
+    [int]$HistoryRetentionCount = 30,
+
+    [switch]$Register,
+
+    [string]$User = "SYSTEM",
+
+    [string]$ScheduledTaskReadbackPath,
+
+    [string]$RegistrationAttemptPath,
+
+    [string]$RegistrationAckPath,
+
+    [switch]$FailOnRegistrationFailure,
+
+    [switch]$PlanOnly,
+
+    [switch]$FailOnSensitive
+)
+
+$ErrorActionPreference = "Stop"
+
+$sensitivePatterns = @(
+    'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    'PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    'ghp_[A-Za-z0-9_]+',
+    'github_pat_[A-Za-z0-9_]+',
+    'secret[-_\s]?key',
+    'access[-_\s]?key',
+    'session[-_\s]?token',
+    'Authorization\s*[:=]',
+    'Credential\s*=',
+    'Signature\s*='
+)
+
+function Resolve-RepoPath([string]$PathValue) {
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return $PathValue
+    }
+    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
+}
+
+function Convert-ToRepoRelativePath([string]$PathValue) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathValue)
+    if ($resolved.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $resolved.Substring($repoRoot.Length).TrimStart('\', '/')
+    }
+    $resolved
+}
+
+function Assert-NoSensitiveText([string]$Label, [string[]]$Values) {
+    foreach ($value in $Values) {
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+        foreach ($pattern in $sensitivePatterns) {
+            if ($value -match $pattern -and $value -notmatch "<redacted>") {
+                throw ("{0} contains sensitive-looking text rejected by automation bootstrap: {1}" -f $Label, $pattern)
+            }
+        }
+    }
+}
+
+function Write-JsonFile([string]$PathValue, [object]$Payload, [int]$Depth = 8) {
+    $parent = Split-Path -Parent $PathValue
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    $Payload | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $PathValue -Encoding UTF8
+}
+
+function Write-TextFile([string]$PathValue, [string]$Text) {
+    $parent = Split-Path -Parent $PathValue
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    $Text | Set-Content -LiteralPath $PathValue -Encoding UTF8
+}
+
+function Write-JsonFileIfMissing([string]$PathValue, [object]$Payload, [int]$Depth = 8) {
+    if (Test-Path -LiteralPath $PathValue -PathType Leaf) {
+        return
+    }
+    Write-JsonFile $PathValue $Payload $Depth
+}
+
+function Write-TextFileIfMissing([string]$PathValue, [string]$Text) {
+    if (Test-Path -LiteralPath $PathValue -PathType Leaf) {
+        return
+    }
+    Write-TextFile $PathValue $Text
+}
+
+function Test-ExistingLiveTaskPreview([string]$PathValue) {
+    if (-not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
+        return $false
+    }
+    try {
+        $preview = Get-Content -LiteralPath $PathValue -Raw -Encoding UTF8 | ConvertFrom-Json
+        $registerProperty = $preview.PSObject.Properties["register"]
+        if ($null -ne $registerProperty -and [bool]$registerProperty.Value) {
+            return $true
+        }
+        $planOnlyProperty = $preview.PSObject.Properties["planOnly"]
+        if ($null -ne $planOnlyProperty -and -not [bool]$planOnlyProperty.Value) {
+            return $true
+        }
+    } catch {
+        return $false
+    }
+    $false
+}
+
+function New-PreservedTaskBootstrapResult([string]$TaskKind, [string]$TaskName) {
+    [pscustomobject]@{
+        taskKind = $TaskKind
+        taskName = $TaskName
+        registrationRequested = $false
+        exitCode = 0
+        status = "preserved-existing-live-task"
+        failureClass = "none"
+        outputLineCount = 0
+    }
+}
+
+function Get-RegistrationFailureClass([int]$ExitCode, [string[]]$Lines) {
+    if ($ExitCode -eq 0) {
+        return "none"
+    }
+    $text = (@($Lines) -join "`n").ToLowerInvariant()
+    if ($text -match "access is denied" -or $text -match "拒绝访问" -or $text -match "0x80070005") {
+        return "permission-denied"
+    }
+    if ($text -match "register-scheduledtask" -or $text -match "scheduled task" -or $text -match "scheduledtask") {
+        return "scheduler-error"
+    }
+    "helper-failed"
+}
+
+function Invoke-AutomationTaskHelper([string]$TaskKind, [string]$TaskName, [string[]]$Arguments, [bool]$RegistrationRequested) {
+    $output = @()
+    $exitCode = 0
+    try {
+        $output = @(& powershell @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $output = @([string]$_.Exception.Message)
+        $exitCode = 1
+    }
+    $status = if ($exitCode -eq 0) {
+        if ($RegistrationRequested) { "registration-command-succeeded" } else { "preview-generated" }
+    } else {
+        if ($RegistrationRequested) { "registration-failed" } else { "preview-failed" }
+    }
+    [pscustomobject]@{
+        taskKind = $TaskKind
+        taskName = $TaskName
+        registrationRequested = $RegistrationRequested
+        exitCode = $exitCode
+        status = $status
+        failureClass = Get-RegistrationFailureClass $exitCode $output
+        outputLineCount = @($output).Count
+    }
+}
+
+function Find-RegistrationResult([object[]]$RegistrationResults, [string]$TaskName) {
+    foreach ($result in @($RegistrationResults)) {
+        if ([string]$result.taskName -eq $TaskName) {
+            return $result
+        }
+    }
+    $null
+}
+
+function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRequested, [object[]]$RegistrationResults) {
+    $entry = [ordered]@{
+        taskName = $TaskName
+        registered = $false
+        state = "missing"
+        schedulerState = "unknown"
+        taskPath = "unknown"
+        source = "Get-ScheduledTask"
+        registrationRequested = $RegistrationRequested
+        registrationStatus = "not-requested"
+        registrationExitCode = "unknown"
+        registrationFailureClass = "none"
+    }
+    $registrationResult = Find-RegistrationResult $RegistrationResults $TaskName
+    if ($null -ne $registrationResult) {
+        $entry.registrationStatus = [string]$registrationResult.status
+        $entry.registrationExitCode = [string]$registrationResult.exitCode
+        $entry.registrationFailureClass = [string]$registrationResult.failureClass
+    }
+
+    $command = Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        $entry.state = "scheduler-readback-unavailable"
+        $entry.source = "Get-ScheduledTask-unavailable"
+        return [pscustomobject]$entry
+    }
+
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $task) {
+            $entry.registered = $true
+            $entry.state = "registered"
+            $entry.schedulerState = [string]$task.State
+            $entry.taskPath = [string]$task.TaskPath
+        } elseif ($RegistrationRequested -and $null -ne $registrationResult -and [int]$registrationResult.exitCode -ne 0) {
+            $entry.state = "registration-failed"
+            $entry.source = "registration-attempt+Get-ScheduledTask"
+        }
+    } catch {
+        $entry.state = "scheduler-readback-unavailable"
+        $entry.source = "Get-ScheduledTask-error"
+    }
+
+    [pscustomobject]$entry
+}
+
+function Write-ScheduledTaskReadback([string]$PathValue, [string[]]$TaskNames, [bool]$RegistrationRequested, [object[]]$RegistrationResults) {
+    $readback = [ordered]@{
+        format = "qtnetworkchat-scheduled-task-readback-v1"
+        generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+        registrationRequested = $RegistrationRequested
+        tasks = @($TaskNames | ForEach-Object { New-ScheduledTaskReadbackEntry $_ $RegistrationRequested $RegistrationResults })
+    }
+    Write-JsonFile $PathValue $readback 8
+}
+
+function Write-RegistrationAttempt([string]$PathValue, [object[]]$RegistrationResults, [bool]$RegistrationRequested, [string]$UserValue) {
+    $failed = @($RegistrationResults | Where-Object { [int]$_.exitCode -ne 0 })
+    $payload = [ordered]@{
+        format = "qtnetworkchat-scheduled-task-registration-attempt-v1"
+        generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+        registrationRequested = $RegistrationRequested
+        user = $UserValue
+        taskCount = @($RegistrationResults).Count
+        failedCount = @($failed).Count
+        tasks = @($RegistrationResults)
+    }
+    Write-JsonFile $PathValue $payload 8
+}
+
+Assert-NoSensitiveText "OutputDir" @($OutputDir)
+Assert-NoSensitiveText "User" @($User)
+$resolvedOutputDir = Resolve-RepoPath $OutputDir
+$generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+if ([string]::IsNullOrWhiteSpace($ScheduledTaskReadbackPath)) {
+    $ScheduledTaskReadbackPath = Join-Path $resolvedOutputDir "scheduled-task-readback.json"
+} else {
+    Assert-NoSensitiveText "ScheduledTaskReadbackPath" @($ScheduledTaskReadbackPath)
+    $ScheduledTaskReadbackPath = Resolve-RepoPath $ScheduledTaskReadbackPath
+}
+if ([string]::IsNullOrWhiteSpace($RegistrationAttemptPath)) {
+    $RegistrationAttemptPath = Join-Path $resolvedOutputDir "scheduled-task-registration-attempt.json"
+} else {
+    Assert-NoSensitiveText "RegistrationAttemptPath" @($RegistrationAttemptPath)
+    $RegistrationAttemptPath = Resolve-RepoPath $RegistrationAttemptPath
+}
+if ([string]::IsNullOrWhiteSpace($RegistrationAckPath)) {
+    $RegistrationAckPath = Join-Path $resolvedOutputDir "scheduled-task-registration-ack.json"
+} else {
+    Assert-NoSensitiveText "RegistrationAckPath" @($RegistrationAckPath)
+    $RegistrationAckPath = Resolve-RepoPath $RegistrationAckPath
+}
+$registerDatabaseHealthScript = Join-Path $PSScriptRoot "register-database-health-task.ps1"
+$registerLargeFileGovernanceScript = Join-Path $PSScriptRoot "register-large-file-governance-task.ps1"
+$registerPgsqlReleaseScript = Join-Path $PSScriptRoot "register-pgsql-release-acceptance-task.ps1"
+$historyScript = Join-Path $PSScriptRoot "write-automation-task-history.ps1"
+$ackScript = Join-Path $PSScriptRoot "write-automation-task-ack.ps1"
+foreach ($scriptPath in @($registerDatabaseHealthScript, $registerLargeFileGovernanceScript, $registerPgsqlReleaseScript, $historyScript, $ackScript)) {
+    if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+        throw "Required automation script not found: $scriptPath"
+    }
+}
+
+if ($PlanOnly.IsPresent) {
+    $summary = [ordered]@{
+        format = "qtnetworkchat-automation-task-bootstrap-plan-v1"
+        outputDir = Convert-ToRepoRelativePath $resolvedOutputDir
+        tasks = @("database-health", "large-file-governance", "pgsql-release-acceptance")
+        ackExpiryHours = $AckExpiryHours
+        historyRetentionCount = $HistoryRetentionCount
+        register = $Register.IsPresent
+        user = $User
+        scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
+        registrationAttemptPath = Convert-ToRepoRelativePath $RegistrationAttemptPath
+        registrationAckPath = Convert-ToRepoRelativePath $RegistrationAckPath
+        failOnRegistrationFailure = $FailOnRegistrationFailure.IsPresent
+        readOnly = $true
+    }
+    $summary | ConvertTo-Json -Depth 6
+    return
+}
+
+New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
+
+$dbOutputDir = Join-Path $resolvedOutputDir "database-health"
+$dbTaskDir = Join-Path $dbOutputDir "database-health-task"
+$dbPreviewPath = Join-Path $dbTaskDir "database-health-task-preview.json"
+$govOutputDir = Join-Path $resolvedOutputDir "large-file-governance"
+$govTaskDir = Join-Path $govOutputDir "scheduled-task"
+$govPreviewPath = Join-Path $govTaskDir "scheduled-task-preview.json"
+$govRouteLogPath = Join-Path $govOutputDir "route-log.ndjson"
+$govQueuePath = Join-Path $govOutputDir "offline-queue.jsonl"
+$pgsqlOutputDir = Join-Path $resolvedOutputDir "pgsql-release-acceptance"
+$pgsqlTaskDir = Join-Path $pgsqlOutputDir "pgsql-release-acceptance-task"
+$pgsqlPreviewPath = Join-Path $pgsqlTaskDir "pgsql-release-acceptance-task-preview.json"
+$registrationResults = New-Object System.Collections.Generic.List[object]
+
+$preserveDbTaskBootstrap = -not $Register.IsPresent -and (Test-ExistingLiveTaskPreview $dbPreviewPath)
+if ($preserveDbTaskBootstrap) {
+    $dbRegistrationResult = New-PreservedTaskBootstrapResult "database-health" "QtNetworkChatDatabaseHealth"
+} else {
+    $dbRegisterArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $registerDatabaseHealthScript,
+        "-OutputDir", $dbOutputDir,
+        "-TaskDir", $dbTaskDir,
+        "-AckExpiryHours", $AckExpiryHours,
+        "-Driver", "postgres",
+        "-WriteMarkdown",
+        "-WriteDashboard"
+    )
+    if ($Register.IsPresent) {
+        $dbRegisterArgs += @("-Register", "-User", $User)
+    } else {
+        $dbRegisterArgs += "-PlanOnly"
+    }
+    $dbRegistrationResult = Invoke-AutomationTaskHelper "database-health" "QtNetworkChatDatabaseHealth" $dbRegisterArgs $Register.IsPresent
+}
+$registrationResults.Add($dbRegistrationResult)
+if (-not $Register.IsPresent -and [int]$dbRegistrationResult.exitCode -ne 0) {
+    throw "database health task preview bootstrap failed with exit code $($dbRegistrationResult.exitCode)"
+}
+
+$preserveGovTaskBootstrap = -not $Register.IsPresent -and (Test-ExistingLiveTaskPreview $govPreviewPath)
+if ($preserveGovTaskBootstrap) {
+    $govRegistrationResult = New-PreservedTaskBootstrapResult "large-file-governance" "QtNetworkChatLargeFileGovernance"
+} else {
+    $govRegisterArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $registerLargeFileGovernanceScript,
+        "-RouteLogPath", $govRouteLogPath,
+        "-QueuePath", $govQueuePath,
+        "-SourceInstanceId", "bootstrap-instance",
+        "-OutputDir", $govOutputDir,
+        "-TaskDir", $govTaskDir,
+        "-AckExpiryHours", $AckExpiryHours,
+        "-WriteDashboard",
+        "-WriteReport",
+        "-PackageDiagnostics",
+        "-NoFailOnWarning"
+    )
+    if ($Register.IsPresent) {
+        $govRegisterArgs += @("-Register", "-User", $User)
+    }
+    $govRegistrationResult = Invoke-AutomationTaskHelper "large-file-governance" "QtNetworkChatLargeFileGovernance" $govRegisterArgs $Register.IsPresent
+}
+$registrationResults.Add($govRegistrationResult)
+if (-not $Register.IsPresent -and [int]$govRegistrationResult.exitCode -ne 0) {
+    throw "large-file governance task preview bootstrap failed with exit code $($govRegistrationResult.exitCode)"
+}
+if (-not (Test-Path -LiteralPath $govQueuePath -PathType Leaf)) {
+    Write-TextFile $govQueuePath ""
+}
+if (-not (Test-Path -LiteralPath $govRouteLogPath -PathType Leaf)) {
+    Write-TextFile $govRouteLogPath ""
+}
+
+$preservePgsqlTaskBootstrap = -not $Register.IsPresent -and (Test-ExistingLiveTaskPreview $pgsqlPreviewPath)
+if ($preservePgsqlTaskBootstrap) {
+    $pgsqlRegistrationResult = New-PreservedTaskBootstrapResult "pgsql-release-acceptance" "QtNetworkChatPgsqlReleaseAcceptance"
+} else {
+    $pgsqlRegisterArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $registerPgsqlReleaseScript,
+        "-OutputDir", $pgsqlOutputDir,
+        "-TaskDir", $pgsqlTaskDir,
+        "-AckExpiryHours", $AckExpiryHours
+    )
+    if ($Register.IsPresent) {
+        $pgsqlRegisterArgs += @("-Register", "-User", $User)
+    } else {
+        $pgsqlRegisterArgs += @("-PlanOnly", "-SkipEvidencePackage")
+    }
+    $pgsqlRegistrationResult = Invoke-AutomationTaskHelper "pgsql-release-acceptance" "QtNetworkChatPgsqlReleaseAcceptance" $pgsqlRegisterArgs $Register.IsPresent
+}
+$registrationResults.Add($pgsqlRegistrationResult)
+if (-not $Register.IsPresent -and [int]$pgsqlRegistrationResult.exitCode -ne 0) {
+    throw "PostgreSQL release acceptance task preview bootstrap failed with exit code $($pgsqlRegistrationResult.exitCode)"
+}
+
+$dbStatusPath = Join-Path $dbOutputDir "database-health-status.json"
+$dbLastRunPath = Join-Path $dbTaskDir "last-run.log"
+$dbHistoryPath = Join-Path $dbTaskDir "automation-task-history.json"
+$dbHistoryMarkdownPath = Join-Path $dbTaskDir "automation-task-history.md"
+$dbAckPath = Join-Path $dbTaskDir "automation-task-ack.json"
+Write-JsonFileIfMissing $dbStatusPath ([ordered]@{
+        format = "qtnetworkchat-database-health-status-v1"
+        generatedAt = $generatedAt
+        status = "configured"
+        ok = $true
+        driver = "QPSQL"
+        checkCount = 0
+        failedChecks = @()
+        queryMetrics = [ordered]@{
+            slowQueryCount = 0
+            queryFailureCount = 0
+        }
+        summary = [ordered]@{
+            readiness = "preview-registered"
+            operatorAction = "Run the generated database health launcher to refresh live health evidence."
+        }
+        auditSummary = [ordered]@{
+            releaseGate = "database-health-preview-registered"
+            auditFocus = @("preview", "last-run", "history", "ack")
+        }
+    })
+Write-TextFileIfMissing $dbLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=database-health statusPath={1} historyPath={2} ackPath={3}" -f $generatedAt, $dbStatusPath, $dbHistoryPath, $dbAckPath)
+
+$govStatusPath = Join-Path $govOutputDir "large-file-governance-dashboard.json"
+$govLastRunPath = Join-Path $govTaskDir "last-run.log"
+$govHistoryPath = Join-Path $govTaskDir "automation-task-history.json"
+$govHistoryMarkdownPath = Join-Path $govTaskDir "automation-task-history.md"
+$govAckPath = Join-Path $govTaskDir "automation-task-ack.json"
+Write-JsonFileIfMissing $govStatusPath ([ordered]@{
+        format = "qtnetworkchat-large-file-governance-status-v1"
+        generatedAt = $generatedAt
+        status = "configured"
+        ok = $true
+        totalWarnings = 0
+        alertCount = 0
+        s3CoverageActionableGapAreas = @()
+        summary = [ordered]@{
+            readiness = "preview-registered"
+            operatorAction = "Run the generated large-file governance launcher to refresh dashboard and diagnostics evidence."
+        }
+        auditSummary = [ordered]@{
+            releaseGate = "large-file-governance-preview-registered"
+            auditFocus = @("preview", "last-run", "history", "ack")
+        }
+    })
+Write-TextFileIfMissing $govLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=large-file-governance statusPath={1} historyPath={2} ackPath={3}" -f $generatedAt, $govStatusPath, $govHistoryPath, $govAckPath)
+
+$pgsqlStatusPath = Join-Path $pgsqlOutputDir "pgsql-release-acceptance.json"
+$pgsqlLastRunPath = Join-Path $pgsqlTaskDir "last-run.log"
+$pgsqlHistoryPath = Join-Path $pgsqlTaskDir "automation-task-history.json"
+$pgsqlHistoryMarkdownPath = Join-Path $pgsqlTaskDir "automation-task-history.md"
+$pgsqlAckPath = Join-Path $pgsqlTaskDir "automation-task-ack.json"
+$pgsqlEvidenceDir = Join-Path $pgsqlOutputDir "evidence"
+$pgsqlEvidencePackagePath = Join-Path $pgsqlEvidenceDir "pgsql-release-evidence.zip"
+$pgsqlEvidenceManifestPath = Join-Path $pgsqlEvidenceDir "pgsql-release-evidence-manifest.json"
+Write-JsonFileIfMissing $pgsqlStatusPath ([ordered]@{
+        format = "qtnetworkchat-pgsql-release-acceptance-v1"
+        generatedAt = $generatedAt
+        status = "configured"
+        ok = $true
+        summary = [ordered]@{
+            readiness = "preview-registered"
+            operatorAction = "Run the generated PostgreSQL release acceptance launcher to refresh health, smoke, migration, rollback, and evidence artifacts."
+        }
+        reportSummary = [ordered]@{
+            executionReadiness = "preview-registered"
+            operatorAction = "Run the generated PostgreSQL release acceptance launcher before cutover review."
+        }
+        auditSummary = [ordered]@{
+            releaseGate = "pgsql-release-preview-registered"
+            auditFocus = @("health", "smoke", "migration", "rollback", "evidence")
+            evidenceBundle = @("pgsql-release-acceptance.json", "pgsql-release-evidence.zip")
+        }
+    })
+Write-TextFileIfMissing $pgsqlLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=pgsql-release-acceptance statusPath={1} evidencePackagePath={2} historyPath={3} ackPath={4}" -f $generatedAt, $pgsqlStatusPath, $pgsqlEvidencePackagePath, $pgsqlHistoryPath, $pgsqlAckPath)
+Write-JsonFileIfMissing $pgsqlEvidenceManifestPath ([ordered]@{
+        format = "qtnetworkchat-pgsql-release-evidence-package-v1"
+        generatedAt = $generatedAt
+        packageMode = "bootstrap-preview"
+        redacted = $true
+        artifacts = @("pgsql-release-acceptance.json", "last-run.log", "automation-task-history.json", "automation-task-ack.json")
+    })
+New-Item -ItemType Directory -Force -Path $pgsqlEvidenceDir | Out-Null
+$evidenceReadmePath = Join-Path $pgsqlEvidenceDir "README.txt"
+Write-TextFileIfMissing $evidenceReadmePath "Bootstrap evidence package placeholder. Run the generated PostgreSQL release acceptance launcher for live redacted evidence."
+if (-not (Test-Path -LiteralPath $pgsqlEvidencePackagePath -PathType Leaf)) {
+    Compress-Archive -LiteralPath $pgsqlEvidenceManifestPath, $evidenceReadmePath -DestinationPath $pgsqlEvidencePackagePath -Force
+}
+
+foreach ($ackPath in @($dbAckPath, $govAckPath, $pgsqlAckPath)) {
+    if (-not (Test-Path -LiteralPath $ackPath -PathType Leaf)) {
+        & powershell -ExecutionPolicy Bypass -File $ackScript `
+            -AckPath $ackPath `
+            -Clear `
+            -Reason "bootstrap-default"
+        if ($LASTEXITCODE -ne 0) { throw "automation ack bootstrap failed with exit code $LASTEXITCODE" }
+    }
+}
+
+foreach ($task in @(
+        @{ LastRun = $dbLastRunPath; Ack = $dbAckPath; Json = $dbHistoryPath; Markdown = $dbHistoryMarkdownPath },
+        @{ LastRun = $govLastRunPath; Ack = $govAckPath; Json = $govHistoryPath; Markdown = $govHistoryMarkdownPath },
+        @{ LastRun = $pgsqlLastRunPath; Ack = $pgsqlAckPath; Json = $pgsqlHistoryPath; Markdown = $pgsqlHistoryMarkdownPath }
+    )) {
+    if (-not (Test-Path -LiteralPath $task.Json -PathType Leaf)) {
+        & powershell -ExecutionPolicy Bypass -File $historyScript `
+            -LastRunPath $task.LastRun `
+            -AckPath $task.Ack `
+            -AckExpiryHours $AckExpiryHours `
+            -RetentionCount $HistoryRetentionCount `
+            -JsonPath $task.Json `
+            -MarkdownPath $task.Markdown `
+            -FailOnSensitive
+        if ($LASTEXITCODE -ne 0) { throw "automation history bootstrap failed with exit code $LASTEXITCODE" }
+    }
+}
+
+$defaultTaskNames = @(
+    "QtNetworkChatDatabaseHealth",
+    "QtNetworkChatLargeFileGovernance",
+    "QtNetworkChatPgsqlReleaseAcceptance"
+)
+Write-ScheduledTaskReadback `
+    -PathValue $ScheduledTaskReadbackPath `
+    -TaskNames $defaultTaskNames `
+    -RegistrationRequested $Register.IsPresent `
+    -RegistrationResults ([object[]]$registrationResults.ToArray())
+if ($Register.IsPresent -or -not (Test-Path -LiteralPath $RegistrationAttemptPath -PathType Leaf)) {
+    Write-RegistrationAttempt `
+        -PathValue $RegistrationAttemptPath `
+        -RegistrationResults ([object[]]$registrationResults.ToArray()) `
+        -RegistrationRequested $Register.IsPresent `
+        -UserValue $User
+}
+if ($Register.IsPresent -or -not (Test-Path -LiteralPath $RegistrationAckPath -PathType Leaf)) {
+    & powershell -ExecutionPolicy Bypass -File $ackScript `
+        -AckPath $RegistrationAckPath `
+        -Clear `
+        -Reason "bootstrap-registration-default"
+    if ($LASTEXITCODE -ne 0) { throw "scheduled task registration ack bootstrap failed with exit code $LASTEXITCODE" }
+}
+
+$summaryPath = Join-Path $resolvedOutputDir "automation-task-bootstrap.json"
+$summary = [ordered]@{
+    format = "qtnetworkchat-automation-task-bootstrap-v1"
+    generatedAt = $generatedAt
+    outputDir = Convert-ToRepoRelativePath $resolvedOutputDir
+    ackExpiryHours = $AckExpiryHours
+    historyRetentionCount = $HistoryRetentionCount
+    register = $Register.IsPresent
+    user = $User
+    scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
+    registrationAttemptPath = Convert-ToRepoRelativePath $RegistrationAttemptPath
+    registrationAckPath = Convert-ToRepoRelativePath $RegistrationAckPath
+    databaseHealth = [ordered]@{
+        previewPath = Convert-ToRepoRelativePath (Join-Path $dbTaskDir "database-health-task-preview.json")
+        statusPath = Convert-ToRepoRelativePath $dbStatusPath
+        lastRunPath = Convert-ToRepoRelativePath $dbLastRunPath
+        historyPath = Convert-ToRepoRelativePath $dbHistoryPath
+        ackPath = Convert-ToRepoRelativePath $dbAckPath
+    }
+    largeFileGovernance = [ordered]@{
+        previewPath = Convert-ToRepoRelativePath (Join-Path $govTaskDir "scheduled-task-preview.json")
+        statusPath = Convert-ToRepoRelativePath $govStatusPath
+        lastRunPath = Convert-ToRepoRelativePath $govLastRunPath
+        historyPath = Convert-ToRepoRelativePath $govHistoryPath
+        ackPath = Convert-ToRepoRelativePath $govAckPath
+    }
+    pgsqlReleaseAcceptance = [ordered]@{
+        previewPath = Convert-ToRepoRelativePath (Join-Path $pgsqlTaskDir "pgsql-release-acceptance-task-preview.json")
+        statusPath = Convert-ToRepoRelativePath $pgsqlStatusPath
+        lastRunPath = Convert-ToRepoRelativePath $pgsqlLastRunPath
+        historyPath = Convert-ToRepoRelativePath $pgsqlHistoryPath
+        ackPath = Convert-ToRepoRelativePath $pgsqlAckPath
+        evidencePackagePath = Convert-ToRepoRelativePath $pgsqlEvidencePackagePath
+    }
+}
+Write-JsonFile $summaryPath $summary
+$summary | ConvertTo-Json -Depth 8
+
+if ($FailOnSensitive) {
+    $raw = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8
+    Assert-NoSensitiveText "bootstrap summary" @($raw)
+}
+
+$registrationFailures = @($registrationResults | Where-Object { [int]$_.exitCode -ne 0 })
+if ($Register.IsPresent -and $FailOnRegistrationFailure.IsPresent -and $registrationFailures.Count -gt 0) {
+    Write-Host ("scheduled task registration failed for {0} task(s); evidence: {1}" -f $registrationFailures.Count, $RegistrationAttemptPath)
+    exit 3
+}

@@ -1,0 +1,104 @@
+#include "message.h"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFile>
+#include <QDataStream>
+
+QByteArray Message::toJson() const {
+    QJsonObject obj;
+    obj["senderId"] = senderId;
+    obj["senderName"] = senderName;
+    obj["senderAvatar"] = senderAvatar;
+    obj["receiverId"] = receiverId;
+    obj["content"] = content;
+    obj["type"] = static_cast<int>(type);
+    obj["timestamp"] = timestamp.toString(Qt::ISODate);
+    obj["fileName"] = fileName;
+    obj["transferId"] = transferId;
+    if (!clientMessageId.isEmpty()) {
+        obj["clientMessageId"] = clientMessageId;
+    }
+    obj["fileSize"] = QString::number(fileSize);
+    obj["fileHash"] = fileHash;
+    obj["chunkSize"] = QString::number(chunkSize);
+    obj["chunkCount"] = QString::number(chunkCount);
+    if (e2eFileEncrypted) {
+        obj["e2eFileEncrypted"] = true;
+        obj["e2eFileKeyId"] = e2eFileKeyId;
+        obj["e2eFileKeyFingerprintSha256"] = e2eFileKeyFingerprint;
+        obj["e2eFilePlainSize"] = QString::number(e2eFilePlainSize);
+        obj["e2eFilePlainHash"] = e2eFilePlainHash;
+    }
+
+    if (!fileData.isEmpty()) {
+        obj["fileData"] = QString::fromLatin1(fileData.toBase64());
+        obj["hasFile"] = true;
+    }
+
+    QString validationReason;
+    if (e2eEnvelope.isValid(&validationReason)) {
+        obj["e2eEnvelope"] = e2eEnvelope.toJson();
+        obj["isEncrypted"] = true;
+    } else if (!e2eEnvelopeHeader.isEmpty()) {
+        obj["e2eEnvelope"] = e2eEnvelopeHeader;
+        obj["isEncrypted"] = true;
+    }
+    if (e2eKeyAgreement.isValid(&validationReason)) {
+        obj["e2eKeyAgreement"] = e2eKeyAgreement.toJson();
+    }
+
+    return QJsonDocument(obj).toJson(QJsonDocument::Compact);
+}
+
+Message Message::fromJson(const QByteArray& json) {
+    Message msg;
+    QJsonDocument doc = QJsonDocument::fromJson(json);
+    if (doc.isNull()) return msg;
+
+    QJsonObject obj = doc.object();
+    msg.senderId = obj["senderId"].toString();
+    msg.senderName = obj["senderName"].toString();
+    msg.senderAvatar = obj["senderAvatar"].toString();
+    msg.receiverId = obj["receiverId"].toString();
+    msg.content = obj["content"].toString();
+    msg.type = static_cast<MessageType>(obj["type"].toInt());
+    msg.timestamp = QDateTime::fromString(obj["timestamp"].toString(), Qt::ISODate);
+    msg.fileName = obj["fileName"].toString();
+    msg.transferId = obj["transferId"].toString();
+    msg.clientMessageId = obj["clientMessageId"].toString();
+    msg.fileSize = obj["fileSize"].toVariant().toLongLong();
+    msg.fileHash = obj["fileHash"].toString();
+    msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
+    msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
+    msg.e2eFileEncrypted = obj["e2eFileEncrypted"].toBool(false);
+    msg.e2eFileKeyId = obj["e2eFileKeyId"].toString();
+    msg.e2eFileKeyFingerprint = obj["e2eFileKeyFingerprintSha256"].toString();
+    msg.e2eFilePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
+    msg.e2eFilePlainHash = obj["e2eFilePlainHash"].toString();
+
+    if (obj.contains("hasFile") && obj["hasFile"].toBool()) {
+        msg.fileData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+    }
+
+    if (obj.value("e2eEnvelope").isObject()) {
+        const QJsonObject envelopeObject = obj.value("e2eEnvelope").toObject();
+        const E2EEnvelope envelope = E2EEnvelope::fromJson(envelopeObject);
+        if (envelope.isValid()) {
+            msg.e2eEnvelope = envelope;
+        } else {
+            msg.e2eEnvelopeHeader = envelopeObject;
+        }
+    }
+    if (obj.value("e2eKeyAgreement").isObject()) {
+        const E2EKeyAgreement agreement = E2EKeyAgreement::fromJson(obj.value("e2eKeyAgreement").toObject());
+        if (agreement.isValid()) {
+            msg.e2eKeyAgreement = agreement;
+        }
+    }
+
+    if (msg.timestamp.isNull()) {
+        msg.timestamp = QDateTime::currentDateTime();
+    }
+
+    return msg;
+}

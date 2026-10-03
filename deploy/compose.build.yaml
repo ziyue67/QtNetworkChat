@@ -1,0 +1,10 @@
+services:
+  qqnt-server:
+    image: qtnetworkchat-server:local
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VCS_REF: local
+        BUILD_VERSION: local

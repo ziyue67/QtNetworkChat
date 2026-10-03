@@ -1,0 +1,288 @@
+if(NOT DEFINED SCRIPT_PATH OR NOT EXISTS "${SCRIPT_PATH}")
+    message(FATAL_ERROR "SCRIPT_PATH does not exist: ${SCRIPT_PATH}")
+endif()
+
+set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/database_health_check_plan")
+set(QT_ROOT "${TEMP_DIR}/qt")
+set(PG_BIN "${TEMP_DIR}/postgres/bin")
+set(SQLITE_DIR "${TEMP_DIR}/sqlite")
+set(PG_JSON "${TEMP_DIR}/postgres-health-plan.json")
+set(SQLITE_JSON "${TEMP_DIR}/sqlite-health-plan.json")
+set(PG_BAD_JSON "${TEMP_DIR}/postgres-health-runtime-missing.json")
+set(PG_NO_PASSWORD_JSON "${TEMP_DIR}/postgres-health-no-password.json")
+set(SQLITE_BAD_JSON "${TEMP_DIR}/sqlite-health-path-missing.json")
+file(REMOVE_RECURSE "${TEMP_DIR}")
+file(MAKE_DIRECTORY "${QT_ROOT}/plugins/sqldrivers" "${PG_BIN}" "${SQLITE_DIR}")
+file(WRITE "${QT_ROOT}/plugins/sqldrivers/qsqlpsql.dll" "fake qpsql plugin")
+file(WRITE "${PG_BIN}/psql.exe" "fake psql")
+file(WRITE "${PG_BIN}/libpq.dll" "fake libpq")
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver postgres
+        -QtRoot "${QT_ROOT}"
+        -PostgresBinDir "${PG_BIN}"
+        -PostgresPassword "not-used-in-plan"
+        -InjectSlowQueryProbe
+        -SlowQueryProbeSeconds 2
+        -InjectQueryFailureReason schema
+        -PlanOnly
+        -JsonPath "${PG_JSON}"
+    RESULT_VARIABLE pg_result
+    OUTPUT_VARIABLE pg_output
+    ERROR_VARIABLE pg_error
+)
+if(NOT pg_output STREQUAL "")
+    message(STATUS "${pg_output}")
+endif()
+if(NOT pg_error STREQUAL "")
+    message(STATUS "${pg_error}")
+endif()
+if(NOT pg_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health plan failed with ${pg_result}")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver sqlite
+        -SQLitePath "${SQLITE_DIR}/accounts.sqlite3"
+        -PlanOnly
+        -JsonPath "${SQLITE_JSON}"
+    RESULT_VARIABLE sqlite_result
+    OUTPUT_VARIABLE sqlite_output
+    ERROR_VARIABLE sqlite_error
+)
+if(NOT sqlite_output STREQUAL "")
+    message(STATUS "${sqlite_output}")
+endif()
+if(NOT sqlite_error STREQUAL "")
+    message(STATUS "${sqlite_error}")
+endif()
+if(NOT sqlite_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite database health plan failed with ${sqlite_result}")
+endif()
+
+foreach(json_path IN ITEMS "${PG_JSON}" "${SQLITE_JSON}")
+    if(NOT EXISTS "${json_path}")
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "Database health JSON was not created: ${json_path}")
+    endif()
+    file(READ "${json_path}" json_content)
+    string(JSON format GET "${json_content}" "format")
+    string(JSON plan_only GET "${json_content}" "planOnly")
+    string(JSON ok GET "${json_content}" "ok")
+    if(NOT format STREQUAL "qtnetworkchat-database-health-check-v1")
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "Unexpected database health format: ${format}")
+    endif()
+    if(NOT plan_only)
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "PlanOnly should be true for ${json_path}")
+    endif()
+    if(NOT ok)
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "PlanOnly database health should be ok for ${json_path}")
+    endif()
+    string(FIND "${json_content}" "not-used-in-plan" leaked_password)
+    if(NOT leaked_password EQUAL -1)
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "Database health JSON leaked the plan password")
+    endif()
+endforeach()
+
+file(READ "${PG_JSON}" pg_json)
+string(JSON pg_driver GET "${pg_json}" "environment" "QTNETWORKCHAT_DB_DRIVER")
+string(JSON pg_password GET "${pg_json}" "environment" "QTNETWORKCHAT_PGPASSWORD")
+string(JSON pg_pool_env GET "${pg_json}" "environment" "QTNETWORKCHAT_DB_POOL")
+string(JSON pg_pool_enabled GET "${pg_json}" "reconnectPolicy" "poolEnabled")
+string(JSON pg_backoff_ms GET "${pg_json}" "reconnectPolicy" "backoffMs")
+string(JSON pg_thread_ownership GET "${pg_json}" "reconnectPolicy" "threadPolicy" "connectionOwnership")
+string(JSON pg_cross_thread_reuse GET "${pg_json}" "reconnectPolicy" "threadPolicy" "crossThreadReuse")
+string(JSON pg_checkout_scope GET "${pg_json}" "reconnectPolicy" "threadPolicy" "checkoutScope")
+string(JSON pg_release_scope GET "${pg_json}" "reconnectPolicy" "threadPolicy" "releaseScope")
+string(JSON pg_thread_governance GET "${pg_json}" "reconnectPolicy" "threadPolicy" "governance")
+string(JSON pg_reason_network GET "${pg_json}" "reconnectPolicy" "reasonBuckets" 3)
+string(JSON pg_slow_query_threshold GET "${pg_json}" "queryMetrics" "slowQueryThresholdMs")
+string(JSON pg_query_failures GET "${pg_json}" "queryMetrics" "queryFailureCount")
+string(JSON pg_network_errors GET "${pg_json}" "queryMetrics" "errorReasons" "network")
+string(JSON pg_last_error_check GET "${pg_json}" "queryMetrics" "lastErrorCheck")
+string(JSON pg_last_error_sample GET "${pg_json}" "queryMetrics" "lastErrorSample")
+string(JSON pg_slow_probe GET "${pg_json}" "reconnectPolicy" "slowQueryProbeEnabled")
+string(JSON pg_slow_probe_seconds GET "${pg_json}" "reconnectPolicy" "slowQueryProbeSeconds")
+string(JSON pg_failure_probe GET "${pg_json}" "reconnectPolicy" "queryFailureProbeReason")
+string(JSON pg_summary_readiness GET "${pg_json}" "summary" "readiness")
+string(JSON pg_summary_operator_action GET "${pg_json}" "summary" "operatorAction")
+string(JSON pg_audit_release_gate GET "${pg_json}" "auditSummary" "releaseGate")
+string(JSON pg_audit_pool_mode GET "${pg_json}" "auditSummary" "poolMode")
+string(JSON pg_audit_evidence0 GET "${pg_json}" "auditSummary" "evidenceBundle" 0)
+string(JSON pg_audit_focus0 GET "${pg_json}" "auditSummary" "auditFocus" 0)
+if(NOT pg_driver STREQUAL "QPSQL")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health should expose QPSQL environment")
+endif()
+if(NOT pg_password STREQUAL "<redacted>")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health should redact password")
+endif()
+if((NOT "${pg_pool_env}" STREQUAL "1") OR (NOT pg_pool_enabled) OR (NOT pg_backoff_ms EQUAL 2000))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health should expose pool/backoff policy")
+endif()
+if(NOT pg_thread_ownership STREQUAL "thread-affine pooled connections" OR pg_cross_thread_reuse
+    OR NOT pg_checkout_scope STREQUAL "connection-name plus owning thread"
+    OR NOT pg_release_scope STREQUAL "same thread that checked out or created the connection"
+    OR NOT pg_thread_governance MATCHES "cross-thread checkout")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health should expose thread-affine pooled connection policy")
+endif()
+if(NOT "${pg_reason_network}" STREQUAL "network")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health should expose fixed reconnect reason buckets")
+endif()
+if((NOT pg_slow_query_threshold EQUAL 1000) OR (NOT pg_query_failures EQUAL 0) OR (NOT pg_network_errors EQUAL 0)
+    OR NOT pg_last_error_check STREQUAL "" OR NOT pg_last_error_sample STREQUAL "")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health should expose zeroed query metrics, last error fields, and the slow query threshold")
+endif()
+if(NOT pg_slow_probe OR NOT pg_slow_probe_seconds EQUAL 2 OR NOT pg_failure_probe STREQUAL "schema")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health plan should expose slow-query and query-failure probe policy")
+endif()
+if(NOT pg_summary_readiness STREQUAL "ready"
+    OR NOT pg_summary_operator_action STREQUAL "Runtime prerequisites look ready; next run can execute live database health checks."
+    OR NOT pg_audit_release_gate STREQUAL "await-live-health-check"
+    OR NOT pg_audit_pool_mode STREQUAL "pooled"
+    OR NOT pg_audit_evidence0 STREQUAL "json"
+    OR NOT pg_audit_focus0 STREQUAL "postgres-runtime")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health plan should expose summary/audit release guidance")
+endif()
+string(JSON pg_plugin_reason GET "${pg_json}" "checks" 0 "reason")
+string(JSON pg_psql_reason GET "${pg_json}" "checks" 1 "reason")
+string(JSON pg_libpq_reason GET "${pg_json}" "checks" 2 "reason")
+if((NOT "${pg_plugin_reason}" STREQUAL "ok") OR (NOT "${pg_psql_reason}" STREQUAL "ok") OR (NOT "${pg_libpq_reason}" STREQUAL "ok"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL healthy plan checks should expose reason=ok")
+endif()
+
+file(READ "${SQLITE_JSON}" sqlite_json)
+string(JSON sqlite_driver GET "${sqlite_json}" "environment" "QTNETWORKCHAT_DB_DRIVER")
+string(JSON sqlite_pool_env GET "${sqlite_json}" "environment" "QTNETWORKCHAT_DB_POOL")
+string(JSON sqlite_pool_enabled GET "${sqlite_json}" "reconnectPolicy" "poolEnabled")
+string(JSON sqlite_slow_query_threshold GET "${sqlite_json}" "queryMetrics" "slowQueryThresholdMs")
+if(NOT sqlite_driver STREQUAL "QSQLITE")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite database health should expose QSQLITE environment")
+endif()
+if((NOT "${sqlite_pool_env}" STREQUAL "0") OR sqlite_pool_enabled)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite database health should keep pool disabled")
+endif()
+if(NOT sqlite_slow_query_threshold EQUAL 1000)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite database health should expose slow query threshold metrics")
+endif()
+string(JSON sqlite_parent_reason GET "${sqlite_json}" "checks" 0 "reason")
+if(NOT "${sqlite_parent_reason}" STREQUAL "ok")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite healthy plan check should expose reason=ok")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver postgres
+        -QtRoot "${TEMP_DIR}/missing-qt"
+        -PostgresBinDir "${TEMP_DIR}/missing-pg-bin"
+        -PlanOnly
+        -JsonPath "${PG_BAD_JSON}"
+    RESULT_VARIABLE pg_bad_result
+    OUTPUT_VARIABLE pg_bad_output
+    ERROR_VARIABLE pg_bad_error
+)
+if(NOT pg_bad_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime plan should not fail without -FailOnUnhealthy")
+endif()
+file(READ "${PG_BAD_JSON}" pg_bad_json)
+string(JSON pg_bad_ok GET "${pg_bad_json}" "ok")
+string(JSON pg_bad_status GET "${pg_bad_json}" "status")
+string(JSON pg_bad_reason0 GET "${pg_bad_json}" "checks" 0 "reason")
+string(JSON pg_bad_reason1 GET "${pg_bad_json}" "checks" 1 "reason")
+string(JSON pg_bad_reason2 GET "${pg_bad_json}" "checks" 2 "reason")
+string(JSON pg_bad_query_failures GET "${pg_bad_json}" "queryMetrics" "queryFailureCount")
+if(pg_bad_ok OR (NOT "${pg_bad_status}" STREQUAL "unhealthy"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime plan should be unhealthy")
+endif()
+if((NOT "${pg_bad_reason0}" STREQUAL "runtime") OR (NOT "${pg_bad_reason1}" STREQUAL "runtime") OR (NOT "${pg_bad_reason2}" STREQUAL "runtime"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime checks should expose reason=runtime")
+endif()
+if(NOT pg_bad_query_failures EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime plan should not count query failures")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver postgres
+        -QtRoot "${QT_ROOT}"
+        -PostgresBinDir "${PG_BIN}"
+        -PostgresPassword " "
+        -JsonPath "${PG_NO_PASSWORD_JSON}"
+    RESULT_VARIABLE pg_no_password_result
+    OUTPUT_VARIABLE pg_no_password_output
+    ERROR_VARIABLE pg_no_password_error
+)
+if(NOT pg_no_password_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL no-password diagnostic should not fail without -FailOnUnhealthy")
+endif()
+file(READ "${PG_NO_PASSWORD_JSON}" pg_no_password_json)
+string(JSON pg_no_password_ok GET "${pg_no_password_json}" "ok")
+string(JSON pg_no_password_status GET "${pg_no_password_json}" "status")
+string(JSON pg_no_password_reason GET "${pg_no_password_json}" "checks" 3 "reason")
+string(JSON pg_no_password_failures GET "${pg_no_password_json}" "queryMetrics" "queryFailureCount")
+string(JSON pg_no_password_last_reason GET "${pg_no_password_json}" "queryMetrics" "lastErrorReason")
+string(JSON pg_no_password_last_check GET "${pg_no_password_json}" "queryMetrics" "lastErrorCheck")
+string(JSON pg_no_password_last_sample GET "${pg_no_password_json}" "queryMetrics" "lastErrorSample")
+string(JSON pg_no_password_auth_errors GET "${pg_no_password_json}" "queryMetrics" "errorReasons" "auth")
+string(JSON pg_no_password_release_gate GET "${pg_no_password_json}" "auditSummary" "releaseGate")
+if(pg_no_password_ok OR (NOT "${pg_no_password_status}" STREQUAL "unhealthy"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL no-password diagnostic should be unhealthy")
+endif()
+if((NOT "${pg_no_password_reason}" STREQUAL "auth") OR (NOT pg_no_password_failures EQUAL 1)
+    OR (NOT "${pg_no_password_last_reason}" STREQUAL "auth") OR (NOT "${pg_no_password_last_check}" STREQUAL "postgres-password")
+    OR (NOT pg_no_password_auth_errors EQUAL 1) OR (NOT "${pg_no_password_last_sample}" MATCHES "QTNETWORKCHAT_PGPASSWORD")
+    OR NOT pg_no_password_release_gate STREQUAL "blocked")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL no-password diagnostic should count auth query failure metrics and expose sanitized last error sample")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver sqlite
+        -SQLitePath "${TEMP_DIR}/missing-sqlite-parent/accounts.sqlite3"
+        -PlanOnly
+        -JsonPath "${SQLITE_BAD_JSON}"
+    RESULT_VARIABLE sqlite_bad_result
+    OUTPUT_VARIABLE sqlite_bad_output
+    ERROR_VARIABLE sqlite_bad_error
+)
+if(NOT sqlite_bad_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite missing path plan should not fail without -FailOnUnhealthy")
+endif()
+file(READ "${SQLITE_BAD_JSON}" sqlite_bad_json)
+string(JSON sqlite_bad_ok GET "${sqlite_bad_json}" "ok")
+string(JSON sqlite_bad_status GET "${sqlite_bad_json}" "status")
+string(JSON sqlite_bad_reason GET "${sqlite_bad_json}" "checks" 0 "reason")
+if(sqlite_bad_ok OR (NOT "${sqlite_bad_status}" STREQUAL "unhealthy") OR (NOT "${sqlite_bad_reason}" STREQUAL "path"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite missing parent should be unhealthy with reason=path")
+endif()
+
+file(REMOVE_RECURSE "${TEMP_DIR}")

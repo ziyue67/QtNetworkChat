@@ -1,0 +1,97 @@
+if(NOT DEFINED SCRIPT_PATH OR NOT EXISTS "${SCRIPT_PATH}")
+    message(FATAL_ERROR "SCRIPT_PATH does not exist: ${SCRIPT_PATH}")
+endif()
+
+set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/s3_result_analysis_sample")
+file(MAKE_DIRECTORY "${TEMP_DIR}")
+
+set(SAMPLE_LOG "${TEMP_DIR}/sample_route.log")
+set(SUMMARY_OUT "${TEMP_DIR}/summary.json")
+set(ALERT_OUT "${TEMP_DIR}/alert-summary.json")
+
+file(WRITE "${SAMPLE_LOG}"
+"2025-05-30T10:00:00 redis_large_file_route event=object_write result=skipped transferId=t1 objectKey=abc123def456 receiverId=user2 fileHash=a0f0e1d2c3b4a5968778695a4b3c2d1e0f1e2d3c4b5a697887766554433221100 storeType=s3 operation=PUT reason=timeout\n"
+"2025-05-30T10:00:01 redis_large_file_route event=offer_validation result=rejected transferId=t2 objectKey=def456abc789 receiverId=user3 fileHash=b0e1d2c3b4a5968778695a4b3c2d1e0f1e2d3c4b5a6978877665544332211000 storeType=s3 operation=validate reason=hash\n"
+"2025-05-30T10:00:02 redis_large_file_route event=delivered result=published transferId=t3 objectKey=ghi789jkl012 receiverId=user4 fileHash=c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2 storeType=s3 operation=PUT reason=success\n"
+"2025-05-30T10:00:03 redis_large_file_route event=delivered result=published transferId=t4 objectKey=mno345pqr678 receiverId=user5 fileHash=d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3 storeType=s3 operation=GET reason=success\n"
+"2025-05-30T10:00:04 redis_large_file_route event=failed result=skipped transferId=t5 objectKey=stu901vwx234 receiverId=user6 fileHash=e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4 storeType=s3 operation=HEAD reason=auth\n"
+"2025-05-30T10:00:05 redis_large_file_route event=delivered_cleanup result=cleaned transferId=t3 objectKey=ghi789jkl012 receiverId=user4 fileHash=c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2 storeType=s3 operation=DELETE reason=success\n"
+"2025-05-30T10:00:06 redis_large_file_route event=object_write result=skipped transferId=t6 objectKey=yza567bcd890 receiverId=user7 fileHash=f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5 storeType=s3 operation=PUT reason=object-store-unavailable\n"
+"2025-05-30T10:00:07 redis_large_file_route event=object_write result=skipped transferId=t7 objectKey=efg123hij456 receiverId=user8 fileHash=a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6 storeType=s3 operation=PUT reason=write_failed\n"
+"2025-05-30T10:00:08 redis_large_file_route event=object_delete result=retained transferId=t9 objectKey=qrs123tuv456 receiverId=user10 fileHash=c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8 storeType=s3 operation=DELETE reason=auth\n"
+"2025-05-30T10:00:09 redis_large_file_route event=offer_delivery result=failed transferId=t10 objectKey=vwx123yz456 receiverId=user11 fileHash=d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9 storeType=s3 operation=deliver reason=chunk-ack-timeout\n"
+"2025-05-30T10:00:10 redis_large_file_route event=offer_delivery result=failed transferId=t11 objectKey=xyz123abc456 receiverId=user12 fileHash=e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0 storeType=s3 operation=deliver reason=receiver-disconnected\n"
+"2025-05-30T10:00:11 redis_large_file_route event=offer_validation result=rejected transferId=t12 objectKey=abc789s3tls receiverId=user13 fileHash=f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1 storeType=s3 operation=validate reason=tls\n"
+"2025-05-30T10:00:12 redis_large_file_route event=failed_received result=fallback-retained transferId=t12 objectKey=abc789s3tls receiverId=user13 fileHash=f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1 storeType=s3 operation=fallback reason=tls\n"
+"2025-05-30T10:00:13 redis_large_file_route event=offer_read result=rejected transferId=t13 objectKey=readfail123 receiverId=user14 fileHash=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef storeType=s3 operation=read reason=network\n"
+"2025-05-30T10:00:14 redis_large_file_route event=object_delete result=retained transferId=t14 objectKey=deletefail123 receiverId=user15 fileHash=123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0 storeType=s3 operation=delete reason=server\n"
+"2025-05-30T10:00:15 redis_large_file_route event=failed result=skipped transferId=t8 objectKey=klm789nop012 receiverId=user9 fileHash=b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7 storeType=filesystem operation=PUT reason=success\n"
+)
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Path "${SAMPLE_LOG}"
+        -WarnTimeout 0
+        -WarnAuth 0
+        -SummaryPath "${SUMMARY_OUT}"
+        -AlertSummaryPath "${ALERT_OUT}"
+        -NoFailOnWarning
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE error_output
+)
+
+if(NOT output STREQUAL "")
+    message(STATUS "${output}")
+endif()
+if(NOT error_output STREQUAL "")
+    message(STATUS "${error_output}")
+endif()
+
+if(NOT result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "analyze-s3-request-results.ps1 exited with code ${result}")
+endif()
+
+if(NOT EXISTS "${SUMMARY_OUT}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Summary JSON was not created: ${SUMMARY_OUT}")
+endif()
+if(NOT EXISTS "${ALERT_OUT}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Alert summary JSON was not created: ${ALERT_OUT}")
+endif()
+
+file(READ "${SUMMARY_OUT}" summary_content)
+string(JSON s3_lines GET "${summary_content}" "s3LineCount")
+string(JSON route_lines GET "${summary_content}" "routeLineCount")
+
+if(NOT s3_lines EQUAL 15)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected s3LineCount=15, got ${s3_lines}")
+endif()
+
+if(NOT route_lines EQUAL 16)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected routeLineCount=16, got ${route_lines}")
+endif()
+
+file(READ "${ALERT_OUT}" alert_content)
+string(JSON alert_kind GET "${alert_content}" "kind")
+string(JSON alert_ok GET "${alert_content}" "ok")
+string(JSON alert_s3_lines GET "${alert_content}" "metrics" "s3LineCount")
+if(NOT alert_kind STREQUAL "s3-request-results")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected alert kind: ${alert_kind}")
+endif()
+if(alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected alert ok=false because timeout/auth warnings are present")
+endif()
+if(NOT alert_s3_lines EQUAL 15)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected alert metrics s3LineCount=15, got ${alert_s3_lines}")
+endif()
+
+file(REMOVE_RECURSE "${TEMP_DIR}")
+message(STATUS "S3 request result analysis test passed: s3Lines=${s3_lines} routeLines=${route_lines}")

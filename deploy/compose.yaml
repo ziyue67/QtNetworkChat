@@ -1,0 +1,114 @@
+name: qtnetworkchat
+
+services:
+  qqnt-server:
+    image: ${QTNETWORKCHAT_IMAGE:-ghcr.io/ziyue67/qtnetworkchat-server}:${QTNETWORKCHAT_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      QTNETWORKCHAT_APPDATA_DIR: /data
+      QTNETWORKCHAT_REDIS: "1"
+      QTNETWORKCHAT_REDIS_HOST: redis
+      QTNETWORKCHAT_REDIS_PORT: "6379"
+      QTNETWORKCHAT_REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/.env}
+      QTNETWORKCHAT_REDIS_PREFIX: qtchat
+      QTNETWORKCHAT_DB_DRIVER: QPSQL
+      QTNETWORKCHAT_PGHOST: postgres
+      QTNETWORKCHAT_PGPORT: "5432"
+      QTNETWORKCHAT_PGDATABASE: ${POSTGRES_DB:-qtnetworkchat}
+      QTNETWORKCHAT_PGUSER: ${POSTGRES_USER:-qqnt}
+      QTNETWORKCHAT_PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      QTNETWORKCHAT_E2E_CRYPTO_BACKEND: production
+      QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO: "1"
+      QTNETWORKCHAT_TLS: "0"
+      QQNT_SERVER_PORT: "8888"
+    volumes:
+      - qqnt-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    expose:
+      - "8888"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      qtnet:
+        aliases:
+          - qtnetworkchat-server
+    stop_grace_period: 20s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${QQNT_PUBLIC_PORT:-9443}:9443"
+      - "127.0.0.1:${QQNT_HEALTH_PORT:-8080}:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      qqnt-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - qtnet
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/.env}
+      - --appendonly
+      - "yes"
+      - --save
+      - "900 1"
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/.env}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - qtnet
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-qtnetworkchat}
+      POSTGRES_USER: ${POSTGRES_USER:-qqnt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - qtnet
+
+volumes:
+  qqnt-data:
+  redis-data:
+  pg-data:
+
+networks:
+  qtnet:
+    driver: bridge

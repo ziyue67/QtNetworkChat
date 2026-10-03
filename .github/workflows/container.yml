@@ -1,0 +1,79 @@
+name: Container Image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - ".github/workflows/container.yml"
+      - ".dockerignore"
+      - "deploy/Dockerfile"
+      - "CMakeLists.txt"
+      - "include/**"
+      - "src/**"
+      - "tools/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      IMAGE_NAME: ghcr.io/ziyue67/qtnetworkchat-server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Build image
+        run: |
+          short_sha="${GITHUB_SHA:0:12}"
+          docker build \
+            --file deploy/Dockerfile \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --build-arg BUILD_VERSION="$GITHUB_REF_NAME" \
+            --tag "$IMAGE_NAME:sha-$short_sha" \
+            .
+
+      - name: Publish image tags
+        run: |
+          short_sha="${GITHUB_SHA:0:12}"
+          tags=("sha-$short_sha")
+
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            tags+=("latest")
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tags+=("$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}")
+          fi
+
+          for tag in "${tags[@]:1}"; do
+            docker tag "$IMAGE_NAME:sha-$short_sha" "$IMAGE_NAME:$tag"
+          done
+          for tag in "${tags[@]}"; do
+            docker push "$IMAGE_NAME:$tag"
+          done
+
+          digest="$(docker image inspect "$IMAGE_NAME:sha-$short_sha" --format '{{index .RepoDigests 0}}')"
+          {
+            echo "## Published container"
+            echo
+            echo "\`$digest\`"
+            echo
+            for tag in "${tags[@]}"; do
+              printf -- '- `%s:%s`\n' "$IMAGE_NAME" "$tag"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

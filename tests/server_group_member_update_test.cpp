@@ -1,0 +1,1027 @@
+#include "client.h"
+#include "message.h"
+#include "server.h"
+#include "test_redis_support.h"
+
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDebug>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
+#include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QStandardPaths>
+#include <QTcpServer>
+#include <QTemporaryDir>
+#include <QThread>
+
+#include <cstdio>
+#include <functional>
+
+namespace {
+QString testAppDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
+bool expect(bool condition, const char* message) {
+    if (!condition) {
+        std::fprintf(stderr, "%s\n", message);
+        qWarning() << message;
+        return false;
+    }
+    return true;
+}
+
+bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        if (predicate()) return true;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    return predicate();
+}
+
+void drainEvents(int rounds = 5) {
+    for (int i = 0; i < rounds; ++i) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+}
+
+void disconnectClient(Client& client) {
+    client.disconnectFromServer();
+    waitFor([&] {
+        return !client.isConnected();
+    }, 2000);
+    drainEvents();
+}
+
+quint16 freeLocalPort() {
+    QTcpServer probe;
+    if (!probe.listen(QHostAddress::LocalHost, 0)) return 0;
+    const quint16 port = probe.serverPort();
+    probe.close();
+    return port;
+}
+
+QJsonObject publicGroup(const QJsonArray& groups) {
+    for (const QJsonValue& value : groups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupId"].toString() == "public") return group;
+    }
+    return {};
+}
+
+QJsonObject groupById(const QJsonArray& groups, const QString& groupId) {
+    for (const QJsonValue& value : groups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupId"].toString() == groupId) return group;
+    }
+    return {};
+}
+
+bool publicGroupHasMember(const QJsonArray& groups, const QString& userId) {
+    const QJsonArray members = publicGroup(groups)["members"].toArray();
+    for (const QJsonValue& value : members) {
+        if (value.toObject()["userId"].toString() == userId) return true;
+    }
+    return false;
+}
+
+bool groupHasMember(const QJsonObject& group, const QString& userId) {
+    const QJsonArray members = group["members"].toArray();
+    for (const QJsonValue& value : members) {
+        if (value.toObject()["userId"].toString() == userId) return true;
+    }
+    return false;
+}
+
+QString publicGroupMemberRole(const QJsonArray& groups, const QString& userId) {
+    const QJsonArray members = publicGroup(groups)["members"].toArray();
+    for (const QJsonValue& value : members) {
+        const QJsonObject member = value.toObject();
+        if (member["userId"].toString() == userId) return member["role"].toString();
+    }
+    return {};
+}
+
+QString publicGroupAnnouncement(const QJsonArray& groups) {
+    return publicGroup(groups)["announcement"].toString();
+}
+
+QJsonArray publicGroupAuditEvents(const QJsonArray& groups) {
+    return publicGroup(groups)["auditEvents"].toArray();
+}
+
+QJsonObject removedPublicGroup(const QJsonArray& removedGroups) {
+    for (const QJsonValue& value : removedGroups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupId"].toString() == "public") return group;
+    }
+    return {};
+}
+
+bool hasRemovedPublicGroup(const Client& client) {
+    const QJsonObject removed = removedPublicGroup(client.removedServerGroups());
+    return removed["membershipState"].toString() == "removed"
+        && !removed["removedBy"].toString().isEmpty()
+        && !removed["removedAt"].toString().isEmpty()
+        && removed["canReadHistory"].toBool(false)
+        && !removed["canSend"].toBool(true);
+}
+
+int publicGroupAuditActionCount(const QJsonArray& groups, const QString& action) {
+    int count = 0;
+    const QJsonArray auditEvents = publicGroupAuditEvents(groups);
+    for (const QJsonValue& value : auditEvents) {
+        if (value.toObject()["action"].toString() == action) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool publicGroupHasAuditEvent(const QJsonArray& groups,
+                              const QString& action,
+                              const QString& actorId,
+                              const QString& targetUserId = QString()) {
+    const QJsonArray auditEvents = publicGroupAuditEvents(groups);
+    for (const QJsonValue& value : auditEvents) {
+        const QJsonObject event = value.toObject();
+        if (event["action"].toString() == action
+            && event["actorId"].toString() == actorId
+            && (targetUserId.isEmpty() || event["targetUserId"].toString() == targetUserId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool groupHasAuditEvent(const QJsonObject& group,
+                        const QString& action,
+                        const QString& actorId,
+                        const QString& targetUserId = QString()) {
+    const QJsonArray auditEvents = group["auditEvents"].toArray();
+    for (const QJsonValue& value : auditEvents) {
+        const QJsonObject event = value.toObject();
+        if (event["action"].toString() == action
+            && event["actorId"].toString() == actorId
+            && (targetUserId.isEmpty() || event["targetUserId"].toString() == targetUserId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool groupHasRejectedAuditEvent(const QJsonObject& group,
+                                const QString& action,
+                                const QString& actorId,
+                                const QString& reasonFragment = QString()) {
+    const QJsonArray auditEvents = group["auditEvents"].toArray();
+    for (const QJsonValue& value : auditEvents) {
+        const QJsonObject event = value.toObject();
+        const QJsonObject details = event["details"].toObject();
+        if (event["action"].toString() == action
+            && event["actorId"].toString() == actorId
+            && details["rejected"].toBool(false)
+            && (reasonFragment.isEmpty() || details["reason"].toString().contains(reasonFragment))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool hasMemberUpdateEvent(const QJsonArray& events,
+                          const QString& groupId,
+                          const QString& memberId,
+                          const QString& action) {
+    for (const QJsonValue& value : events) {
+        const QJsonObject event = value.toObject();
+        if (event["groupId"].toString() == groupId
+            && event["memberId"].toString() == memberId
+            && event["action"].toString() == action) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool writeTestFile(const QString& path, const QByteArray& payload) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    return file.write(payload) == payload.size();
+}
+
+QJsonObject privateGroupByName(const QJsonArray& groups, const QString& groupName) {
+    for (const QJsonValue& value : groups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupType"].toString() == "private"
+            && group["groupName"].toString() == groupName) {
+            return group;
+        }
+    }
+    return {};
+}
+
+bool registerClient(Client& client,
+                    const QString& account,
+                    const QString& userName,
+                    quint16 port) {
+    client.setUserInfo(account, userName);
+    client.setAccountInfo(account, "secret", true);
+    if (!client.connectToServer("127.0.0.1", port)) return false;
+    return client.waitForLoginResult(5000);
+}
+}
+
+int main(int argc, char** argv) {
+    QCoreApplication app(argc, argv);
+    QCoreApplication::setOrganizationName("QtNetworkChatTests");
+    QCoreApplication::setApplicationName("server_group_member_update_test");
+    QTemporaryDir transferDir;
+    if (!transferDir.isValid()) {
+        qWarning() << "failed to create transfer temp dir";
+        return 1;
+    }
+    QStandardPaths::setTestModeEnabled(true);
+
+    const QString appDataDir = testAppDataDir();
+    if (!appDataDir.isEmpty()) {
+        QDir(appDataDir).removeRecursively();
+        QDir().mkpath(appDataDir);
+    }
+
+    const quint16 port = freeLocalPort();
+    bool ok = true;
+    ok = expect(port != 0, "a local test port should be available") && ok;
+    if (!ok) return 1;
+
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-server-group-member-update-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for server group member update test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
+
+    {
+        Server server;
+        ok = expect(server.start(port), "server should start on the test port") && ok;
+        if (!ok) return 1;
+
+        Client owner;
+        Client member;
+        Client guest;
+        QStringList ownerGroupMessages;
+        QStringList ownerSystemMessages;
+        QStringList memberSystemMessages;
+        QStringList guestSystemMessages;
+        QStringList guestGroupMessages;
+        QJsonArray ownerMemberEvents;
+        QJsonArray memberMemberEvents;
+        QJsonArray guestMemberEvents;
+        QString guestSearchKeyword;
+        QJsonArray guestSearchGroups;
+        QJsonObject ownerJoinApplication;
+        QJsonObject guestJoinStatus;
+        QJsonObject guestMuteEvent;
+        QJsonObject guestUnmuteEvent;
+        QJsonObject memberLeaveStatus;
+        QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::Text) {
+                ownerGroupMessages << msg.content;
+            } else if (msg.type == MessageType::System) {
+                ownerSystemMessages << msg.content;
+            }
+        });
+        QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::System) {
+                memberSystemMessages << msg.content;
+            }
+        });
+        QObject::connect(&guest, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::System) {
+                guestSystemMessages << msg.content;
+            } else if (msg.type == MessageType::Text) {
+                guestGroupMessages << msg.content;
+            }
+        });
+        auto recordMemberEvent = [](QJsonArray& events, const QString& groupId, const QString& memberId, const QString& action) {
+            QJsonObject event;
+            event["groupId"] = groupId;
+            event["memberId"] = memberId;
+            event["action"] = action;
+            events.append(event);
+        };
+        QObject::connect(&owner, &Client::serverGroupMemberUpdated, &app, [&](const QString& groupId, const QString& memberId, const QString& action) {
+            recordMemberEvent(ownerMemberEvents, groupId, memberId, action);
+        });
+        QObject::connect(&member, &Client::serverGroupMemberUpdated, &app, [&](const QString& groupId, const QString& memberId, const QString& action) {
+            recordMemberEvent(memberMemberEvents, groupId, memberId, action);
+        });
+        QObject::connect(&guest, &Client::serverGroupMemberUpdated, &app, [&](const QString& groupId, const QString& memberId, const QString& action) {
+            recordMemberEvent(guestMemberEvents, groupId, memberId, action);
+        });
+        QObject::connect(&guest, &Client::serverGroupSearchResults, &app, [&](const QString& keyword, const QJsonArray& groups) {
+            guestSearchKeyword = keyword;
+            guestSearchGroups = groups;
+        });
+        QObject::connect(&owner, &Client::serverGroupJoinApplicationReceived, &app, [&](const QJsonObject& application) {
+            ownerJoinApplication = application;
+        });
+        QObject::connect(&guest, &Client::serverGroupJoinRequestStatusReceived, &app, [&](const QJsonObject& status) {
+            guestJoinStatus = status;
+        });
+        QObject::connect(&guest, &Client::serverGroupMemberMuted, &app, [&](const QJsonObject& event) {
+            guestMuteEvent = event;
+        });
+        QObject::connect(&guest, &Client::serverGroupMemberUnmuted, &app, [&](const QJsonObject& event) {
+            guestUnmuteEvent = event;
+        });
+        QObject::connect(&member, &Client::serverGroupLeaveStatusReceived, &app, [&](const QJsonObject& status) {
+            memberLeaveStatus = status;
+        });
+
+        const QString ownerId = "910001";
+        const QString memberId = "910002";
+        const QString guestId = "910003";
+
+    ok = expect(registerClient(owner, ownerId, "Owner", port), "owner should register and log in") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasMember(owner.serverGroups(), ownerId)
+            && publicGroupMemberRole(owner.serverGroups(), ownerId) == "owner";
+    }), "owner should receive public group owner role") && ok;
+
+    ok = expect(registerClient(member, memberId, "Member", port), "member should register and log in") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasMember(member.serverGroups(), ownerId)
+            && publicGroupHasMember(member.serverGroups(), memberId)
+            && publicGroupMemberRole(member.serverGroups(), memberId) == "member";
+    }), "member should receive public group snapshot") && ok;
+
+    const QString ownerAnnouncement = "Owner announcement protocol test";
+    ok = expect(owner.sendServerGroupAnnouncementUpdate("public", ownerAnnouncement),
+                "owner should submit public group announcement update") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement;
+    }), "owner announcement should be synced to public group members") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(member.serverGroups(), "announcement_update", ownerId);
+    }), "owner announcement update should be visible in group audit events") && ok;
+
+    memberSystemMessages.clear();
+    const QString rejectedAnnouncement = "Member announcement should be rejected";
+    ok = expect(member.sendServerGroupAnnouncementUpdate("public", rejectedAnnouncement),
+                "plain member announcement request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主或管理员"))) return true;
+        }
+        return false;
+    }), "plain member announcement update should be rejected by server-side role check") && ok;
+    ok = expect(publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement,
+                "rejected member announcement should not change public group announcement") && ok;
+    ok = expect(publicGroupAuditActionCount(member.serverGroups(), "announcement_update") == 1,
+                "rejected member announcement should not create another success audit event") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasRejectedAuditEvent(publicGroup(owner.serverGroups()), "announcement_rejected", memberId, QString::fromUtf8("只有群主或管理员"));
+    }), "rejected member announcement should create a rejected audit event with reason") && ok;
+
+    ownerSystemMessages.clear();
+    ok = expect(owner.sendServerGroupMemberUpdate("public", ownerId, "remove"),
+                "owner self-removal request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : ownerSystemMessages) {
+            if (message.contains(QString::fromUtf8("不能移出群主"))) return true;
+        }
+        return false;
+    }), "owner should be rejected when trying to remove themselves from the public group") && ok;
+    ok = expect(publicGroupHasMember(owner.serverGroups(), ownerId)
+                    && publicGroupMemberRole(owner.serverGroups(), ownerId) == "owner",
+                "owner should remain the public group owner after rejected self-removal") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasRejectedAuditEvent(publicGroup(owner.serverGroups()), "remove_rejected", ownerId, QString::fromUtf8("不能移出群主"));
+    }), "owner self-removal rejection should be visible in audit events") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "remove"),
+                "owner should submit member removal") && ok;
+    ok = expect(waitFor([&] {
+        return member.serverGroups().isEmpty() && hasRemovedPublicGroup(member);
+    }), "removed member should receive an empty active group snapshot plus removed group history marker") && ok;
+    ok = expect(waitFor([&] {
+        return hasMemberUpdateEvent(ownerMemberEvents, "public", memberId, "remove")
+            && hasMemberUpdateEvent(memberMemberEvents, "public", memberId, "remove");
+    }), "member removal should emit incremental group member update events") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(owner.serverGroups(), "remove", ownerId, memberId);
+    }), "owner removal should be visible in group audit events") && ok;
+
+    const QString blockedBroadcast = "removed member broadcast should be blocked";
+    memberSystemMessages.clear();
+    ownerGroupMessages.clear();
+    ok = expect(member.sendMessage(blockedBroadcast),
+                "removed member public message request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("已不在该群组"))) return true;
+        }
+        return false;
+    }), "removed member should receive public message rejection") && ok;
+    ok = expect(!ownerGroupMessages.contains(blockedBroadcast),
+                "removed member message should not be broadcast to public group") && ok;
+
+    member.disconnectFromServer();
+    ok = expect(waitFor([&] {
+        return !member.isConnected();
+    }), "removed member should disconnect before re-login check") && ok;
+    member.setAccountInfo(memberId, "secret", false);
+    ok = expect(member.connectToServer("127.0.0.1", port),
+                "removed member should reconnect with existing account") && ok;
+    ok = expect(member.waitForLoginResult(5000),
+                "removed member should log in with existing account") && ok;
+    ok = expect(waitFor([&] {
+        return member.serverGroups().isEmpty() && hasRemovedPublicGroup(member);
+    }), "removed member should not be auto-added to public group on re-login and should keep removed marker") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
+                "owner should submit member add") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasMember(member.serverGroups(), ownerId)
+            && publicGroupHasMember(member.serverGroups(), memberId);
+    }), "added member should receive restored public group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        return hasMemberUpdateEvent(memberMemberEvents, "public", memberId, "add");
+    }), "member add should emit an incremental group member update event") && ok;
+    ok = expect(waitFor([&] {
+        return member.removedServerGroups().isEmpty();
+    }), "re-added member should no longer receive the removed group marker") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(member.serverGroups(), "add", ownerId, memberId);
+    }), "owner member add should be visible in group audit events") && ok;
+
+    ownerSystemMessages.clear();
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
+                "duplicate member add request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : ownerSystemMessages) {
+            if (message.contains(QString::fromUtf8("已经是群成员"))) return true;
+        }
+        return false;
+    }), "duplicate member add should be rejected by server-side membership check") && ok;
+    ok = expect(publicGroupHasMember(member.serverGroups(), memberId)
+                    && publicGroupMemberRole(member.serverGroups(), memberId) == "member",
+                "duplicate member add should keep the existing member role") && ok;
+    ok = expect(publicGroupAuditActionCount(member.serverGroups(), "add") == 1,
+                "duplicate member add should not create another success audit event") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasRejectedAuditEvent(publicGroup(owner.serverGroups()), "add_rejected", ownerId, QString::fromUtf8("已经是群成员"));
+    }), "duplicate member add should create a rejected audit event with reason") && ok;
+
+    const QString restoredBroadcast = "restored member broadcast should pass";
+    ownerGroupMessages.clear();
+    ok = expect(member.sendMessage(restoredBroadcast),
+                "restored member should send public message") && ok;
+    ok = expect(waitFor([&] {
+        return ownerGroupMessages.contains(restoredBroadcast);
+    }), "restored member message should be broadcast to public group") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "promote_admin"),
+                "owner should submit admin promotion") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupMemberRole(owner.serverGroups(), memberId) == "admin"
+            && publicGroupMemberRole(member.serverGroups(), memberId) == "admin";
+    }), "owner should be able to promote a public group member to admin") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(owner.serverGroups(), "promote_admin", ownerId, memberId);
+    }), "owner admin promotion should be visible in group audit events") && ok;
+
+    const QString adminAnnouncement = "Admin announcement protocol test";
+    ok = expect(member.sendServerGroupAnnouncementUpdate("public", adminAnnouncement),
+                "admin should submit public group announcement update") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupAnnouncement(owner.serverGroups()) == adminAnnouncement;
+    }), "admin announcement should be accepted and synced") && ok;
+
+    ok = expect(registerClient(guest, guestId, "Guest", port), "guest should register and log in") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasMember(guest.serverGroups(), ownerId)
+            && publicGroupHasMember(guest.serverGroups(), memberId)
+            && publicGroupHasMember(guest.serverGroups(), guestId);
+    }), "guest should join public group before admin boundary checks") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMemberUpdate("public", guestId, "promote_admin"),
+                "admin role change request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主可以设置管理员"))) return true;
+        }
+        return false;
+    }), "admin should not be allowed to promote another admin") && ok;
+    ok = expect(publicGroupMemberRole(guest.serverGroups(), guestId) == "member",
+                "rejected admin promotion should keep guest as plain member") && ok;
+
+    ok = expect(member.sendServerGroupMemberUpdate("public", guestId, "remove"),
+                "admin should be able to remove a plain member") && ok;
+    ok = expect(waitFor([&] {
+        return guest.serverGroups().isEmpty() && hasRemovedPublicGroup(guest);
+    }), "guest removed by admin should receive an empty public group snapshot plus removed marker") && ok;
+    ok = expect(waitFor([&] {
+        return hasMemberUpdateEvent(guestMemberEvents, "public", guestId, "remove");
+    }), "admin removal should emit an incremental update to the removed guest") && ok;
+
+    const QString blockedFilePath = QDir(appDataDir).filePath("removed-member-file.txt");
+    QFile blockedFile(blockedFilePath);
+    ok = expect(blockedFile.open(QIODevice::WriteOnly), "test file for removed member should be writable") && ok;
+    if (blockedFile.isOpen()) {
+        blockedFile.write("removed member public file should be blocked");
+        blockedFile.close();
+    }
+    guestSystemMessages.clear();
+    ok = expect(!guest.sendFile(blockedFilePath),
+                "removed member public file transfer should be rejected by server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("已不在该群组"))) return true;
+        }
+        return false;
+    }), "removed member public file rejection should be visible as a system notice") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "demote_admin"),
+                "owner should submit admin demotion") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupMemberRole(owner.serverGroups(), memberId) == "member"
+            && publicGroupMemberRole(member.serverGroups(), memberId) == "member";
+    }), "owner should be able to demote an admin back to member") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupAnnouncementUpdate("public", "Demoted admin should be rejected"),
+                "demoted admin announcement request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主或管理员"))) return true;
+        }
+        return false;
+    }), "demoted admin should no longer be allowed to edit announcements") && ok;
+    ok = expect(publicGroupAnnouncement(owner.serverGroups()) == adminAnnouncement,
+                "rejected demoted-admin announcement should keep current announcement") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMemberUpdate("public", ownerId, "remove"),
+                "plain member request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主或管理员"))) return true;
+        }
+        return false;
+    }), "plain member should be rejected by server-side role check") && ok;
+    ok = expect(publicGroupHasMember(member.serverGroups(), ownerId),
+                "owner should remain in public group after rejected removal") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupSettingsUpdate("public", QJsonObject{{"allMuted", true}}),
+                "plain member settings request should still reach server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主或管理员"))) return true;
+        }
+        return false;
+    }), "plain member must be rejected for server group settings") && ok;
+
+    ok = expect(owner.sendServerGroupSettingsUpdate("public", QJsonObject{
+                    {"allMuted", true}, {"speakingRule", "new_members_24h"},
+                    {"joinPolicy", "open"}, {"searchable", false}}),
+                "owner should submit server group settings") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject group = publicGroup(member.serverGroups());
+        return group["allMuted"].toBool(false)
+            && group["speakingRule"].toString() == "new_members_24h"
+            && group["joinPolicy"].toString() == "open"
+            && !group["searchable"].toBool(true);
+    }), "group settings should synchronize to other members") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMessage("public", "muted member message"),
+                "muted member request should reach the server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("全员禁言"))) return true;
+        }
+        return false;
+    }), "all-muted setting should block ordinary member messages server-side") && ok;
+
+    ok = expect(member.sendServerGroupUserSettingsUpdate("public", QJsonObject{
+                    {"nickname", "Member Nick"}, {"remark", "Only member sees this"},
+                    {"muteNotifications", true}, {"receiveWithoutNotify", true}}),
+                "member should submit personal group settings") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject settings = publicGroup(member.serverGroups())["userSettings"].toObject();
+        return settings["nickname"].toString() == "Member Nick"
+            && settings["remark"].toString() == "Only member sees this"
+            && settings["muteNotifications"].toBool(false)
+            && settings["receiveWithoutNotify"].toBool(false);
+    }), "personal group settings should round-trip only to the requester") && ok;
+    ok = expect(publicGroup(owner.serverGroups())["userSettings"].toObject()["nickname"].toString() != "Member Nick",
+                "personal group settings must not leak to other members") && ok;
+
+    ownerSystemMessages.clear();
+    ok = expect(owner.sendServerGroupSettingsUpdate("public", QJsonObject{{"allMuted", false}}),
+                "owner should disable all-muted while retaining the new-member rule") && ok;
+    ok = expect(waitFor([&] { return !publicGroup(member.serverGroups())["allMuted"].toBool(true); }),
+                "all-muted state should synchronize when disabled") && ok;
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMessage("public", "new member restricted message"),
+                "new member restricted request should reach the server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("24 小时"))) return true;
+        }
+        return false;
+    }), "new-member speaking rule should block messages server-side") && ok;
+    ok = expect(owner.sendServerGroupSettingsUpdate("public", QJsonObject{{"speakingRule", "unrestricted"}, {"searchable", true}}),
+                "owner should restore public group communication settings") && ok;
+
+    ok = expect(owner.sendServerGroupSettingsUpdate("public", QJsonObject{{"speakingRule", "per_minute_5"}}),
+                "owner should enable server-side per-minute speaking limit") && ok;
+    ok = expect(waitFor([&] { return publicGroup(member.serverGroups())["speakingRule"].toString() == "per_minute_5"; }),
+                "per-minute speaking limit should synchronize to members") && ok;
+    memberSystemMessages.clear();
+    for (int index = 0; index < 5; ++index) {
+        ok = expect(member.sendServerGroupMessage("public", QStringLiteral("rate-limit-%1").arg(index)),
+                    "member rate-limit test messages should reach server") && ok;
+    }
+    ok = expect(member.sendServerGroupMessage("public", "rate-limit-overflow"),
+                "overflow rate-limit request should reach server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("每分钟最多发送 5 条"))) return true;
+        }
+        return false;
+    }), "server should reject the sixth member message in the one-minute window") && ok;
+    ok = expect(owner.sendServerGroupSettingsUpdate("public", QJsonObject{{"speakingRule", "unrestricted"}}),
+                "owner should restore unrestricted speaking after rate-limit test") && ok;
+
+    const QString approvalGroupName = "Approval profile protocol group";
+    ok = expect(owner.createPrivateServerGroup(approvalGroupName, "Initial approval announcement"),
+                "owner should create an approval-policy profile test group") && ok;
+    QString approvalGroupId;
+    ok = expect(waitFor([&] {
+        for (const QJsonValue& value : owner.serverGroups()) {
+            const QJsonObject group = value.toObject();
+            if (group["groupName"].toString() == approvalGroupName) {
+                approvalGroupId = group["groupId"].toString();
+                return !approvalGroupId.isEmpty();
+            }
+        }
+        return false;
+    }), "approval-policy profile test group should be created") && ok;
+
+    const QString updatedGroupName = "Updated approval profile group";
+    const QString updatedAvatar = QStringLiteral(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+    ok = expect(owner.sendServerGroupSettingsUpdate(approvalGroupId, QJsonObject{
+                    {"groupName", updatedGroupName}, {"avatar", updatedAvatar},
+                    {"joinPolicy", "approval"}, {"searchable", true}}),
+                "owner should update server group profile and approval policy") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject group = groupById(owner.serverGroups(), approvalGroupId);
+        return group["groupName"].toString() == updatedGroupName
+            && group["avatar"].toString() == updatedAvatar
+            && group["joinPolicy"].toString() == "approval"
+            && group["searchable"].toBool(false);
+    }), "group profile fields and approval policy should persist in the server snapshot") && ok;
+
+    guestSearchKeyword.clear();
+    guestSearchGroups = {};
+    ok = expect(guest.searchServerGroups(updatedGroupName), "guest should request searchable group discovery") && ok;
+    ok = expect(waitFor([&] {
+        for (const QJsonValue& value : guestSearchGroups) {
+            if (value.toObject()["groupId"].toString() == approvalGroupId) return true;
+        }
+        return guestSearchKeyword == updatedGroupName && !guestSearchGroups.isEmpty();
+    }), "searchable group should appear in server search results") && ok;
+
+    ok = expect(owner.sendServerGroupSettingsUpdate(approvalGroupId, QJsonObject{{"searchMode", "id_only"}}),
+                "owner should enable server-side id-only group discovery") && ok;
+    ok = expect(waitFor([&] { return groupById(owner.serverGroups(), approvalGroupId)["searchMode"].toString() == "id_only"; }),
+                "id-only discovery mode should persist in group snapshot") && ok;
+    guestSearchKeyword.clear();
+    guestSearchGroups = {};
+    ok = expect(guest.searchServerGroups(updatedGroupName), "guest should search group by name in id-only mode") && ok;
+    ok = expect(waitFor([&] { return guestSearchKeyword == updatedGroupName; }),
+                "server should respond to id-only name search") && ok;
+    bool idOnlyNameReturned = false;
+    for (const QJsonValue& value : guestSearchGroups) {
+        if (value.toObject()["groupId"].toString() == approvalGroupId) idOnlyNameReturned = true;
+    }
+    ok = expect(!idOnlyNameReturned, "id-only group should not appear when searching by group name") && ok;
+    guestSearchKeyword.clear();
+    guestSearchGroups = {};
+    ok = expect(guest.searchServerGroups(approvalGroupId), "guest should search id-only group by group id") && ok;
+    ok = expect(waitFor([&] {
+        for (const QJsonValue& value : guestSearchGroups) {
+            if (value.toObject()["groupId"].toString() == approvalGroupId) return true;
+        }
+        return false;
+    }), "id-only group should appear when searching by group id") && ok;
+
+    ownerJoinApplication = {};
+    guestJoinStatus = {};
+    ok = expect(guest.requestServerGroupJoin(approvalGroupId, "Please approve protocol test"),
+                "guest should submit an approval-policy join request") && ok;
+    ok = expect(waitFor([&] {
+        return guestJoinStatus["groupId"].toString() == approvalGroupId
+            && guestJoinStatus["state"].toString() == "pending";
+    }), "applicant should receive pending join status") && ok;
+    ok = expect(waitFor([&] {
+        return ownerJoinApplication["groupId"].toString() == approvalGroupId
+            && ownerJoinApplication["applicantId"].toString() == guestId
+            && !ownerJoinApplication["requestId"].toString().isEmpty();
+    }), "owner should receive the pending join application") && ok;
+    const QString approvalRequestId = ownerJoinApplication["requestId"].toString();
+    guestJoinStatus = {};
+    ok = expect(owner.respondServerGroupJoinRequest(approvalRequestId, true),
+                "owner should approve the pending join request") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject group = groupById(guest.serverGroups(), approvalGroupId);
+        return guestJoinStatus["requestId"].toString() == approvalRequestId
+            && guestJoinStatus["state"].toString() == "approved"
+            && groupHasMember(group, guestId);
+    }), "approved applicant should receive status and active group snapshot") && ok;
+
+    ok = expect(guest.sendServerGroupUserSettingsUpdate(approvalGroupId, QJsonObject{{"receiveMode", "block"}}),
+                "guest should save server-side blocked group message mode") && ok;
+    ok = expect(waitFor([&] {
+        return groupById(guest.serverGroups(), approvalGroupId)["userSettings"].toObject()["receiveMode"].toString() == "block";
+    }), "blocked group message mode should round-trip from server snapshot") && ok;
+    guestGroupMessages.clear();
+    const QString blockedDelivery = "blocked group delivery";
+    ok = expect(owner.sendServerGroupMessage(approvalGroupId, blockedDelivery), "owner should send blocked-delivery test message") && ok;
+    drainEvents(10);
+    ok = expect(!guestGroupMessages.contains(blockedDelivery), "blocked receive mode should prevent server delivery") && ok;
+    ok = expect(guest.sendServerGroupUserSettingsUpdate(approvalGroupId, QJsonObject{{"receiveMode", "assistant_quiet"}}),
+                "guest should save server-side assistant receive mode") && ok;
+    ok = expect(waitFor([&] {
+        return groupById(guest.serverGroups(), approvalGroupId)["userSettings"].toObject()["receiveMode"].toString() == "assistant_quiet";
+    }), "assistant receive mode should round-trip from server snapshot") && ok;
+    guestGroupMessages.clear();
+    const QString assistantDelivery = "assistant group delivery";
+    ok = expect(owner.sendServerGroupMessage(approvalGroupId, assistantDelivery), "owner should send assistant-delivery test message") && ok;
+    ok = expect(waitFor([&] { return guestGroupMessages.contains(assistantDelivery); }),
+                "assistant receive mode should keep server delivery enabled") && ok;
+
+    guestMuteEvent = {};
+    const qint64 muteUntil = QDateTime::currentMSecsSinceEpoch() + 5 * 60 * 1000;
+    ok = expect(owner.sendServerGroupMemberMute(approvalGroupId, guestId, muteUntil, "Protocol mute"),
+                "owner should submit member mute") && ok;
+    ok = expect(waitFor([&] {
+        return guestMuteEvent["groupId"].toString() == approvalGroupId
+            && guestMuteEvent["memberId"].toString() == guestId
+            && guestMuteEvent["mutedUntil"].toString().toLongLong() == muteUntil;
+    }), "muted member should receive member mute event") && ok;
+    guestSystemMessages.clear();
+    ok = expect(guest.sendServerGroupMessage(approvalGroupId, "muted protocol message"),
+                "muted member message request should reach the server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("已被禁言"))) return true;
+        }
+        return false;
+    }), "server should reject a muted member message") && ok;
+    guestUnmuteEvent = {};
+    ok = expect(owner.sendServerGroupMemberUnmute(approvalGroupId, guestId),
+                "owner should submit member unmute") && ok;
+    ok = expect(waitFor([&] {
+        return guestUnmuteEvent["groupId"].toString() == approvalGroupId
+            && guestUnmuteEvent["memberId"].toString() == guestId;
+    }), "unmuted member should receive member unmute event") && ok;
+    const QString unmutedMessage = "unmuted protocol message";
+    ownerGroupMessages.clear();
+    ok = expect(guest.sendServerGroupMessage(approvalGroupId, unmutedMessage),
+                "unmuted member should submit a group message") && ok;
+    ok = expect(waitFor([&] { return ownerGroupMessages.contains(unmutedMessage); }),
+                "server should deliver messages after member unmute") && ok;
+
+    ok = expect(owner.sendServerGroupSettingsUpdate(approvalGroupId, QJsonObject{{"searchable", false}}),
+                "owner should disable server group discovery") && ok;
+    guestSearchKeyword.clear();
+    guestSearchGroups = {};
+    ok = expect(guest.searchServerGroups(updatedGroupName), "guest should search after discovery is disabled") && ok;
+    ok = expect(waitFor([&] { return guestSearchKeyword == updatedGroupName; }),
+                "server should return a search response after discovery is disabled") && ok;
+    bool hiddenGroupReturned = false;
+    for (const QJsonValue& value : guestSearchGroups) {
+        if (value.toObject()["groupId"].toString() == approvalGroupId) hiddenGroupReturned = true;
+    }
+    ok = expect(!hiddenGroupReturned, "non-searchable group should not appear in server search results") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate(approvalGroupId, memberId, "add"),
+                "owner should add member for leave-group protocol test") && ok;
+    ok = expect(waitFor([&] { return groupHasMember(groupById(member.serverGroups(), approvalGroupId), memberId); }),
+                "member should receive the leave-group test snapshot") && ok;
+    memberLeaveStatus = {};
+    ok = expect(member.leaveServerGroup(approvalGroupId), "member should submit leave-group request") && ok;
+    ok = expect(waitFor([&] {
+        return memberLeaveStatus["groupId"].toString() == approvalGroupId
+            && memberLeaveStatus["success"].toBool(false)
+            && groupById(member.serverGroups(), approvalGroupId).isEmpty();
+    }), "member leave should return success and remove the group from their snapshot") && ok;
+
+    const QString privateGroupName = "Private protocol group";
+    const QString privateAnnouncement = "Private group announcement";
+    ownerSystemMessages.clear();
+    ok = expect(owner.createPrivateServerGroup(privateGroupName, privateAnnouncement),
+                "owner should submit private group creation") && ok;
+    QString privateGroupId;
+    ok = expect(waitFor([&] {
+        const QJsonObject group = privateGroupByName(owner.serverGroups(), privateGroupName);
+        privateGroupId = group["groupId"].toString();
+        return !privateGroupId.isEmpty()
+            && group["groupName"].toString() == privateGroupName
+            && group["groupType"].toString() == "private"
+            && group["membershipState"].toString() == "active"
+            && group["historyPolicy"].toString() == "member-and-removed-readonly"
+            && group["historyVisibility"].toString() == "active-members-and-removed-readonly"
+            && !group["historyReadOnly"].toBool(true)
+            && group["historyRetainedAfterRemoval"].toBool(false)
+            && group["filePolicy"].toString() == "members-only"
+            && group["canSend"].toBool(false)
+            && group["canSendFiles"].toBool(false)
+            && group["canReadHistory"].toBool(false)
+            && groupHasMember(group, ownerId)
+            && groupHasAuditEvent(group, "create_private_group", ownerId, ownerId);
+    }), "private group creator should receive active private group permission matrix and create audit") && ok;
+    ok = expect(groupById(member.serverGroups(), privateGroupId).isEmpty()
+                    && groupById(guest.serverGroups(), privateGroupId).isEmpty(),
+                "private group should not be visible to non-members before invitation") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate(privateGroupId, memberId, "add"),
+                "private group owner should invite a member") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject memberPrivate = groupById(member.serverGroups(), privateGroupId);
+        const QJsonObject ownerPrivate = groupById(owner.serverGroups(), privateGroupId);
+        return memberPrivate["groupType"].toString() == "private"
+            && memberPrivate["membershipState"].toString() == "active"
+            && memberPrivate["historyVisibility"].toString() == "active-members-and-removed-readonly"
+            && !memberPrivate["historyReadOnly"].toBool(true)
+            && memberPrivate["historyRetainedAfterRemoval"].toBool(false)
+            && memberPrivate["canSend"].toBool(false)
+            && memberPrivate["canSendFiles"].toBool(false)
+            && memberPrivate["canReadHistory"].toBool(false)
+            && groupHasMember(memberPrivate, ownerId)
+            && groupHasMember(memberPrivate, memberId)
+            && groupHasAuditEvent(ownerPrivate, "add", ownerId, memberId);
+    }), "invited member should receive private group snapshot with send/file/history permissions") && ok;
+
+    const QString privateMessage = "private group message should reach invited member only";
+    ownerGroupMessages.clear();
+    QStringList memberGroupMessages;
+    QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::Text && msg.receiverId == privateGroupId) {
+            memberGroupMessages << msg.content;
+        }
+    });
+    ok = expect(owner.sendServerGroupMessage(privateGroupId, privateMessage),
+                "private group owner should send scoped group message") && ok;
+    ok = expect(waitFor([&] {
+        return memberGroupMessages.contains(privateMessage);
+    }), "private group message should be delivered to invited member") && ok;
+
+    const QString privateFilePath = transferDir.filePath("private-group-file.txt");
+    ok = expect(writeTestFile(privateFilePath, QByteArray("private group file payload")),
+                "private group test file should be created") && ok;
+    QStringList memberGroupFiles;
+    QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::File && msg.receiverId == privateGroupId) {
+            memberGroupFiles << msg.fileName;
+        }
+    });
+    ok = expect(owner.sendServerGroupFile(privateGroupId, privateFilePath),
+                "private group owner should send file through group route") && ok;
+    ok = expect(waitFor([&] {
+        return memberGroupFiles.contains("private-group-file.txt");
+    }, 8000), "private group file should be delivered through group route") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasAuditEvent(groupById(owner.serverGroups(), privateGroupId), "file_sent", ownerId, ownerId);
+    }), "private group file send should appear in audit snapshot") && ok;
+
+    guestSystemMessages.clear();
+    ok = expect(guest.sendServerGroupMessage(privateGroupId, "guest should be blocked"),
+                "non-member private group message request should still be sent") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("私有群消息发送失败"))) return true;
+        }
+        return false;
+    }), "non-member private group message should fail closed") && ok;
+    ok = expect(!guest.sendServerGroupFile(privateGroupId, privateFilePath),
+                "non-member private group file should be rejected by server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("文件分片上传已被服务端拒绝"))) return true;
+        }
+        return false;
+    }), "non-member private group file should fail closed") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate(privateGroupId, memberId, "remove"),
+                "private group owner should remove invited member") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject removedPrivate = groupById(member.removedServerGroups(), privateGroupId);
+        return removedPrivate["membershipState"].toString() == "removed"
+            && removedPrivate["groupType"].toString() == "private"
+            && removedPrivate["historyPolicy"].toString() == "member-and-removed-readonly"
+            && removedPrivate["historyVisibility"].toString() == "removed-member-readonly"
+            && removedPrivate["historyReadOnly"].toBool(false)
+            && removedPrivate["historyRetainedAfterRemoval"].toBool(false)
+            && removedPrivate["filePolicy"].toString() == "members-only"
+            && removedPrivate["canReadHistory"].toBool(false)
+            && !removedPrivate["canSend"].toBool(true)
+            && !removedPrivate["canSendFiles"].toBool(true)
+            && !removedPrivate["removedBy"].toString().isEmpty();
+    }), "removed private member should keep read-only history marker and lose send/file permissions") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasAuditEvent(groupById(owner.serverGroups(), privateGroupId), "remove", ownerId, memberId);
+    }), "private group removal should be visible in owner audit snapshot") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMessage(privateGroupId, "removed member private send should be blocked"),
+                "removed private member message request should still be sent") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("私有群消息发送失败"))) return true;
+        }
+        return false;
+    }), "removed private member should be blocked from sending private group messages") && ok;
+    memberSystemMessages.clear();
+    ok = expect(!member.sendServerGroupFile(privateGroupId, privateFilePath),
+                "removed private member file should be rejected by server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("文件分片上传已被服务端拒绝"))) return true;
+        }
+        return false;
+    }), "removed private member should be blocked from sending private group files") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasAuditEvent(groupById(owner.serverGroups(), privateGroupId), "file_rejected", memberId, memberId);
+    }), "rejected private group file should appear in audit snapshot") && ok;
+
+    const QString openGroupName = "Open join protocol group";
+    ok = expect(owner.createPrivateServerGroup(openGroupName, "Open join announcement"),
+                "owner should create an open-join test group") && ok;
+    QString openGroupId;
+    ok = expect(waitFor([&] {
+        for (const QJsonValue& value : owner.serverGroups()) {
+            const QJsonObject group = value.toObject();
+            if (group["groupName"].toString() == openGroupName) {
+                openGroupId = group["groupId"].toString();
+                return !openGroupId.isEmpty();
+            }
+        }
+        return false;
+    }), "open-join test group should be created") && ok;
+    ok = expect(owner.sendServerGroupSettingsUpdate(openGroupId, QJsonObject{{"joinPolicy", "open"}}),
+                "owner should enable direct joining") && ok;
+    ok = expect(waitFor([&] { return groupById(owner.serverGroups(), openGroupId)["joinPolicy"].toString() == "open"; }),
+                "open join policy should persist in the snapshot") && ok;
+    ok = expect(guest.requestServerGroupJoin(openGroupId),
+                "guest should request direct joining") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject group = groupById(guest.serverGroups(), openGroupId);
+        return groupHasMember(group, guestId) && group["membershipState"].toString() == "active";
+    }), "open join policy should add the guest without manual approval") && ok;
+    guestSystemMessages.clear();
+    ok = expect(guest.dissolveServerGroup(openGroupId),
+                "ordinary member dissolve request should reach the server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主可以解散"))) return true;
+        }
+        return false;
+    }), "ordinary member must be rejected when dissolving a group") && ok;
+    ok = expect(owner.dissolveServerGroup(openGroupId), "owner should dissolve their private group") && ok;
+    ok = expect(waitFor([&] {
+        return groupById(owner.serverGroups(), openGroupId).isEmpty()
+            && groupById(guest.serverGroups(), openGroupId).isEmpty();
+    }), "dissolved group should disappear from every member snapshot") && ok;
+
+        disconnectClient(owner);
+        disconnectClient(member);
+        disconnectClient(guest);
+        server.stop();
+        drainEvents();
+    }
+    redis.stop();
+    drainEvents();
+    if (!appDataDir.isEmpty()) {
+        QDir(appDataDir).removeRecursively();
+    }
+    return ok ? 0 : 1;
+}
