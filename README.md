@@ -75,10 +75,13 @@ cmake -S . -B build-release -G Ninja \
 cmake --build build-release --target QtNetworkChat
 ```
 
-Linux AppImage/tar.gz and Windows zip packages are produced by the release
-workflows for version tags and attached to the corresponding
-[GitHub Release](https://github.com/ziyue67/QtNetworkChat/releases). The AppImage
-contains the Qt runtime and can be started directly after `chmod +x`.
+Release workflows attach exactly two desktop installers to each new
+[GitHub Release](https://github.com/ziyue67/QtNetworkChat/releases):
+`QtNetworkChat-<version>-linux-amd64.deb` for Ubuntu 24.04 and
+`QtNetworkChat-<version>-win-x64-setup.exe` for Windows 10/11 x64.
+The deb installs system Qt dependencies; the Windows installer includes Qt,
+OpenSSL, and MSVC runtime libraries. The Windows installer is not code-signed,
+so SmartScreen may require manual confirmation.
 
 ## Runtime configuration
 

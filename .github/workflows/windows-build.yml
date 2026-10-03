@@ -85,17 +85,46 @@ jobs:
             throw "ctest failed with exit code $($process.ExitCode)"
           }
 
-      - name: Package
+      - name: Install Inno Setup
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         shell: pwsh
-        run: ./scripts/package-windows.ps1 -BuildDir build -Configuration Release -PackageDir dist -SkipBuild -FailOnMissingRuntime
+        run: choco install innosetup --yes --no-progress
+
+      - name: Package Windows installer
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: ./scripts/package-windows-installer.ps1 -BuildDir build -Configuration Release -PackageDir dist
+
+      - name: Smoke test Windows installer
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = (Get-ChildItem -LiteralPath dist -Filter "*-setup.exe" -File | Select-Object -First 1).FullName
+          $installDir = Join-Path $env:RUNNER_TEMP "QtNetworkChat-smoke"
+          $install = Start-Process -FilePath $installer -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)" }
+          foreach ($name in @("QtNetworkChat.exe", "Qt6WebSockets.dll", "libcrypto-3-x64.dll", "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $installDir $name) -PathType Leaf)) { throw "Installed runtime missing $name" }
+          }
+          $env:QTNETWORKCHAT_SERVER_HOST = "127.0.0.1"
+          $env:QTNETWORKCHAT_SERVER_PORT = "1"
+          $env:QTNETWORKCHAT_TRANSPORT = "tcp"
+          $process = Start-Process -FilePath (Join-Path $installDir "QtNetworkChat.exe") -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $process.Refresh()
+            if ($process.HasExited) { throw "Installed client exited early with code $($process.ExitCode)" }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
 
       - name: Upload package
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: QtNetworkChat-win-x64
-          path: dist/*.zip
+          path: dist/*-setup.exe
           if-no-files-found: error
 
       - name: Attach package to release
@@ -103,7 +132,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload $env:GITHUB_REF_NAME (Get-ChildItem dist/*.zip).FullName --clobber
+        run: gh release upload $env:GITHUB_REF_NAME (Get-ChildItem dist/*-setup.exe).FullName --clobber
 
       - name: Upload CI diagnostics
         if: failure() || cancelled()
