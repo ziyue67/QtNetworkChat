@@ -38,6 +38,7 @@ class AppNav;
 class TitleBar;
 class AddFriendDialog;
 class GlobalSearchDialog;
+class GroupInfoPanelUi;
 class QStackedWidget;
 class QAction;
 class QLabel;
@@ -352,6 +353,14 @@ private:
     void showGlobalSearchDialog(bool contactGroupMode = false);
     void showEssencePanel();
     void showGroupInfoPanel();
+    void addGroupInfoManagerSettings(QDialog& panel, GroupInfoPanelUi& panelUi,
+                                    const QString& groupId, const QString& groupName,
+                                    bool serverGroup, bool manager);
+    void addGroupInfoPersonalSettings(QDialog& panel, GroupInfoPanelUi& panelUi,
+                                     const QString& groupId, bool serverGroup);
+    void addGroupInfoExitAction(QDialog& panel, QVBoxLayout* contentLayout,
+                               const QString& groupId, const QString& groupName,
+                               bool serverGroup, bool localGroup, bool owner);
     void editGroupProfile(const QString& groupId, const QString& groupName, bool serverGroup);
     void addGroupMemberSummary(QDialog& panel, QVBoxLayout* contentLayout,
                                const QString& groupId, const QStringList& members,
