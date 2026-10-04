@@ -28,6 +28,8 @@ SOURCES += \
     src/mainwindow_notifications.cpp \
     src/mainwindow_group_members.cpp \
     src/mainwindow_friends.cpp \
+    src/mainwindow_contacts.cpp \
+    src/mainwindow_composer.cpp \
     src/mainwindow_views.cpp \
     src/mainwindow_group_panel.cpp \
     src/group_info_panel_ui.cpp \

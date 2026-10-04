@@ -242,6 +242,12 @@ private:
     bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr, bool* canceled = nullptr);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
+    void loadStoredFriends();
+    void loadStoredFriendRequests();
+    void loadStoredLocalGroups();
+    void rebuildContactList();
+    QString expandedComposerText(QString text) const;
+    void appendOutgoingText(const QString& text, const QString& peerId, bool encrypted);
     void refreshSessionList();
     void refreshFavoritesView();
     void onFavoriteSelected(const QString& sessionId, const QString& messageId);

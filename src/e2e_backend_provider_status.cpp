@@ -93,8 +93,7 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
             : (descriptor.linked
                 ? QStringLiteral("bind-reviewed-provider-table-symbols")
                 : QStringLiteral("link-reviewed-production-crypto-backend"));
-        entry[QStringLiteral("rawKeyExported")] = false;
-        entry[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(entry);
         entries.append(entry);
 
         if (symbolRequired) {
@@ -135,9 +134,7 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-table-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("tableAbi")] =
         QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI);
     status[QStringLiteral("providerApiHeader")] =
@@ -193,8 +190,7 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
             : QStringLiteral("link-reviewed-production-crypto-backend"));
     status[QStringLiteral("requiredSymbols")] = QJsonArray::fromStringList(configuredSymbols);
     status[QStringLiteral("entries")] = entries;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     return status;
 }
 
@@ -227,9 +223,7 @@ QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryp
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-table-registration-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("providerApiHeader")] =
         QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_API_HEADER);
     status[QStringLiteral("expectedTableAbi")] =
@@ -279,8 +273,7 @@ QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryp
             : (!validationAccepted
                 ? QStringLiteral("register-provider-table-with-complete-reviewed-operation-pointers")
                 : QStringLiteral("enable-reviewed-provider-table-binding")));
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     return status;
 }
 
@@ -511,8 +504,7 @@ QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryp
             : QStringLiteral("link-reviewed-production-crypto-backend"));
     status[QStringLiteral("fieldOffsets")] = fields;
     status[QStringLiteral("enumMappings")] = enumMappings;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     return status;
 }
 
@@ -542,8 +534,7 @@ QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapter
         op[QStringLiteral("compatibilityStatus")] = spec.compatibilityStatus;
         op[QStringLiteral("blockedReason")] = runnable ? QString() : spec.migrationBlocker;
         op[QStringLiteral("operatorAction")] = spec.operatorAction;
-        op[QStringLiteral("rawKeyExported")] = false;
-        op[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(op);
         operationHarnesses.append(op);
         if (runnable) {
             ++runnableOperationCount;
@@ -584,8 +575,7 @@ QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapter
             ? QStringLiteral("replace-placeholder-operations-and-pass-harness")
             : QStringLiteral("link-reviewed-production-crypto-backend"));
     status[QStringLiteral("operations")] = operationHarnesses;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     return status;
 }
 
@@ -636,8 +626,7 @@ QJsonObject productionOperationExecutionPlanStatusForDescriptor(const E2ECryptoA
         step[QStringLiteral("operatorAction")] = harnessRunnable
             ? QStringLiteral("none")
             : harnessOperation.value(QStringLiteral("operatorAction")).toString(spec.operatorAction);
-        step[QStringLiteral("rawKeyExported")] = false;
-        step[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(step);
         steps.append(step);
         if (harnessRunnable) {
             ++runnableStepCount;
@@ -652,9 +641,7 @@ QJsonObject productionOperationExecutionPlanStatusForDescriptor(const E2ECryptoA
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-operation-execution-plan-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("dispatchState")] = descriptor.dispatchState;
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
@@ -686,8 +673,7 @@ QJsonObject productionOperationExecutionPlanStatusForDescriptor(const E2ECryptoA
         harness.value(QStringLiteral("accepted")).toBool(false);
     status[QStringLiteral("operationHarness")] = harness;
     status[QStringLiteral("steps")] = steps;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     return status;
 }
 
@@ -713,9 +699,7 @@ QJsonObject productionOperationInvocationStatusForDescriptor(const E2ECryptoAdap
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-operation-invocation-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("dispatchState")] = descriptor.dispatchState;
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
@@ -744,8 +728,7 @@ QJsonObject productionOperationInvocationStatusForDescriptor(const E2ECryptoAdap
     status[QStringLiteral("executionPlanAccepted")] =
         executionPlan.value(QStringLiteral("accepted")).toBool(false);
     status[QStringLiteral("invocations")] = invocations;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     return status;
 }
 } // namespace E2EBackendStatus

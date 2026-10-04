@@ -20,6 +20,11 @@
   <url type="bugtracker">https://github.com/ziyue67/QtNetworkChat/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.1.5" date="2026-10-04">
+      <description>
+        <p>Reduce reporting and window complexity, extend desktop acceptance, and verify TLS login ordering with real database integration.</p>
+      </description>
+    </release>
     <release version="1.1.4" date="2026-10-03">
       <description>
         <p>Provide a Linux deb package and a complete Windows installer.</p>

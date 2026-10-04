@@ -12,8 +12,8 @@ jobs:
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: v1.1.4
-      INSTALLER_NAME: QtNetworkChat-1.1.4-win-x64-setup.exe
+      RELEASE_TAG: v1.1.5
+      INSTALLER_NAME: QtNetworkChat-1.1.5-win-x64-setup.exe
 
     steps:
       - name: Download and verify published installer

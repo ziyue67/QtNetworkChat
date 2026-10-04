@@ -13,6 +13,12 @@ namespace E2EBackendStatus {
 using namespace E2ECodecSupport;
 using namespace E2ECryptoPrimitives;
 using namespace E2EProviderRuntime;
+// Reporting policy for objects which never carry exported key material.
+// Keep computed material flags explicit at their call sites.
+inline void setNoKeyExportFields(QJsonObject& report) {
+    report[QStringLiteral("rawKeyExported")] = false;
+    report[QStringLiteral("privateMaterialExported")] = false;
+}
 bool productionProviderTableRegistered();
 inline constexpr char E2EProtocolV1[] = "qtnetworkchat-e2e-v1";
 inline constexpr char E2EDraftSuite[] = "draft-placeholder";
@@ -40,6 +46,12 @@ struct E2ECryptoAdapterDescriptor {
     bool privateMaterialExported = false;
     QList<E2ECryptoOperation> operations;
 };
+
+inline void setProviderReportIdentity(QJsonObject& report, const E2ECryptoAdapterDescriptor& descriptor) {
+    report[QStringLiteral("backendId")] = descriptor.id;
+    report[QStringLiteral("providerId")] = descriptor.providerId;
+    report[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+}
 
 struct E2ECryptoOperationSpec {
     E2ECryptoOperation operation;

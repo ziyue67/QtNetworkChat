@@ -227,9 +227,9 @@ bool Server::start(quint16 port) {
             m_offlineAttachmentCleanupTimer->start(kOfflineAttachmentCleanupIntervalMs);
         }
         cleanupExpiredOfflineAttachments();
-        m_serverPort = port;
+        m_serverPort = m_tcpServer->serverPort();
         refreshServiceReadiness();
-        qDebug() << "Server started on port" << port << transportSecurityDescription();
+        qDebug() << "Server started on port" << m_serverPort << transportSecurityDescription();
 
         QList<QHostAddress> interfaces = QNetworkInterface::allAddresses();
         for (const QHostAddress& addr : interfaces) {

@@ -74,7 +74,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/build-release.log"
           $err = "build/ci-logs/build-release.err.log"
-          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "qqnt_engine", "qqnt_engine_smoke_test", "message_serialization_test", "tls_security_test", "websocket_transport_test", "login_window_gui_test", "group_info_panel_ui_test", "mainwindow_workflow_test", "account_password_kdf_test", "offline_attachment_quota_test", "file_chunk_duplicate_ack_test", "file_transfer_cancel_test", "e2e_production_adapter_runtime_test") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "qqnt_engine", "qqnt_engine_smoke_test", "message_serialization_test", "tls_security_test", "tls_login_order_test", "websocket_transport_test", "login_window_gui_test", "group_info_panel_ui_test", "mainwindow_workflow_test", "mainwindow_extended_gui_test", "account_password_kdf_test", "offline_attachment_quota_test", "file_chunk_duplicate_ack_test", "file_transfer_cancel_test", "e2e_production_adapter_runtime_test") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {
@@ -91,12 +91,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/ctest-release.log"
           $err = "build/ci-logs/ctest-release.err.log"
-          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure", "-R", "^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|MainWindowNetworkWorkflow|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure", "-R", "^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|TlsLoginFrameOrdering|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|MainWindowNetworkWorkflow|MainWindowExtendedGui|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {
             throw "ctest failed with exit code $($process.ExitCode)"
           }
+
+      - name: Test Windows native desktop dialogs
+        shell: pwsh
+        env:
+          QTNETWORKCHAT_TEST_FONT: ${{ github.workspace }}/build/ci-fonts/NotoSansCJKsc-Regular.otf
+        run: ctest --test-dir build -C Release --output-on-failure -R '^NativeDesktopDialogs$'
 
       - name: Upload GUI smoke screenshots
         if: always()
@@ -107,6 +113,7 @@ jobs:
             build/Release/login_window_*.png
             build/Release/group_info_panel_*.png
             build/Release/mainwindow_workflow_*.png
+            build/Release/mainwindow_*gui.png
           if-no-files-found: ignore
 
       - name: Install Inno Setup
