@@ -25,6 +25,7 @@ SOURCES += \
     src/mainwindow_friends.cpp \
     src/mainwindow_views.cpp \
     src/mainwindow_group_panel.cpp \
+    src/group_info_panel_ui.cpp \
     src/mainwindow_search.cpp \
     src/chatbubbledelegate.cpp \
     src/iconhelper.cpp \
@@ -48,9 +49,11 @@ SOURCES += \
     src/tlssecurity.cpp \
     src/e2eenvelope.cpp \
     src/e2e_crypto_primitives.cpp \
+    src/e2e_provider_runtime.cpp \
     src/e2e_envelope_codec.cpp \
     src/server.cpp \
     src/server_transport.cpp \
+    src/server_database.cpp \
     src/server_friend.cpp \
     src/server_group.cpp \
     src/client.cpp \
@@ -94,6 +97,9 @@ SOURCES += \
 
 HEADERS += \
     include/mainwindow.h \
+    src/group_info_panel_ui.h \
+    src/e2e_provider_runtime.h \
+    src/server_database.h \
     include/chatbubbledelegate.h \
     include/qqnt_log.h \
     include/iconhelper.h \

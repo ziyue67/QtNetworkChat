@@ -1,6 +1,6 @@
 param(
-    [string]$RedisDir = "D:\Program Files\Redis-8.6.2",
-    [string]$BuildDir = "build-qt6-mingw",
+    [string]$RedisDir = "",
+    [string]$BuildDir = "build",
     [string]$Configuration = "Release",
     [string]$HostName = "127.0.0.1",
     [int]$Port = 6379,
@@ -11,13 +11,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+if ([string]::IsNullOrWhiteSpace($RedisDir)) {
+    $cliCommand = Get-Command redis-cli.exe -ErrorAction SilentlyContinue
+    if (-not $cliCommand) { throw "Specify -RedisDir or add redis-cli.exe to PATH" }
+    $RedisDir = Split-Path -Parent $cliCommand.Source
+}
 $redisServer = Join-Path $RedisDir "redis-server.exe"
 $redisCli = Join-Path $RedisDir "redis-cli.exe"
 $redisConf = Join-Path $RedisDir "redis.conf"
 
-if (-not (Test-Path -LiteralPath $redisServer)) {
-    throw "redis-server.exe was not found under $RedisDir"
-}
 if (-not (Test-Path -LiteralPath $redisCli)) {
     throw "redis-cli.exe was not found under $RedisDir"
 }
@@ -36,6 +38,12 @@ function Test-RedisReady {
 if (-not (Test-RedisReady -CliPath $redisCli -TargetHost $HostName -TargetPort $Port)) {
     if ($NoStartRedis) {
         throw "Redis is not reachable at ${HostName}:$Port"
+    }
+    if ($HostName -notin @("127.0.0.1", "localhost", "::1")) {
+        throw "Remote Redis is unreachable at ${HostName}:$Port; start it on that host"
+    }
+    if (-not (Test-Path -LiteralPath $redisServer)) {
+        throw "redis-server.exe was not found under $RedisDir"
     }
 
     $arguments = @()
@@ -61,17 +69,25 @@ if (-not (Test-RedisReady -CliPath $redisCli -TargetHost $HostName -TargetPort $
     throw "Redis did not become ready at ${HostName}:$Port"
 }
 
-$buildPath = Join-Path $repoRoot $BuildDir
-$exe = Get-ChildItem -Path $buildPath -Recurse -Filter "QtNetworkChat.exe" |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
+if ([System.IO.Path]::IsPathRooted($BuildDir)) {
+    $buildPath = $BuildDir
+} else {
+    $buildPath = Join-Path $repoRoot $BuildDir
+}
+
+function Find-ClientExecutable {
+    foreach ($candidate in @((Join-Path $buildPath "$Configuration/QtNetworkChat.exe"),
+                             (Join-Path $buildPath "QtNetworkChat.exe"))) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return Get-Item -LiteralPath $candidate }
+    }
+}
+$exe = Find-ClientExecutable
 
 if (-not $exe) {
     Write-Host "QtNetworkChat.exe was not found; building $BuildDir first"
-    cmake --build $buildPath --config $Configuration
-    $exe = Get-ChildItem -Path $buildPath -Recurse -Filter "QtNetworkChat.exe" |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+    cmake --build $buildPath --config $Configuration --target QtNetworkChat
+    if ($LASTEXITCODE -ne 0) { throw "QtNetworkChat build failed with exit code $LASTEXITCODE" }
+    $exe = Find-ClientExecutable
 }
 if (-not $exe) {
     throw "QtNetworkChat.exe was not found under $buildPath"
