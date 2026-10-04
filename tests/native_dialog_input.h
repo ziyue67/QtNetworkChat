@@ -151,9 +151,9 @@ private:
                                                   reinterpret_cast<void**>(&rawValue)))) return false;
             ComOwner<IUIAutomationValuePattern> value(rawValue);
             const QString path = QDir::toNativeSeparators(choice.path);
-            // The Save picker commits its filename when focus leaves the edit.
-            // SetValue alone updates the accessibility value but need not
-            // commit the shell dialog's pending filename before Invoke.
+            // Inspect the edit value separately from the filename returned by
+            // the shell: CI previously exported to the original default path
+            // even though SetValue/readback contained the requested path.
             if (choice.save) input->SetFocus();
             BSTR nativePath = SysAllocStringLen(reinterpret_cast<LPCWSTR>(path.utf16()),
                                                static_cast<UINT>(path.size()));
@@ -161,7 +161,6 @@ private:
             const HRESULT assigned = value->SetValue(nativePath);
             SysFreeString(nativePath);
             if (FAILED(assigned)) return false;
-            if (choice.save) button->SetFocus();
             BSTR actualPath = nullptr;
             if (FAILED(value->get_CurrentValue(&actualPath))) return false;
             const QString assignedPath = QString::fromWCharArray(actualPath ? actualPath : L"");
@@ -169,6 +168,24 @@ private:
             if (assignedPath != path) {
                 if (diagnose) qWarning() << "NATIVE_UIA path did not persist" << assignedPath << path;
                 return false;
+            }
+            if (choice.save) {
+                UIA_HWND rawHandle{};
+                if (FAILED(input->get_CurrentNativeWindowHandle(&rawHandle))) return false;
+                const HWND edit = reinterpret_cast<HWND>(rawHandle);
+                DWORD process = 0;
+                GetWindowThreadProcessId(edit, &process);
+                if (!edit || process != GetCurrentProcessId()) return false;
+                const HWND parent = GetParent(edit);
+                if (!parent) return false;
+                // Notify the real edit's owner as keyboard editing would, so
+                // the native Save dialog updates its pending filename too.
+                DWORD_PTR result = 0;
+                if (!SendMessageTimeoutW(parent, WM_COMMAND,
+                        MAKEWPARAM(GetDlgCtrlID(edit), EN_CHANGE), reinterpret_cast<LPARAM>(edit),
+                        SMTO_ABORTIFHUNG, 1000, &result)) return false;
+                button->SetFocus();
+                qInfo() << "NATIVE_UIA save edit committed" << edit << GetDlgCtrlID(edit);
             }
         }
         IUIAutomationInvokePattern* rawInvoke = nullptr;
