@@ -1,6 +1,6 @@
 # Testing Coverage
 
-The current CMake suite contains 52 CTest entries. Run the complete suite
+The current CMake suite contains 53 CTest entries. Run the complete suite
 after changes to shared client, server, E2E, or transfer code:
 
 ```bash
@@ -19,6 +19,9 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
   quota, cancellation, and public image delivery.
 - Desktop state managers for sessions, contacts, notifications, composer,
   transfer cards, and visual style consistency.
+- Offscreen login-window interaction across login, registration, local password
+  reset, agreement gating, and light/dark rendering. The test saves three
+  screenshots beside the test executable and checks that they are nonblank.
 - Headless engine startup, protocol drift, and end-to-end private messaging.
 
 The Linux and Windows workflows build the app and run focused checks. Tagged
@@ -34,7 +37,9 @@ only when the adapter is not linked. Linked production builds use
 
 The certificate-pin unit test checks correct and incorrect certificate
 fingerprints, but does not currently run a full local TLS server to assert
-login-frame ordering. Window menu and notification dialogs are compiled but
-not driven by an automated GUI interaction test. Public WSS and the pinned
+login-frame ordering. Window menu, notification dialogs, group panel, and file
+transfer workflow are compiled but not driven by an automated GUI interaction
+test. Offscreen screenshots do not replace manual desktop checks on Linux and
+Windows. Public WSS and the pinned
 production server must be checked separately from local CTest after deployment
 changes; publishing a new image does not update the pinned server.

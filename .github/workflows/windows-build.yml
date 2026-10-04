@@ -63,7 +63,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/build-release.log"
           $err = "build/ci-logs/build-release.err.log"
-          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "message_serialization_test", "tls_security_test", "websocket_transport_test", "e2e_production_adapter_runtime_test") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "message_serialization_test", "tls_security_test", "websocket_transport_test", "login_window_gui_test", "e2e_production_adapter_runtime_test") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {
@@ -78,7 +78,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/ctest-release.log"
           $err = "build/ci-logs/ctest-release.err.log"
-          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure", "-R", "^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|E2EProductionAdapterRuntime)$") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure", "-R", "^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|E2EProductionAdapterRuntime)$") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {
