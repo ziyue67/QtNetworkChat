@@ -1,13 +1,30 @@
-# Automation Status
+# 自动化入口与状态核查
 
-Current repository work is in closeout, not feature expansion. The QtNetworkChat backend branch keeps the automation surface focused on reproducible local validation, protocol drift checks, QtNetworkChat tests, packaging manifest checks, and branch-owned backend evidence.
+当前自动化在 GitHub Actions 中运行，流程定义就是可复核的来源。本文说明触发
+与职责；某个提交是否成功，必须查看对应提交的 run，不能把本文当作实时监控。
 
-E2E production crypto evidence remains the deepest closeout evidence lane for this branch. It is tracked as evidence that must remain explicit, reviewable, and synchronized with release status rather than silently implied by unrelated test success.
+| 流程 | 触发 | 职责 |
+|---|---|---|
+| [Linux Build](../.github/workflows/linux-build.yml) | main、PR、v* tag、手动 | 生产 provider 配置编译、13 个专项 CTest、GUI 截图、脚本回归；tag/手动构建制作 deb |
+| [Windows Build](../.github/workflows/windows-build.yml) | main、PR、v* tag、手动 | Qt/MSVC 编译、同一专项 CTest、GUI 字体/截图、脚本回归；tag/手动构建制作 Inno Setup 安装包 |
+| [Container Image](../.github/workflows/container.yml) | 匹配代码/部署路径的 main 或 tag、手动 | 编译服务端并构建镜像，发布至 GHCR；不执行容器业务烟测 |
+| [Windows Release Smoke](../.github/workflows/windows-release-smoke.yml) | 以流程文件的触发和参数为准 | 下载已发布安装包，在 Windows 上做安装/启动/卸载验收 |
 
-The automation contract keeps a callable manifest, a sanitized execution result contract, and production rotation dry-run/execute evidence as named evidence lanes. These names are stable so status scripts, README references, and release closeout summaries can stay aligned.
+本机 Linux 默认完整套件包含 55 个 CTest；Windows 另注册平台脚本检查，
+上述 CI 列表是专项子集。脚本回归是单独
+步骤，解析所有 69 个 PowerShell 文件，并验证路径、哈希、实际证据生成和
+README 索引，详见 [脚本维护](script-maintenance.md)。
 
-Release and operations delivery now uses a local-closeout policy. Environment-specific publishing remains an explicit step outside this repository, so local packages and generated evidence must not claim that external deployment already happened.
+```bash
+gh run list --repo ziyue67/QtNetworkChat --branch main --limit 10
+gh run view <run-id> --repo ziyue67/QtNetworkChat
+```
 
-README information architecture and current-state alignment remain maintenance work only: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, E2E hardening status, and release closeout in focused docs, and keep automation-status plus README wording synchronized with the actual verified code paths, recorded archive decision state, and current publication readback.
+核对 run 的 headSha 与目标提交是否一致，读取 conclusion 与失败日志。镜像还
+需核对 revision 标签和 digest；线上服务还需读取实际运行的镜像。成功的工作流
+不会自动升级固定标签的生产容器。
 
-PostgreSQL release acceptance and database-health warnings now belong to operational evidence follow-up. Governance performance closeout remains a summary lane.
+`write-automation-status.ps1`、证据包和计划任务脚本保留原有报告接口。它们生成
+本地档案或运维配置，不能替代 GitHub run、真实对象存储或服务器的现场证据。
+当前整改结果见 [整改记录](refactoring-closeout.md)，发布边界见
+[发布说明](release-closeout.md)。

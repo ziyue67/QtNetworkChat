@@ -1,6 +1,6 @@
 # Large File Governance
 
-Large-file governance covers object routing, file transfer evidence, package hygiene, and repository size discipline. For QtNetworkChat backend work, file-transfer protocol behavior should be represented through IPC docs, C++/Rust tests, and Redis/file routing tests.
+Large-file governance covers object routing, file transfer evidence, package hygiene, and repository size discipline. For QtNetworkChat backend work, file-transfer protocol behavior should be represented through IPC docs, C++ tests, and Redis/file routing tests.
 
 ## Backend Expectations
 

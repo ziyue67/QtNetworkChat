@@ -128,8 +128,26 @@ configure_file(
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql Multimedia WebSockets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Multimedia WebSockets Test)
 
+set(QTNETWORKCHAT_E2E_SOURCES
+    src/e2eenvelope.cpp
+    src/e2e_backend_selection.cpp
+    src/e2e_backend_contracts.cpp
+    src/e2e_backend_provider_status.cpp
+    src/e2e_backend_probes.cpp
+    src/e2e_backend_invocation.cpp
+    src/e2e_backend_review.cpp
+    src/e2e_backend_acceptance.cpp
+    src/e2e_crypto_primitives.cpp
+    src/e2e_provider_runtime.cpp
+    src/e2e_envelope_codec.cpp
+)
+
 set(QTNETWORKCHAT_SERVER_SOURCES
     src/server.cpp
+    src/server_redis_routing.cpp
+    src/server_large_file_routing.cpp
+    src/server_group_repository.cpp
+    src/server_friend_repository.cpp
     src/server_transport.cpp
     src/server_database.cpp
     src/server_account.cpp
@@ -153,10 +171,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/friendmanager.cpp
     src/notificationpanelmanager.cpp
     src/groupmanager.cpp
-    src/e2eenvelope.cpp
-    src/e2e_crypto_primitives.cpp
-    src/e2e_provider_runtime.cpp
-    src/e2e_envelope_codec.cpp
+    ${QTNETWORKCHAT_E2E_SOURCES}
     include/tlssecurity.h
     include/filetransferstatus.h
     include/historyattachmentparser.h
@@ -186,9 +201,13 @@ function(qtnetworkchat_attach_production_adapter target_name)
     endif()
 endfunction()
 
-add_executable(QtNetworkChat
-    src/main.cpp
+add_library(qtnetworkchat_desktop STATIC
     src/mainwindow.cpp
+    src/mainwindow_setup.cpp
+    src/mainwindow_transfers.cpp
+    src/mainwindow_history.cpp
+    src/mainwindow_chat_actions.cpp
+    src/mainwindow_support.cpp
     src/mainwindow_menu.cpp
     src/mainwindow_notifications.cpp
     src/mainwindow_group_members.cpp
@@ -301,11 +320,13 @@ add_executable(QtNetworkChat
     ui/mainwindow.ui
 )
 
-target_include_directories(QtNetworkChat PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
-target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::WebSockets)
+target_include_directories(qtnetworkchat_desktop PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/generated include)
+target_link_libraries(qtnetworkchat_desktop PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::WebSockets)
 if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
-    target_link_libraries(QtNetworkChat PRIVATE OpenSSL::Crypto)
+    target_link_libraries(qtnetworkchat_desktop PUBLIC OpenSSL::Crypto)
 endif()
+add_executable(QtNetworkChat src/main.cpp)
+target_link_libraries(QtNetworkChat PRIVATE qtnetworkchat_desktop)
 
 set(QTNETWORKCHAT_QSQLITE_PLUGIN "$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins/sqldrivers/qsqlite.dll")
 if(WIN32)
@@ -355,10 +376,7 @@ add_executable(qqnt_server
     src/qqnt_redis_service.cpp
     ${QTNETWORKCHAT_SERVER_SOURCES}
     src/message.cpp
-    src/e2eenvelope.cpp
-    src/e2e_crypto_primitives.cpp
-    src/e2e_provider_runtime.cpp
-    src/e2e_envelope_codec.cpp
+    ${QTNETWORKCHAT_E2E_SOURCES}
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -386,10 +404,7 @@ add_executable(qqnt_engine
     src/redisclient.cpp
     ${QTNETWORKCHAT_SERVER_SOURCES}
     src/message.cpp
-    src/e2eenvelope.cpp
-    src/e2e_crypto_primitives.cpp
-    src/e2e_provider_runtime.cpp
-    src/e2e_envelope_codec.cpp
+    ${QTNETWORKCHAT_E2E_SOURCES}
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
     src/localfilemanager.cpp
@@ -419,10 +434,7 @@ qtnetworkchat_attach_production_adapter(qqnt_engine)
 
 add_executable(e2e_rollout_observability_exporter
     tools/e2e_rollout_observability_exporter.cpp
-    src/e2eenvelope.cpp
-    src/e2e_crypto_primitives.cpp
-    src/e2e_provider_runtime.cpp
-    src/e2e_envelope_codec.cpp
+    ${QTNETWORKCHAT_E2E_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/e2eenvelope.h
     include/qtnetworkchat_e2e_provider_api.h
@@ -452,10 +464,7 @@ if(BUILD_TESTING)
     add_executable(message_serialization_test
         tests/message_serialization_test.cpp
         src/message.cpp
-        src/e2eenvelope.cpp
-        src/e2e_crypto_primitives.cpp
-        src/e2e_provider_runtime.cpp
-        src/e2e_envelope_codec.cpp
+        ${QTNETWORKCHAT_E2E_SOURCES}
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/message.h
         include/e2eenvelope.h
@@ -469,10 +478,7 @@ if(BUILD_TESTING)
 
     add_executable(e2e_envelope_test
         tests/e2e_envelope_test.cpp
-        src/e2eenvelope.cpp
-        src/e2e_crypto_primitives.cpp
-        src/e2e_provider_runtime.cpp
-        src/e2e_envelope_codec.cpp
+        ${QTNETWORKCHAT_E2E_SOURCES}
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
         include/qtnetworkchat_e2e_provider_api.h
@@ -486,10 +492,7 @@ if(BUILD_TESTING)
 
     add_executable(e2e_production_adapter_runtime_test
         tests/e2e_production_adapter_runtime_test.cpp
-        src/e2eenvelope.cpp
-        src/e2e_crypto_primitives.cpp
-        src/e2e_provider_runtime.cpp
-        src/e2e_envelope_codec.cpp
+        ${QTNETWORKCHAT_E2E_SOURCES}
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
     )
@@ -622,6 +625,13 @@ if(BUILD_TESTING)
     )
     target_include_directories(login_credential_store_test PRIVATE include)
     target_link_libraries(login_credential_store_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
+
+    add_executable(mainwindow_workflow_test
+        tests/mainwindow_workflow_test.cpp
+        tests/test_redis_support.cpp
+        tests/test_redis_support.h
+    )
+    target_link_libraries(mainwindow_workflow_test PRIVATE qtnetworkchat_desktop Qt${QT_VERSION_MAJOR}::Test)
 
     add_executable(login_window_gui_test
         tests/login_window_gui_test.cpp
@@ -1001,10 +1011,7 @@ if(BUILD_TESTING)
         ${QTNETWORKCHAT_SERVER_SOURCES}
             src/redisclient.cpp
         src/message.cpp
-        src/e2eenvelope.cpp
-        src/e2e_crypto_primitives.cpp
-        src/e2e_provider_runtime.cpp
-        src/e2e_envelope_codec.cpp
+        ${QTNETWORKCHAT_E2E_SOURCES}
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
         include/server.h
@@ -1245,6 +1252,15 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
+    add_test(
+        NAME MainWindowNetworkWorkflow
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:mainwindow_workflow_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    set_tests_properties(MainWindowNetworkWorkflow PROPERTIES TIMEOUT 90)
     add_test(
         NAME LoginWindowGuiInteraction
         COMMAND ${CMAKE_COMMAND}
@@ -1756,10 +1772,7 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
-        src/e2eenvelope.cpp
-        src/e2e_crypto_primitives.cpp
-        src/e2e_provider_runtime.cpp
-        src/e2e_envelope_codec.cpp
+        ${QTNETWORKCHAT_E2E_SOURCES}
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -1787,10 +1800,7 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
-        src/e2eenvelope.cpp
-        src/e2e_crypto_primitives.cpp
-        src/e2e_provider_runtime.cpp
-        src/e2e_envelope_codec.cpp
+        ${QTNETWORKCHAT_E2E_SOURCES}
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}

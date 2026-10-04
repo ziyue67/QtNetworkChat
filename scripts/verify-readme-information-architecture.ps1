@@ -1,3 +1,7 @@
+param(
+    [string]$ReadmePath = (Join-Path (Split-Path -Parent $PSScriptRoot) "README.md"),
+    [string]$DocsDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs")
+)
 $ErrorActionPreference = "Stop"
 
 function Assert-Contains([string]$Text, [string]$Needle) {
@@ -6,34 +10,25 @@ function Assert-Contains([string]$Text, [string]$Needle) {
     }
 }
 
-function Assert-NotContains([string]$Text, [string]$Needle) {
-    if ($Text.Contains($Needle)) {
-        throw "README or docs should not contain removed rewrite reference: $Needle"
-    }
-}
-
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$readmePath = Join-Path $repoRoot "README.md"
-$docsRoot = Join-Path $repoRoot "docs"
-
-if (-not (Test-Path -LiteralPath $readmePath)) {
+if (-not (Test-Path -LiteralPath $ReadmePath)) {
     throw "README.md is missing."
 }
 
-$readme = Get-Content -LiteralPath $readmePath -Raw -Encoding UTF8
+$readme = Get-Content -LiteralPath $ReadmePath -Raw -Encoding UTF8
 Assert-Contains $readme "# QtNetworkChat"
-Assert-Contains $readme "cmake --build build-qt6-mingw --target QtNetworkChat"
-Assert-Contains $readme "QtNetworkChatExecutableExists|MessageSerializationRoundTrip|RedisServerReadiness"
+Assert-Contains $readme "cmake --build build --target QtNetworkChat"
+Assert-Contains $readme "QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport"
+Assert-Contains $readme "wss://qt.ziyuexc.top/ws"
+Assert-Contains $readme "scripts/README.md"
+Assert-Contains $readme "deploy/README.md"
 
 foreach ($doc in @(
-    "automation-status.md",
+    "architecture.md",
     "testing-coverage.md",
-    "postgresql-operations.md",
-    "large-file-governance.md",
     "e2e-hardening-status.md",
-    "release-closeout.md"
+    "refactoring-closeout.md"
 )) {
-    $path = Join-Path $docsRoot $doc
+    $path = Join-Path $DocsDir $doc
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Expected documentation file is missing: $doc"
     }

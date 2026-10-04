@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $sensitivePatterns = @(
     '(^|["''\s{,])QTNETWORKCHAT_PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
@@ -22,12 +23,6 @@ $sensitivePatterns = @(
     'Signature\s*='
 )
 
-function Resolve-OptionalPath([string]$PathValue) {
-    if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return ""
-    }
-    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathValue)
-}
 
 function Read-OptionalJson([string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {

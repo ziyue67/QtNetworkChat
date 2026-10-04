@@ -14,13 +14,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Normalize-Status([string]$Value, [int]$ExitCode) {
     $status = ([string]$Value).Trim().ToLowerInvariant()
@@ -41,7 +36,7 @@ function Read-CTestCount([string]$PathValue) {
         return 0
     }
     try {
-        $resolved = Resolve-RepoPath $PathValue
+        $resolved = Resolve-RequiredRepoPath $PathValue
         if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
             return 0
         }
@@ -60,7 +55,7 @@ function Read-CTestCount([string]$PathValue) {
     }
 }
 
-$resolvedOutput = Resolve-RepoPath $OutputPath
+$resolvedOutput = Resolve-RequiredRepoPath $OutputPath
 $parent = Split-Path -Parent $resolvedOutput
 if (-not [string]::IsNullOrWhiteSpace($parent)) {
     New-Item -ItemType Directory -Force -Path $parent | Out-Null

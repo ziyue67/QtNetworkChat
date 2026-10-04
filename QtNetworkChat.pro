@@ -19,6 +19,11 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     src/main.cpp \
     src/mainwindow.cpp \
+    src/mainwindow_setup.cpp \
+    src/mainwindow_transfers.cpp \
+    src/mainwindow_history.cpp \
+    src/mainwindow_chat_actions.cpp \
+    src/mainwindow_support.cpp \
     src/mainwindow_menu.cpp \
     src/mainwindow_notifications.cpp \
     src/mainwindow_group_members.cpp \
@@ -48,10 +53,21 @@ SOURCES += \
     src/heartbeatmonitor.cpp \
     src/tlssecurity.cpp \
     src/e2eenvelope.cpp \
+    src/e2e_backend_selection.cpp \
+    src/e2e_backend_contracts.cpp \
+    src/e2e_backend_provider_status.cpp \
+    src/e2e_backend_probes.cpp \
+    src/e2e_backend_invocation.cpp \
+    src/e2e_backend_review.cpp \
+    src/e2e_backend_acceptance.cpp \
     src/e2e_crypto_primitives.cpp \
     src/e2e_provider_runtime.cpp \
     src/e2e_envelope_codec.cpp \
     src/server.cpp \
+    src/server_redis_routing.cpp \
+    src/server_large_file_routing.cpp \
+    src/server_group_repository.cpp \
+    src/server_friend_repository.cpp \
     src/server_transport.cpp \
     src/server_database.cpp \
     src/server_account.cpp \
@@ -100,6 +116,8 @@ SOURCES += \
     src/sessionitemdelegate.cpp
 
 HEADERS += \
+    src/e2e_backend_status_p.h \
+    src/mainwindow_support.h \
     include/mainwindow.h \
     src/group_info_panel_ui.h \
     src/e2e_provider_runtime.h \

@@ -11,15 +11,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $script:LastToolFailureClass = "none"
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Get-GitHubRunListFailureClass([string]$Text) {
     if ([string]::IsNullOrWhiteSpace($Text)) {
@@ -94,7 +89,7 @@ function Read-GitHubWindowsBuildPolicy([string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue)) {
         return $result
     }
-    $resolvedPath = Resolve-RepoPath $PathValue
+    $resolvedPath = Resolve-RequiredRepoPath $PathValue
     if (-not (Test-Path -LiteralPath $resolvedPath)) {
         return $result
     }
@@ -246,7 +241,7 @@ if ($policyResolved -eq "disabled") {
 } elseif (-not [string]::IsNullOrWhiteSpace($RunListJsonPath)) {
     $source = "json-artifact"
     try {
-        $runListJson = Get-Content -LiteralPath (Resolve-RepoPath $RunListJsonPath) -Raw -Encoding UTF8
+        $runListJson = Get-Content -LiteralPath (Resolve-RequiredRepoPath $RunListJsonPath) -Raw -Encoding UTF8
     } catch {
         $source = "json-artifact-unreadable"
         $status = "unavailable"
@@ -348,7 +343,7 @@ foreach ($forbidden in @("ghp_", "github_pat_", "Authorization:", "Credential=",
 if ($PlanOnly.IsPresent) {
     Write-Output $json
 } else {
-    $resolvedOutput = Resolve-RepoPath $OutputPath
+    $resolvedOutput = Resolve-RequiredRepoPath $OutputPath
     $parent = Split-Path -Parent $resolvedOutput
     if (-not [string]::IsNullOrWhiteSpace($parent)) {
         New-Item -ItemType Directory -Force -Path $parent | Out-Null

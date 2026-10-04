@@ -6,7 +6,7 @@
 #include <QJsonObject>
 #include <QString>
 
-// Internal provider ABI boundary. Selection and status reporting stay in e2eenvelope.cpp.
+// Internal provider ABI boundary. Selection and reports live in e2e_backend_*.cpp.
 namespace E2EProviderRuntime {
 inline constexpr qsizetype SessionKeyBytes = 32;
 // Used only by the OpenSSL production provider; draft payloads use draft-placeholder.

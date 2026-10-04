@@ -12,16 +12,28 @@ does not translate WebSocket frames into the server protocol.
   login frames, file transfer, and E2E session use. The desktop window consumes
   its signals and must not write directly to a socket.
 - `src/mainwindow.cpp` owns window lifecycle and remaining chat workflows.
-  Views/settings, group panel, group member sidebar, friend manager, search,
+  Initialization/layout, transfer workflows, history/favorites, message actions,
+  views/settings, group panel, group member sidebar, friend manager, search,
   menus, and notifications have separate compilation units. The quick-add
   entry point uses the shared add-friend dialog; its unreachable legacy dialog
   was removed. The remaining window file is still large and needs incremental
-  extraction with UI regression checks.
+  extraction with UI regression checks. `mainwindow_setup.cpp` owns the initial
+  layout and synchronized session controls; `mainwindow_transfers.cpp` owns file
+  selection, progress/cancellation/recovery and received-file persistence;
+  `mainwindow_history.cpp` owns history dialogs and favorites;
+  `mainwindow_chat_actions.cpp` owns forwarding, media, screenshots and message
+  actions. Presentation helpers have one implementation in
+  `mainwindow_support.cpp`.
   The group-info view is built by `src/group_info_panel_ui.cpp`; the window
   wires permissions, manager settings, personal settings, and leave/dissolve
   actions separately in `src/mainwindow_group_panel.cpp`.
-- `src/server.cpp` owns startup, Redis routing, message routing, and remaining
-  group/friend queries and snapshots. TCP connection lifecycle and frame
+- `src/server.cpp` owns startup and local message routing. Redis readiness,
+  presence, Pub/Sub dispatch and cross-instance message/control routing are in
+  `server_redis_routing.cpp`. Object-store offers, claims, receipts, validation,
+  chunk delivery and cleanup are in `server_large_file_routing.cpp`.
+  Group membership/permissions/audit queries and snapshots are in
+  `server_group_repository.cpp`; friendship persistence and queries are in
+  `server_friend_repository.cpp`. TCP connection lifecycle and frame
   dispatch are in `src/server_transport.cpp`; friend and group operations are in
   `src/server_friend.cpp` and `src/server_group.cpp`. The remaining server
   database driver differences, connection pool, health checks, and schema
@@ -36,7 +48,6 @@ does not translate WebSocket frames into the server protocol.
   notices, and route logging without copying the implementations.
   These units keep the same `Server` state and private methods; ownership is
   separated by compilation unit, not by introducing another server object.
-  Redis large-file routing and group/friend persistence still need extraction.
 - `QQNTRedisService` is a startup requirement: without Redis, cross-instance
   presence and delivery cannot be guaranteed, so startup fails closed.
 - PostgreSQL holds production account/chat state; Redis handles presence,
@@ -48,15 +59,20 @@ does not translate WebSocket frames into the server protocol.
 The default E2E backend is a draft protocol, not production cryptography.
 Production-capable builds link the OpenSSL provider for X25519, HKDF-SHA256,
 AES-256-GCM, and Ed25519; runtime selection still requires
-`QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production`. The provider status code in
-`src/e2eenvelope.cpp` remains a large maintenance hotspot;
+`QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production`.
+`src/e2eenvelope.cpp` now owns the public cryptographic operations rather than
+the status/reporting layers;
 `src/e2e_envelope_codec.cpp` contains JSON encoding and validation, while
 `src/e2e_crypto_primitives.cpp` contains draft primitives and session-material
 encoding.
 `src/e2e_provider_runtime.cpp` validates provider tables, dispatches ABI calls,
 and runs positive/negative runtime self-tests against an explicitly supplied
-table. Backend selection, registration, and status reporting remain separate
-from this boundary and still require further simplification.
+table. `e2e_backend_selection.cpp` owns selection, registration and the shared
+status cache. Contracts, provider-table status, probes, invocation reports,
+review handoff and acceptance/rollout reports have distinct compilation units.
+Their internal declarations are in `e2e_backend_status_p.h`; public API and
+report schemas stay compatible. The reporting graph remains substantial; this
+extraction separates its responsibilities without deleting evidence fields.
 
 The internal `E2EProductionSuite` names the production provider's wire suite.
 It is not the default suite for draft encryption. `e2eDefaultSuite()` and

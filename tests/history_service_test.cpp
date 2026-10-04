@@ -4,9 +4,11 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTextStream>
 #include <QVariant>
 
@@ -49,15 +51,18 @@ int main(int argc, char** argv) {
     QCoreApplication::setApplicationName(QStringLiteral("history_service_test"));
     QStandardPaths::setTestModeEnabled(true);
 
-    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (!appDataDir.isEmpty()) {
-        QDir(appDataDir).removeRecursively();
-        QDir().mkpath(appDataDir);
-    }
+    QTemporaryDir historyRoot;
+    if (!historyRoot.isValid()) return 1;
+    const QString appDataDir = historyRoot.path();
+    qputenv("QTNETWORKCHAT_APPDATA_DIR", historyRoot.path().toUtf8());
 
     bool ok = true;
     const QString peerId = QStringLiteral("peer:unsafe/42");
     HistoryService service(QStringLiteral("user:unsafe/1"));
+
+    ok = expect(QFileInfo(service.databasePath()).absolutePath() == historyRoot.path()
+                    && QFileInfo(service.legacyFilePath(peerId)).absolutePath() == historyRoot.path(),
+                "database and legacy history must honor the configured data root") && ok;
 
     ok = expect(service.databasePath().endsWith(QStringLiteral("client_user_unsafe_1.sqlite3")),
                 "database path should sanitize user id") && ok;

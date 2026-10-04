@@ -18,43 +18,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Invoke-RepoScript([string]$ScriptPath, [string[]]$Arguments) {
-    $resolvedScriptPath = Resolve-RepoPath $ScriptPath
+    $resolvedScriptPath = Resolve-RequiredRepoPath $ScriptPath
     & powershell -ExecutionPolicy Bypass -File $resolvedScriptPath @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw ("Script failed: {0} (exit {1})" -f $resolvedScriptPath, $LASTEXITCODE)
     }
 }
 
-function Get-Sha256Hex([string]$PathValue) {
-    if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
-        return "unknown"
-    }
-    $stream = [System.IO.File]::OpenRead($PathValue)
-    try {
-        $sha256 = [System.Security.Cryptography.SHA256]::Create()
-        try {
-            $hashBytes = $sha256.ComputeHash($stream)
-            return (($hashBytes | ForEach-Object { $_.ToString("x2") }) -join "")
-        } finally {
-            $sha256.Dispose()
-        }
-    } finally {
-        $stream.Dispose()
-    }
-}
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$resolvedBuildDir = Resolve-RepoPath $BuildDir
-$resolvedAutomationStatusPath = Resolve-RepoPath $AutomationStatusPath
+$resolvedBuildDir = Resolve-RequiredRepoPath $BuildDir
+$resolvedAutomationStatusPath = Resolve-RequiredRepoPath $AutomationStatusPath
 $head = ((& git -C $repoRoot rev-parse HEAD) | Select-Object -First 1).Trim()
 if ([string]::IsNullOrWhiteSpace($head)) {
     throw "Unable to resolve current HEAD."

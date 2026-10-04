@@ -54,6 +54,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $sensitivePatterns = @(
     'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
@@ -70,20 +71,14 @@ $sensitivePatterns = @(
     'Signature\s*='
 )
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Test-IsDefaultBuildArtifactPath([string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue)) {
         return $false
     }
     try {
-        $resolvedCandidate = [System.IO.Path]::GetFullPath((Resolve-RepoPath $PathValue))
-        $resolvedBuildDir = [System.IO.Path]::GetFullPath((Resolve-RepoPath $script:BuildDir))
+        $resolvedCandidate = [System.IO.Path]::GetFullPath((Resolve-RequiredRepoPath $PathValue))
+        $resolvedBuildDir = [System.IO.Path]::GetFullPath((Resolve-RequiredRepoPath $script:BuildDir))
         return $resolvedCandidate.StartsWith($resolvedBuildDir, [System.StringComparison]::OrdinalIgnoreCase)
     } catch {
         return $false
@@ -151,7 +146,7 @@ function Get-AutomationPolicyReadback([string]$PathValue) {
     }
     $result.configured = $true
     try {
-        $resolved = Resolve-RepoPath $PathValue
+        $resolved = Resolve-RequiredRepoPath $PathValue
         if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
             return [pscustomobject]$result
         }
@@ -211,7 +206,7 @@ function Get-GitHubWindowsBuildStatusArtifactReadback([string]$PathValue, [strin
     }
     $result.configured = $true
     try {
-        $resolved = Resolve-RepoPath $PathValue
+        $resolved = Resolve-RequiredRepoPath $PathValue
         if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
             return [pscustomobject]$result
         }
@@ -261,7 +256,7 @@ function Get-GitHubWindowsBuildReadback([string]$HeadSha) {
     $runListJson = ""
     if (-not [string]::IsNullOrWhiteSpace($script:GitHubRunListJsonPath)) {
         try {
-            $runListJson = Get-Content -LiteralPath (Resolve-RepoPath $script:GitHubRunListJsonPath) -Raw -Encoding UTF8
+            $runListJson = Get-Content -LiteralPath (Resolve-RequiredRepoPath $script:GitHubRunListJsonPath) -Raw -Encoding UTF8
             $result.source = "json-artifact"
         } catch {
             $result.status = "unavailable"
@@ -356,7 +351,7 @@ function Get-LocalBuildReadback([string]$BuildDirectory) {
         return [pscustomobject]$result
     }
     try {
-        $resolvedBuildDir = Resolve-RepoPath $BuildDirectory
+        $resolvedBuildDir = Resolve-RequiredRepoPath $BuildDirectory
     } catch {
         $result.status = "not-configured"
         return [pscustomobject]$result
@@ -388,7 +383,7 @@ function Get-LocalVerificationStatusReadback([string]$PathValue) {
     }
     $result.configured = $true
     try {
-        $resolved = Resolve-RepoPath $PathValue
+        $resolved = Resolve-RequiredRepoPath $PathValue
         if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
             return [pscustomobject]$result
         }
@@ -419,9 +414,9 @@ function Get-CTestReadback([string]$BuildDirectory, [string]$ExplicitLogPath) {
     }
     try {
         $logPath = if ([string]::IsNullOrWhiteSpace($ExplicitLogPath)) {
-            Join-Path (Resolve-RepoPath $BuildDirectory) "Testing\Temporary\LastTest.log"
+            Join-Path (Resolve-RequiredRepoPath $BuildDirectory) "Testing\Temporary\LastTest.log"
         } else {
-            Resolve-RepoPath $ExplicitLogPath
+            Resolve-RequiredRepoPath $ExplicitLogPath
         }
     } catch {
         $result.status = "not-configured"
@@ -690,7 +685,7 @@ function Get-ArtifactState(
     }
     $result.configured = $true
     try {
-        $resolvedPath = Resolve-RepoPath $PathValue
+        $resolvedPath = Resolve-RequiredRepoPath $PathValue
         $result.resolvedPath = $resolvedPath
     } catch {
         $result.state = "invalid-path"
@@ -2692,7 +2687,7 @@ if ([string]::IsNullOrWhiteSpace($LocalVerificationStatusPath)) {
 }
 if ([string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
     $defaultAutomationPolicyPath = "docs\automation-policy.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultAutomationPolicyPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultAutomationPolicyPath) -PathType Leaf) {
         $AutomationPolicyPath = $defaultAutomationPolicyPath
     }
 }
@@ -2710,59 +2705,59 @@ if ([string]::IsNullOrWhiteSpace($E2EReleaseEvidenceManifestPath)) {
 }
 if ([string]::IsNullOrWhiteSpace($LocalReleaseReviewManifestPath)) {
     $defaultLocalReleaseReviewManifestPath = Join-Path $BuildDir "local-release-review\local-release-review-manifest.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultLocalReleaseReviewManifestPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultLocalReleaseReviewManifestPath) -PathType Leaf) {
         $LocalReleaseReviewManifestPath = $defaultLocalReleaseReviewManifestPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($ReleaseArchiveDecisionManifestPath)) {
     $defaultReleaseArchiveDecisionManifestPath = Join-Path $BuildDir "release-archive-decision\release-archive-decision-manifest.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultReleaseArchiveDecisionManifestPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultReleaseArchiveDecisionManifestPath) -PathType Leaf) {
         $ReleaseArchiveDecisionManifestPath = $defaultReleaseArchiveDecisionManifestPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($ReleaseDeliveryHandoffManifestPath)) {
     $defaultReleaseDeliveryHandoffManifestPath = Join-Path $BuildDir "release-delivery-handoff\release-delivery-handoff-manifest.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultReleaseDeliveryHandoffManifestPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultReleaseDeliveryHandoffManifestPath) -PathType Leaf) {
         $ReleaseDeliveryHandoffManifestPath = $defaultReleaseDeliveryHandoffManifestPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($ReleaseCloseoutSummaryManifestPath)) {
     $defaultReleaseCloseoutSummaryManifestPath = Join-Path $BuildDir "release-closeout-summary\release-closeout-summary-manifest.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultReleaseCloseoutSummaryManifestPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultReleaseCloseoutSummaryManifestPath) -PathType Leaf) {
         $ReleaseCloseoutSummaryManifestPath = $defaultReleaseCloseoutSummaryManifestPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($ReleaseFinalLocalArchiveManifestPath)) {
     $defaultReleaseFinalLocalArchiveManifestPath = Join-Path $BuildDir "release-final-local-archive\release-final-local-archive-manifest.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultReleaseFinalLocalArchiveManifestPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultReleaseFinalLocalArchiveManifestPath) -PathType Leaf) {
         $ReleaseFinalLocalArchiveManifestPath = $defaultReleaseFinalLocalArchiveManifestPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($E2ELinkedReleaseCandidateManifestPath)) {
     $defaultLinkedReleaseCandidateManifestPath =
         Join-Path $BuildDir "e2e_release_evidence_linked_candidate\e2e-release-evidence-manifest.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultLinkedReleaseCandidateManifestPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultLinkedReleaseCandidateManifestPath) -PathType Leaf) {
         $E2ELinkedReleaseCandidateManifestPath = $defaultLinkedReleaseCandidateManifestPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityJsonPath)) {
     $packagedRolloutJsonPath =
         Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence\e2e-rollout-observability.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $packagedRolloutJsonPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $packagedRolloutJsonPath) -PathType Leaf) {
         $E2ERolloutObservabilityJsonPath = $packagedRolloutJsonPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityMarkdownPath)) {
     $packagedRolloutMarkdownPath =
         Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence\e2e-rollout-observability.md"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $packagedRolloutMarkdownPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $packagedRolloutMarkdownPath) -PathType Leaf) {
         $E2ERolloutObservabilityMarkdownPath = $packagedRolloutMarkdownPath
     }
 }
 if ([string]::IsNullOrWhiteSpace($AutomationAckDrillPath)) {
     $defaultAutomationAckDrillPath =
         Join-Path $BuildDir "automation-tasks\ack-drill\automation-ack-drill.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultAutomationAckDrillPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultAutomationAckDrillPath) -PathType Leaf) {
         $AutomationAckDrillPath = $defaultAutomationAckDrillPath
     }
 }
@@ -2771,7 +2766,7 @@ if ([string]::IsNullOrWhiteSpace($S3RealBackendReadinessPath) `
         -and -not $BootstrapDefaultTasks.IsPresent) {
     $defaultS3RealBackendReadinessPath =
         Join-Path $BuildDir "manual-s3-real-backend\s3-real-backend-readiness.json"
-    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultS3RealBackendReadinessPath) -PathType Leaf) {
+    if (Test-Path -LiteralPath (Resolve-RequiredRepoPath $defaultS3RealBackendReadinessPath) -PathType Leaf) {
         $S3RealBackendReadinessPath = $defaultS3RealBackendReadinessPath
     }
 }
@@ -3062,7 +3057,7 @@ if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
     } else {
         $LargeFileGovernanceLastRunPath = Resolve-PreviewValue $largeFileGovernancePreview "launcherPath"
         if (-not [string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
-            $LargeFileGovernanceLastRunPath = Join-Path (Split-Path -Parent (Resolve-RepoPath $LargeFileGovernanceLastRunPath)) "last-run.log"
+            $LargeFileGovernanceLastRunPath = Join-Path (Split-Path -Parent (Resolve-RequiredRepoPath $LargeFileGovernanceLastRunPath)) "last-run.log"
         }
     }
 }
@@ -4015,7 +4010,7 @@ if ($sensitiveHits.Count -gt 0) {
 }
 
 if (-not $PlanOnly) {
-    $target = Resolve-RepoPath $MarkdownPath
+    $target = Resolve-RequiredRepoPath $MarkdownPath
     $parent = Split-Path -Parent $target
     if (-not [string]::IsNullOrWhiteSpace($parent)) {
         New-Item -ItemType Directory -Force -Path $parent | Out-Null

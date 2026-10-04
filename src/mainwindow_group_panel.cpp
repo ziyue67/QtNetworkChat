@@ -203,7 +203,7 @@ QString chooseGroupSetting(QDialog& panel, const QString& title, const QString& 
         "QPushButton#groupSettingChoice { color:%4; background:%2; border:none; border-bottom:1px solid %3; text-align:left; }"
         "QPushButton#groupSettingChoice:last-child { border-bottom:none; }"
         "QPushButton#groupSettingChoice:hover { background:%8; }"
-        "QPushButton#groupSettingChoice:pressed { background:%3; }"
+        "QPushButton#groupSettingChoice:pressed { background:%6; }"
         "QPushButton#groupSettingChoice[selected=\"true\"] { background:%2; }"
         "QLabel#groupSettingChoiceLabel { color:%4; font-size:13px; }"
         "QPushButton#groupSettingChoice[selected=\"true\"] QLabel#groupSettingChoiceLabel { color:%7; font-weight:500; }"
