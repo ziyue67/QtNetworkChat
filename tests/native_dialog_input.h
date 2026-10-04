@@ -150,7 +150,12 @@ private:
                                                   reinterpret_cast<void**>(&rawValue)))) return false;
             ComOwner<IUIAutomationValuePattern> value(rawValue);
             const QString path = QDir::toNativeSeparators(choice.path);
-            if (FAILED(value->SetValue(reinterpret_cast<LPCWSTR>(path.utf16())))) return false;
+            BSTR nativePath = SysAllocStringLen(reinterpret_cast<LPCWSTR>(path.utf16()),
+                                               static_cast<UINT>(path.size()));
+            if (!nativePath) return false;
+            const HRESULT assigned = value->SetValue(nativePath);
+            SysFreeString(nativePath);
+            if (FAILED(assigned)) return false;
         }
         IUIAutomationInvokePattern* rawInvoke = nullptr;
         if (FAILED(button->GetCurrentPatternAs(UIA_InvokePatternId, __uuidof(IUIAutomationInvokePattern),
