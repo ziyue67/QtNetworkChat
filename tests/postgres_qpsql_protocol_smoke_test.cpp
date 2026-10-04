@@ -1,5 +1,6 @@
 #include "client.h"
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -18,9 +19,11 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QThread>
+#include <QTemporaryDir>
 
 #include <cstdio>
 #include <functional>
+#include <memory>
 
 namespace {
 QString gSmokeStep;
@@ -582,7 +585,7 @@ int main(int argc, char** argv) {
 
     if (!envEnabled("QTNETWORKCHAT_RUN_REAL_QPSQL_TEST")) {
         qInfo() << "Skipping real PostgreSQL QPSQL smoke; set QTNETWORKCHAT_RUN_REAL_QPSQL_TEST=1 to enable it.";
-        return 0;
+        return 77;
     }
 
     bool ok = true;
@@ -593,13 +596,23 @@ int main(int argc, char** argv) {
     if (!ok) return 1;
 
     qputenv("QTNETWORKCHAT_DB_DRIVER", "QPSQL");
-    qunsetenv("QTNETWORKCHAT_REDIS");
-
-    const QString appDataDir = testAppDataDir();
-    if (!appDataDir.isEmpty()) {
-        QDir(appDataDir).removeRecursively();
-        QDir().mkpath(appDataDir);
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    std::unique_ptr<TestRedisServerEnvironment> redis;
+    if (!envEnabled("QTNETWORKCHAT_RUN_REAL_REDIS_TEST")) {
+        redis = std::make_unique<TestRedisServerEnvironment>(QStringLiteral("qpsql-smoke"));
+        QString error;
+        if (!redis->start(&error)) {
+            qCritical() << "PostgreSQL smoke Redis fixture failed:" << error;
+            return 1;
+        }
+        redis->applyEnvironment();
     }
+
+    QTemporaryDir runtime;
+    if (!runtime.isValid()) return 1;
+    const QString appDataDir = runtime.path();
+    qputenv("QTNETWORKCHAT_APPDATA_DIR", appDataDir.toUtf8());
+    qputenv("QTNETWORKCHAT_TLS", "0");
 
     const QString suffix = QString::number(QDateTime::currentMSecsSinceEpoch() % 100000000LL).rightJustified(8, '0');
     const QString ownerId = "94" + suffix.left(6);
@@ -1557,8 +1570,6 @@ int main(int argc, char** argv) {
     setSmokeStep(QStringLiteral("cleanup current smoke rows"));
     ok = restorePublicGroupState(publicGroupState) && ok;
     ok = cleanupSmokeRows(ownerId, peerId) && ok;
-    if (!appDataDir.isEmpty()) {
-        QDir(appDataDir).removeRecursively();
-    }
+    // QTemporaryDir owns and removes only this invocation's filesystem data.
     return ok ? 0 : 1;
 }

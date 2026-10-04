@@ -24,9 +24,7 @@ QJsonObject productionProviderInvocationExecutionStructuralSnapshotForDescriptor
         QJsonObject execution;
         execution[QStringLiteral("sequenceIndex")] = sequenceIndex;
         execution[QStringLiteral("operation")] = cryptoOperationName(operation);
-        execution[QStringLiteral("backendId")] = descriptor.id;
-        execution[QStringLiteral("providerId")] = descriptor.providerId;
-        execution[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+        setProviderReportIdentity(execution, descriptor);
         execution[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
         execution[QStringLiteral("providerAbiSignature")] =
             productionOperationProviderAbiSignature(operation);
@@ -59,8 +57,7 @@ QJsonObject productionProviderInvocationExecutionStructuralSnapshotForDescriptor
         execution[QStringLiteral("materialExportProof")] = noSensitiveExport
             ? QStringLiteral("no-sensitive-material-export")
             : QStringLiteral("sensitive-material-exported");
-        execution[QStringLiteral("rawKeyExported")] = false;
-        execution[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(execution);
         execution[QStringLiteral("sessionSecretExported")] = false;
         execution[QStringLiteral("privateIdentityMaterialExported")] = false;
         execution[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -84,9 +81,7 @@ QJsonObject productionProviderInvocationExecutionStructuralSnapshotForDescriptor
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
     status[QStringLiteral("accepted")] = false;
@@ -112,8 +107,7 @@ QJsonObject productionProviderInvocationExecutionStructuralSnapshotForDescriptor
     status[QStringLiteral("inputBytesCaptured")] = false;
     status[QStringLiteral("outputBytesCaptured")] = false;
     status[QStringLiteral("resultCaptured")] = false;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -440,9 +434,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
         QJsonObject probe;
         probe[QStringLiteral("sequenceIndex")] = sequenceIndex;
         probe[QStringLiteral("operation")] = cryptoOperationName(operation);
-        probe[QStringLiteral("backendId")] = descriptor.id;
-        probe[QStringLiteral("providerId")] = descriptor.providerId;
-        probe[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+        setProviderReportIdentity(probe, descriptor);
         probe[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
         probe[QStringLiteral("providerAbiSignature")] =
             productionOperationProviderAbiSignature(operation);
@@ -551,8 +543,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
         probe[QStringLiteral("sanitized")] = sanitized;
         probe[QStringLiteral("materialExportProof")] =
             QStringLiteral("sizes-and-status-only-no-secret-bytes");
-        probe[QStringLiteral("rawKeyExported")] = false;
-        probe[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(probe);
         probe[QStringLiteral("sessionSecretExported")] = false;
         probe[QStringLiteral("privateIdentityMaterialExported")] = false;
         probe[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -648,9 +639,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-probe-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
     status[QStringLiteral("accepted")] = false;
@@ -715,8 +704,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
     status[QStringLiteral("probes")] = probes;
     status[QStringLiteral("inputBytesCaptured")] = false;
     status[QStringLiteral("outputBytesCaptured")] = false;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -864,9 +852,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
             op[QStringLiteral("sequenceIndex")] = sequenceIndex++;
             op[QStringLiteral("stepId")] = stepId;
             op[QStringLiteral("operation")] = cryptoOperationName(operation);
-            op[QStringLiteral("backendId")] = descriptor.id;
-            op[QStringLiteral("providerId")] = descriptor.providerId;
-            op[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+            setProviderReportIdentity(op, descriptor);
             op[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
             op[QStringLiteral("functionPointerPresent")] = result.pointerPresent;
             op[QStringLiteral("operationInvoked")] = result.invoked;
@@ -893,8 +879,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
             op[QStringLiteral("inputBytesCaptured")] = false;
             op[QStringLiteral("outputBytesCaptured")] = false;
             op[QStringLiteral("resultBytesCaptured")] = false;
-            op[QStringLiteral("rawKeyExported")] = false;
-            op[QStringLiteral("privateMaterialExported")] = false;
+            setNoKeyExportFields(op);
             op[QStringLiteral("sessionSecretExported")] = false;
             op[QStringLiteral("privateIdentityMaterialExported")] = false;
             op[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -951,8 +936,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
                     : result.blockedReason);
             check[QStringLiteral("inputBytesCaptured")] = false;
             check[QStringLiteral("outputBytesCaptured")] = false;
-            check[QStringLiteral("rawKeyExported")] = false;
-            check[QStringLiteral("privateMaterialExported")] = false;
+            setNoKeyExportFields(check);
             check[QStringLiteral("sessionSecretExported")] = false;
             check[QStringLiteral("plaintextExported")] = false;
             check[QStringLiteral("ciphertextExported")] = false;
@@ -1258,9 +1242,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-round-trip-execution-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
     status[QStringLiteral("providerTableRegistered")] = registered;
@@ -1303,8 +1285,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
     status[QStringLiteral("inputBytesCaptured")] = false;
     status[QStringLiteral("outputBytesCaptured")] = false;
     status[QStringLiteral("resultBytesCaptured")] = false;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -1474,10 +1455,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
             op[QStringLiteral("sequenceIndex")] = sequenceIndex++;
             op[QStringLiteral("stepId")] = stepId;
             op[QStringLiteral("operation")] = cryptoOperationName(operation);
-            op[QStringLiteral("backendId")] = descriptor.id;
-            op[QStringLiteral("providerId")] = descriptor.providerId;
-            op[QStringLiteral("operationContractVersion")] =
-                descriptor.operationContractVersion;
+            setProviderReportIdentity(op, descriptor);
             op[QStringLiteral("publicApi")] = publicApi;
             op[QStringLiteral("publicDataPlaneBoundary")] =
                 productionOperationPublicDataPlaneBoundary(operation);
@@ -1518,8 +1496,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
             op[QStringLiteral("inputBytesCaptured")] = false;
             op[QStringLiteral("outputBytesCaptured")] = false;
             op[QStringLiteral("resultBytesCaptured")] = false;
-            op[QStringLiteral("rawKeyExported")] = false;
-            op[QStringLiteral("privateMaterialExported")] = false;
+            setNoKeyExportFields(op);
             op[QStringLiteral("sessionSecretExported")] = false;
             op[QStringLiteral("privateIdentityMaterialExported")] = false;
             op[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -1589,8 +1566,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
             check[QStringLiteral("publicApiInvoked")] = false;
             check[QStringLiteral("inputBytesCaptured")] = false;
             check[QStringLiteral("outputBytesCaptured")] = false;
-            check[QStringLiteral("rawKeyExported")] = false;
-            check[QStringLiteral("privateMaterialExported")] = false;
+            setNoKeyExportFields(check);
             check[QStringLiteral("sessionSecretExported")] = false;
             check[QStringLiteral("plaintextExported")] = false;
             check[QStringLiteral("ciphertextExported")] = false;
@@ -1923,9 +1899,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-public-primitive-execution-probe-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
     status[QStringLiteral("providerTableRegistered")] = registered;
@@ -1979,8 +1953,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
     status[QStringLiteral("inputBytesCaptured")] = false;
     status[QStringLiteral("outputBytesCaptured")] = false;
     status[QStringLiteral("resultBytesCaptured")] = false;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;

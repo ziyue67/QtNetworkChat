@@ -69,6 +69,14 @@ result proves the production PostgreSQL or Redis deployment is healthy.
 The dated local verification record is in
 [refactoring-closeout.md](refactoring-closeout.md).
 
+The October 4 production upgrade separately verified strict public TLS/HTTP
+101, protocol registration/login, private delivery and offline replay, actual
+PostgreSQL account/message persistence, Redis presence and observed Pub/Sub
+publication. The backup was restored into a disposable database. See the
+[deployment evidence](production-deployment-2026-10-04.md). This was a live
+smoke check with a standard WebSocket client, not the complete QPSQL suite,
+cross-instance Redis regression or manual Qt desktop acceptance.
+
 ## Remaining Gaps
 
 The certificate-pin unit test checks correct and incorrect certificate

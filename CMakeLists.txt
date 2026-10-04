@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(QtNetworkChat VERSION 1.1.4 LANGUAGES CXX)
+project(QtNetworkChat VERSION 1.1.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -212,6 +212,8 @@ add_library(qtnetworkchat_desktop STATIC
     src/mainwindow_notifications.cpp
     src/mainwindow_group_members.cpp
     src/mainwindow_friends.cpp
+    src/mainwindow_contacts.cpp
+    src/mainwindow_composer.cpp
     src/mainwindow_views.cpp
     src/mainwindow_group_panel.cpp
     src/group_info_panel_ui.cpp
@@ -632,6 +634,29 @@ if(BUILD_TESTING)
         tests/test_redis_support.h
     )
     target_link_libraries(mainwindow_workflow_test PRIVATE qtnetworkchat_desktop Qt${QT_VERSION_MAJOR}::Test)
+    add_executable(mainwindow_extended_gui_test
+        tests/mainwindow_extended_gui_test.cpp tests/test_redis_support.cpp)
+    target_include_directories(mainwindow_extended_gui_test PRIVATE tests)
+    target_link_libraries(mainwindow_extended_gui_test PRIVATE qtnetworkchat_desktop Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME MainWindowExtendedGui COMMAND ${CMAKE_COMMAND}
+        -DTEST_EXE=$<TARGET_FILE:mainwindow_extended_gui_test>
+        -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+        -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+        "-DTEST_ARGS=-o;-,txt"
+        -DTEST_TIMEOUT=150 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake)
+    set_tests_properties(MainWindowExtendedGui PROPERTIES TIMEOUT 165)
+    if(WIN32)
+        target_link_libraries(mainwindow_extended_gui_test PRIVATE ole32 oleaut32 uuid)
+        add_test(NAME NativeDesktopDialogs COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:mainwindow_extended_gui_test>
+            "-DTEST_ARGS=nativePickers;-o;-,txt"
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -DTEST_QT_LOG_FILE=ON
+            -DTEST_TIMEOUT=90 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake)
+        set_tests_properties(NativeDesktopDialogs PROPERTIES TIMEOUT 105
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QTNETWORKCHAT_NATIVE_DIALOG_TEST=1")
+    endif()
 
     add_executable(login_window_gui_test
         tests/login_window_gui_test.cpp
@@ -689,6 +714,23 @@ if(BUILD_TESTING)
         Qt${QT_VERSION_MAJOR}::Network
         Qt${QT_VERSION_MAJOR}::WebSockets)
     qtnetworkchat_attach_production_adapter(websocket_transport_test)
+
+    find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+    add_executable(tls_login_order_test
+        tests/tls_login_order_test.cpp
+        src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+        src/message.cpp
+        src/objectstore.cpp
+        include/client.h
+        include/message.h
+        include/objectstore.h
+    )
+    qtnetworkchat_target_include_dirs(tls_login_order_test)
+    target_link_libraries(tls_login_order_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network
+        Qt${QT_VERSION_MAJOR}::WebSockets OpenSSL::Crypto)
+    qtnetworkchat_attach_production_adapter(tls_login_order_test)
 
     add_executable(file_transfer_status_test
         tests/file_transfer_status_test.cpp
@@ -1047,6 +1089,20 @@ if(BUILD_TESTING)
     target_link_libraries(redis_cross_instance_chat_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Gui)
     qtnetworkchat_attach_production_adapter(redis_cross_instance_chat_test)
 
+    add_executable(redis_cross_instance_real_test
+        tests/redis_cross_instance_real_test.cpp
+        src/qqnt_redis_service.cpp include/qqnt_redis_service.h
+        ${QTNETWORKCHAT_SERVER_SOURCES}
+        src/client.cpp ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+        src/redisclient.cpp src/message.cpp src/objectstore.cpp src/heartbeatmonitor.cpp
+        include/server.h include/client.h include/redisclient.h include/message.h
+        include/objectstore.h include/chatuser.h include/heartbeatmonitor.h)
+    qtnetworkchat_target_include_dirs(redis_cross_instance_real_test)
+    target_link_libraries(redis_cross_instance_real_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network
+        Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Gui)
+    qtnetworkchat_attach_production_adapter(redis_cross_instance_real_test)
+
     add_executable(heartbeat_monitor_test
         tests/heartbeat_monitor_test.cpp
         src/heartbeatmonitor.cpp
@@ -1083,6 +1139,13 @@ if(BUILD_TESTING)
         NAME E2ECryptoBackendConfig
         COMMAND ${CMAKE_COMMAND}
             -DCONFIG_HEADER=${CMAKE_CURRENT_BINARY_DIR}/generated/qtnetworkchat_e2e_crypto_config.h
+            -DEXPECT_BACKEND_REQUESTED=${QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED}
+            -DEXPECT_BACKEND_AVAILABLE=${QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE}
+            -DEXPECT_ADAPTER_REQUESTED=${QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED}
+            -DEXPECT_ADAPTER_LINKED=${QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED}
+            -DEXPECT_REQUESTED_BACKEND=${QTNETWORKCHAT_E2E_REQUESTED_PRODUCTION_BACKEND}
+            -DEXPECT_BACKEND_REASON=${QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON}
+            -DEXPECT_ADAPTER_REASON=${QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_crypto_backend_config.cmake
     )
     add_test(
@@ -1136,6 +1199,8 @@ if(BUILD_TESTING)
             -DEXPORTER_EXE=$<TARGET_FILE:e2e_rollout_observability_exporter>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -DEXPECT_REVIEWED_PROVIDER=${QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND}
+            -DEXPECT_ADAPTER_LINKED=${QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_rollout_observability_evidence.cmake
     )
     if(WIN32)
@@ -1259,6 +1324,7 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
             -DTEST_TIMEOUT=75
+            -DTEST_QT_LOG_FILE=ON
             "-DTEST_ARGS=-o;-,txt"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
@@ -1291,6 +1357,15 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
+    add_test(
+        NAME TlsLoginFrameOrdering
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:tls_login_order_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -DTEST_TIMEOUT=45
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    set_tests_properties(TlsLoginFrameOrdering PROPERTIES TIMEOUT 60)
     add_test(
         NAME FileTransferUserStatus
         COMMAND ${CMAKE_COMMAND}
@@ -1455,11 +1530,9 @@ if(BUILD_TESTING)
     )
     add_test(
         NAME PostgresQpsqlProtocolSmoke
-        COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:postgres_qpsql_protocol_smoke_test>
-            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+        COMMAND postgres_qpsql_protocol_smoke_test
     )
+    set_tests_properties(PostgresQpsqlProtocolSmoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
     add_test(
         NAME RedisPresenceCommandFlow
         COMMAND ${CMAKE_COMMAND}
@@ -1481,6 +1554,9 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
+    add_test(NAME RealRedisCrossInstanceRouting
+        COMMAND redis_cross_instance_real_test)
+    set_tests_properties(RealRedisCrossInstanceRouting PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 90)
     add_test(
         NAME HeartbeatMonitorTest
         COMMAND ${CMAKE_COMMAND}

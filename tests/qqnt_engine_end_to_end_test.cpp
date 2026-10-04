@@ -193,7 +193,7 @@ public:
             if (payload.value(QStringLiteral("type")).toString() == QLatin1String("request_sent")
                 && payload.value(QStringLiteral("receiverId")).toString() == expectedReceiverId
                 && payload.value(QStringLiteral("delivered")).isBool()) {
-                return true;
+                return payload.value(QStringLiteral("delivered")).toBool();
             }
         }
         return false;
@@ -471,6 +471,17 @@ public:
     QString label() const { return m_label; }
     QString stderrText() const { return QString::fromLocal8Bit(m_stderr); }
     QStringList invalidStdout() const { return m_invalidStdout; }
+    QString protocolSummary() const {
+        QStringList lines;
+        for (const auto& ack : m_acks) lines << QString::fromUtf8(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+        for (const auto& event : m_events) {
+            const QString name = event.value("event").toString();
+            if (name == "friend_event" || name == "error" || name == "login_result")
+                lines << QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        }
+        lines << QStringLiteral("pending stdout: %1").arg(QString::fromUtf8(m_stdoutPending));
+        return lines.join('\n');
+    }
 
 private:
     QString m_label;
@@ -526,6 +537,8 @@ QJsonObject connectPayload(quint16 port) {
 }
 
 int main(int argc, char* argv[]) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    qputenv("QTNETWORKCHAT_TLS", "0");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QtNetworkChatTests"));
     QCoreApplication::setApplicationName(QStringLiteral("qqnt_engine_end_to_end_test"));
@@ -566,6 +579,8 @@ int main(int argc, char* argv[]) {
         ok = expect(bob.invalidStdout().isEmpty(), "bob QQNTEngine stdout should contain only JSON objects") && ok;
 
         if (!ok) {
+            std::fprintf(stderr, "alice protocol:\n%s\nbob protocol:\n%s\n",
+                qPrintable(alice.protocolSummary()), qPrintable(bob.protocolSummary()));
             const QString aliceStderr = alice.stderrText();
             const QString bobStderr = bob.stderrText();
             if (!aliceStderr.isEmpty()) {
@@ -654,9 +669,12 @@ int main(int argc, char* argv[]) {
                 "alice friend request command should be written") && ok;
     ok = expect(waitFor([&] {
         return alice.hasOkAck(QStringLiteral("alice-send-friend-request"))
-            && alice.hasFriendRequestSentTo(bob.userId())
-            && bob.hasFriendRequestFrom(alice.userId());
-    }, {&alice, &bob}), "QQNTEngine should emit request_sent and request_received friend events") && ok;
+            && alice.hasFriendRequestSentTo(bob.userId());
+    }, {&alice, &bob}), "Alice should ack the command and report friend request delivered=true") && ok;
+    if (!ok) return finish();
+    ok = expect(waitFor([&] {
+        return bob.hasFriendRequestFrom(alice.userId());
+    }, {&alice, &bob}), "Bob should emit request_received for the delivered friend request") && ok;
     if (!ok) return finish();
 
     QJsonObject friendResponsePayload;

@@ -308,6 +308,8 @@ private slots:
             auto* picker = qobject_cast<QFileDialog*>(&dialog);
             if (!picker) return false;
             picker->setDirectory(QFileInfo(filePath).absolutePath());
+            picker->selectNameFilter(picker->nameFilters().last());
+            QTest::qWait(100);
             auto* nameInput = picker->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
             auto* buttons = picker->findChild<QDialogButtonBox*>();
             auto* open = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
@@ -315,7 +317,14 @@ private slots:
             nameInput->setFocus();
             nameInput->selectAll();
             QTest::keyClicks(nameInput, QFileInfo(filePath).fileName());
-            if (!open->isEnabled()) return false;
+            QElapsedTimer ready;
+            ready.start();
+            while (!open->isEnabled() && ready.elapsed() < 3000) QTest::qWait(20);
+            if (!open->isEnabled()) {
+                qWarning() << "GUI workflow: file Open button stayed disabled"
+                           << picker->selectedNameFilter() << nameInput->text();
+                return false;
+            }
             QTest::mouseClick(open, Qt::LeftButton);
             return picker->result() == QDialog::Accepted;
         });
@@ -357,6 +366,8 @@ private slots:
 };
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    qputenv("QTNETWORKCHAT_TLS", "0");
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("QtNetworkChatTests"));

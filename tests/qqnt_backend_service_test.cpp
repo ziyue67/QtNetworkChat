@@ -36,6 +36,7 @@ int main(int argc, char* argv[]) {
     bool ok = expect(temp.isValid(), QStringLiteral("temp directory should be valid"));
     qputenv("TMP", temp.path().toUtf8());
     qputenv("TEMP", temp.path().toUtf8());
+    qputenv("TMPDIR", temp.path().toUtf8());
 
     QJsonObject message{{"id", "m1"}, {"messageId", "m1"}, {"sessionId", "s1"}, {"content", "hello"}};
     QJsonObject response;

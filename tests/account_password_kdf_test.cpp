@@ -182,7 +182,28 @@ int main(int argc, char** argv) {
                 "new account should store versioned PBKDF2-SHA256 hash") && ok;
     ok = expect(!newHash.contains("secret"),
                 "stored KDF hash should not contain the raw password") && ok;
+
+    // A newer authenticated socket owns this account's route. An older socket
+    // may finish disconnecting later; that must not take the new session offline.
+    Client replacement;
+    Client observer;
+    ok = expect(loginClient(replacement, "910001", "KdfRegistered", "secret", port, false),
+                "the same account should authenticate on a replacement connection") && ok;
+    ok = expect(loginClient(observer, "910003", "RouteObserver", "observer-secret", port, true),
+                "observer should register before checking replacement delivery") && ok;
+    bool replacementReceived = false;
+    bool requestDelivered = false;
+    QObject::connect(&replacement, &Client::friendRequestReceived, &app,
+        [&](const QString& senderId, const QString&) { replacementReceived |= senderId == "910003"; });
+    QObject::connect(&observer, &Client::friendRequestSent, &app,
+        [&](const QString& receiverId, bool delivered) { if (receiverId == "910001") requestDelivered = delivered; });
     disconnectClient(registered);
+    ok = expect(observer.sendFriendRequest("910001"),
+                "observer should send a request after the superseded connection closes") && ok;
+    ok = expect(waitFor([&] { return requestDelivered && replacementReceived; }),
+                "disconnecting an older login must preserve delivery to the authenticated replacement") && ok;
+    disconnectClient(replacement);
+    disconnectClient(observer);
 
     Client wrongPassword;
     ok = expect(!loginClient(wrongPassword, "910002", "LegacyUser", "wrong-secret", port, false),

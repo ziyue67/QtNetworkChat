@@ -107,10 +107,7 @@ QJsonObject productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
         QJsonObject bridge;
         bridge[QStringLiteral("sequenceIndex")] = sequenceIndex;
         bridge[QStringLiteral("operation")] = operationName;
-        bridge[QStringLiteral("backendId")] = descriptor.id;
-        bridge[QStringLiteral("providerId")] = descriptor.providerId;
-        bridge[QStringLiteral("operationContractVersion")] =
-            descriptor.operationContractVersion;
+        setProviderReportIdentity(bridge, descriptor);
         bridge[QStringLiteral("dataPlaneBridgeId")] =
             QStringLiteral("production-data-plane-bridge/%1/%2")
                 .arg(spec.vectorSet, operationName);
@@ -171,8 +168,7 @@ QJsonObject productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
         bridge[QStringLiteral("inputBytesCaptured")] = false;
         bridge[QStringLiteral("outputBytesCaptured")] = false;
         bridge[QStringLiteral("resultCaptured")] = false;
-        bridge[QStringLiteral("rawKeyExported")] = false;
-        bridge[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(bridge);
         bridge[QStringLiteral("sessionSecretExported")] = false;
         bridge[QStringLiteral("privateIdentityMaterialExported")] = false;
         bridge[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -207,9 +203,7 @@ QJsonObject productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-data-plane-bridge-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
     status[QStringLiteral("accepted")] = false;
@@ -248,8 +242,7 @@ QJsonObject productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
     status[QStringLiteral("inputBytesCaptured")] = false;
     status[QStringLiteral("outputBytesCaptured")] = false;
     status[QStringLiteral("resultCaptured")] = false;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -329,10 +322,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionStatusFromBridge(
         QJsonObject execution;
         execution[QStringLiteral("sequenceIndex")] = sequenceIndex;
         execution[QStringLiteral("operation")] = operationName;
-        execution[QStringLiteral("backendId")] = descriptor.id;
-        execution[QStringLiteral("providerId")] = descriptor.providerId;
-        execution[QStringLiteral("operationContractVersion")] =
-            descriptor.operationContractVersion;
+        setProviderReportIdentity(execution, descriptor);
         execution[QStringLiteral("publicPrimitiveExecutionId")] =
             QStringLiteral("production-public-primitive-execution/%1/%2")
                 .arg(spec.vectorSet, operationName);
@@ -368,8 +358,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionStatusFromBridge(
         execution[QStringLiteral("inputBytesCaptured")] = false;
         execution[QStringLiteral("outputBytesCaptured")] = false;
         execution[QStringLiteral("resultBytesCaptured")] = false;
-        execution[QStringLiteral("rawKeyExported")] = false;
-        execution[QStringLiteral("privateMaterialExported")] = false;
+        setNoKeyExportFields(execution);
         execution[QStringLiteral("sessionSecretExported")] = false;
         execution[QStringLiteral("privateIdentityMaterialExported")] = false;
         execution[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -406,9 +395,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionStatusFromBridge(
     QJsonObject status;
     status[QStringLiteral("schema")] =
         QStringLiteral("qtnetworkchat-e2e-production-provider-public-primitive-execution-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("linked")] = descriptor.linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
     status[QStringLiteral("accepted")] = false;
@@ -462,8 +449,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionStatusFromBridge(
     status[QStringLiteral("inputBytesCaptured")] = false;
     status[QStringLiteral("outputBytesCaptured")] = false;
     status[QStringLiteral("resultBytesCaptured")] = false;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
@@ -1331,9 +1317,7 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
 
     QJsonObject status;
     status[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1");
-    status[QStringLiteral("backendId")] = descriptor.id;
-    status[QStringLiteral("providerId")] = descriptor.providerId;
-    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    setProviderReportIdentity(status, descriptor);
     status[QStringLiteral("dispatchState")] = descriptor.dispatchState;
     status[QStringLiteral("linked")] = linked;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
@@ -1680,8 +1664,7 @@ QJsonObject productionRolloutObservabilityStatusForAcceptance(const QJsonObject&
     status[QStringLiteral("publicPrimitiveBlockedCount")] = publicPrimitiveBlockedCount;
     status[QStringLiteral("noSensitiveExportProof")] = noSensitiveExportProof;
     status[QStringLiteral("sensitiveFieldsSuppressed")] = noMaterialExport;
-    status[QStringLiteral("rawKeyExported")] = false;
-    status[QStringLiteral("privateMaterialExported")] = false;
+    setNoKeyExportFields(status);
     status[QStringLiteral("sessionSecretExported")] = false;
     status[QStringLiteral("privateIdentityMaterialExported")] = false;
     status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;

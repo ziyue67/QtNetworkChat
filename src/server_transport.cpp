@@ -170,17 +170,28 @@ void Server::onClientDisconnected() {
         recordUserSessionToSqlite(disconnectedUser, "logout");
         const QString userId = disconnectedUser.id;
         const QString userName = disconnectedUser.name;
-        clearRedisPresence(userId);
-        m_heartbeatMonitor->unregisterClient(userId);
+        const bool ownsCurrentRoute = m_userSockets.value(userId) == socket;
+        if (ownsCurrentRoute) {
+            clearRedisPresence(userId);
+            m_heartbeatMonitor->unregisterClient(userId);
+            m_userSockets.remove(userId);
+        }
         for (const QString& key : m_pendingFileTransfers.keys()) {
             auto it = m_pendingFileTransfers.find(key);
             if (it != m_pendingFileTransfers.end() && it->socket == socket) {
                 it->socket = nullptr;
             }
         }
-        m_userSockets.remove(userId);
         m_clients.remove(socket);
         m_usedNames.remove(userName);
+
+        // A newer login already replaced this account's route. Closing the old
+        // socket must not remove its presence or announce the account offline.
+        if (!ownsCurrentRoute) {
+            refreshConnectedClientViews();
+            socket->deleteLater();
+            return;
+        }
 
         emit userLeft(userId, userName);
         emit clientDisconnected(userId);
