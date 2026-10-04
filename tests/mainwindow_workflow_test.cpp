@@ -15,6 +15,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
@@ -72,6 +73,16 @@ void inDialog(QWidget& context, const QString& name, bool& ok,
             if (!action(*dialog)) {
                 ok = false;
                 dialog->reject();
+            } else {
+                // Queuing accept() only proves that the slot exists. A picker
+                // can reject the selected path and stay open on older Qt.
+                QTimer::singleShot(5000, dialog, [dialog, name, &ok] {
+                    if (dialog->isVisible()) {
+                        ok = false;
+                        qWarning() << "Dialog action did not close the dialog:" << name;
+                        dialog->reject();
+                    }
+                });
             }
             timer->deleteLater();
         } else if (elapsed->elapsed() > 5000) {
@@ -133,6 +144,7 @@ private slots:
         portProbe.close();
         Server server;
         QVERIFY(server.start(port));
+        qInfo() << "GUI workflow: fixture ready";
 
         // Create disposable accounts through the normal wire protocol; this does
         // not seed the database behind the server or contact the public service.
@@ -149,6 +161,7 @@ private slots:
         QVERIFY(member.connectToServer(QStringLiteral("127.0.0.1"), port));
         QVERIFY(member.waitForLoginResult());
         QTRY_COMPARE_WITH_TIMEOUT(publicGroup(owner).value("memberCount").toInt(), 2, 5000);
+        qInfo() << "GUI workflow: accounts logged in";
 
         MainWindow ownerWindow(&owner, owner.currentUserId(), owner.currentUserName());
         MainWindow memberWindow(&member, member.currentUserId(), member.currentUserName());
@@ -245,6 +258,7 @@ private slots:
             QCOMPARE(query.value(1).toString(), QStringLiteral("per_minute_5"));
         }
         QSqlDatabase::removeDatabase(connection);
+        qInfo() << "GUI workflow: group settings persisted and permissions checked";
 
         auto* composer = ownerWindow.findChild<ComposerWidget*>();
         QVERIFY(composer);
@@ -272,6 +286,7 @@ private slots:
             if (button->toolTip() == QStringLiteral("发送文件")) fileButton = button;
         }
         QVERIFY(fileButton && fileButton->isEnabled());
+        qInfo() << "GUI workflow: text received; testing file dialogs";
         const int messageCountBeforeCancel = messages.count();
         inDialog(ownerWindow, {}, dialogsOk, [&](QDialog& dialog) {
             if (!qobject_cast<QFileDialog*>(&dialog)) return false;
@@ -284,12 +299,14 @@ private slots:
         inDialog(ownerWindow, {}, dialogsOk, [&](QDialog& dialog) {
             auto* picker = qobject_cast<QFileDialog*>(&dialog);
             if (!picker) return false;
-            picker->selectFile(filePath);
+            picker->setDirectory(QFileInfo(filePath).absolutePath());
+            picker->selectFile(QFileInfo(filePath).fileName());
             return QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
         });
         QTest::mouseClick(fileButton, Qt::LeftButton);
         QVERIFY(dialogsOk);
         QVERIFY2(unexpectedDialog.isEmpty(), qPrintable(unexpectedDialog));
+        qInfo() << "GUI workflow: selected file sent";
         const QDir receivedDirectory(temporary.filePath("downloads/Files"));
         const QStringList receivedFilter{QStringLiteral("*_gui-multi-chunk.bin")};
         QTRY_COMPARE_WITH_TIMEOUT(receivedDirectory.entryList(receivedFilter, QDir::Files).size(), 1, 5000);
@@ -297,6 +314,7 @@ private slots:
         QFile received(receivedPath);
         QVERIFY(received.open(QIODevice::ReadOnly));
         QCOMPARE(received.readAll(), payload);
+        qInfo() << "GUI workflow: received file bytes verified";
         QVERIFY(hasChatText(memberWindow, QStringLiteral("gui-multi-chunk.bin")));
         QVERIFY(GuiTestSupport::captureScreenshot(memberWindow,
             QDir(QCoreApplication::applicationDirPath()).filePath("mainwindow_workflow_received.png")));
@@ -318,6 +336,7 @@ private slots:
         QTest::mouseClick(composer->sendButton(), Qt::LeftButton);
         QTRY_VERIFY_WITH_TIMEOUT(hasChatText(memberWindow, QStringLiteral("重连后发送的草稿")), 5000);
         QVERIFY2(unexpectedDialog.isEmpty(), qPrintable(unexpectedDialog));
+        qInfo() << "GUI workflow: reconnect and draft delivery passed";
     }
 };
 

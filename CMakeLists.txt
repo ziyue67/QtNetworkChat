@@ -1258,6 +1258,7 @@ if(BUILD_TESTING)
             -DTEST_EXE=$<TARGET_FILE:mainwindow_workflow_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -DTEST_TIMEOUT=75
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     set_tests_properties(MainWindowNetworkWorkflow PROPERTIES TIMEOUT 90)
