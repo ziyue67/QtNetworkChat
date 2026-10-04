@@ -51,7 +51,7 @@ private:
 // Real output assertions live in nativePickers(), outside the input driver.
 class NativeDialogInput : public NativeDialogInputWorker {
 public:
-    struct Choice { QString path; bool directory = false; };
+    struct Choice { QString path; bool directory = false; bool save = false; };
     QList<Choice> choices;
     std::atomic<int> observed{0};
     HWND lastDialog = nullptr;
@@ -139,7 +139,8 @@ private:
             } else if (type == UIA_ButtonControlTypeId
                        && (choice.path.isEmpty() ? name == QLatin1String("Cancel")
                            : choice.directory ? name == QLatin1String("Select Folder")
-                           : name == QLatin1String("Open") || name == QLatin1String("Save"))) {
+                           : choice.save ? name == QLatin1String("Save")
+                           : name == QLatin1String("Open"))) {
                 button = std::move(element);
             }
         }
@@ -150,12 +151,25 @@ private:
                                                   reinterpret_cast<void**>(&rawValue)))) return false;
             ComOwner<IUIAutomationValuePattern> value(rawValue);
             const QString path = QDir::toNativeSeparators(choice.path);
+            // The Save picker commits its filename when focus leaves the edit.
+            // SetValue alone updates the accessibility value but need not
+            // commit the shell dialog's pending filename before Invoke.
+            if (choice.save) input->SetFocus();
             BSTR nativePath = SysAllocStringLen(reinterpret_cast<LPCWSTR>(path.utf16()),
                                                static_cast<UINT>(path.size()));
             if (!nativePath) return false;
             const HRESULT assigned = value->SetValue(nativePath);
             SysFreeString(nativePath);
             if (FAILED(assigned)) return false;
+            if (choice.save) button->SetFocus();
+            BSTR actualPath = nullptr;
+            if (FAILED(value->get_CurrentValue(&actualPath))) return false;
+            const QString assignedPath = QString::fromWCharArray(actualPath ? actualPath : L"");
+            SysFreeString(actualPath);
+            if (assignedPath != path) {
+                if (diagnose) qWarning() << "NATIVE_UIA path did not persist" << assignedPath << path;
+                return false;
+            }
         }
         IUIAutomationInvokePattern* rawInvoke = nullptr;
         if (FAILED(button->GetCurrentPatternAs(UIA_InvokePatternId, __uuidof(IUIAutomationInvokePattern),

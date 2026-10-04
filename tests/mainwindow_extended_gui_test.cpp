@@ -263,6 +263,9 @@ private slots:
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         NativeDialogInput input(this);
         input.choices = {{}, {filePath}, {avatarPath}, {downloadPath, true}, {exportPath}};
+#ifdef Q_OS_WIN
+        input.choices.last().save = true;
+#endif
         input.start();
 #endif
         QSignalSpy received(&fixture.member, &Client::newMessage);
@@ -301,7 +304,18 @@ private slots:
         composer->setText("原生导出验收消息"); QTest::mouseClick(composer->sendButton(), Qt::LeftButton);
         qInfo() << "NATIVE_STEP 5: export native-history.txt";
         QVERIFY(QMetaObject::invokeMethod(&window, "onExportHistory"));
-        QFile history(exportPath); QVERIFY(history.open(QIODevice::ReadOnly));
+        QFile history(exportPath);
+        if (!history.exists()) {
+            qWarning() << "NATIVE_EXPORT expected" << exportPath
+                       << "status" << window.statusBar()->currentMessage()
+                       << "files" << QDir(fixture.root.path()).entryList(QDir::Files);
+            if (auto* view = window.findChild<MessagesView*>()) {
+                auto* model = view->chatListView()->model();
+                for (int row = qMax(0, model->rowCount() - 3); row < model->rowCount(); ++row)
+                    qWarning() << "NATIVE_EXPORT recent row" << model->index(row, 0).data();
+            }
+        }
+        QVERIFY2(history.open(QIODevice::ReadOnly), qPrintable(history.errorString()));
         QVERIFY(QString::fromUtf8(history.readAll()).contains("原生导出验收消息"));
 #ifdef Q_OS_WIN
         QCOMPARE(input.observed.load(), 5);
