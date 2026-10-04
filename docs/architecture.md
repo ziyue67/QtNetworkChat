@@ -24,6 +24,11 @@ does not translate WebSocket frames into the server protocol.
   `mainwindow_chat_actions.cpp` owns forwarding, media, screenshots and message
   actions. Presentation helpers have one implementation in
   `mainwindow_support.cpp`.
+  `mainwindow_composer.cpp` owns command expansion, send decisions and outgoing
+  message presentation;
+  `mainwindow_contacts.cpp` owns contact lists and friend selection. These
+  further extractions reduce the main file to about 2,539 lines without
+  introducing another owner of window state.
   The group-info view is built by `src/group_info_panel_ui.cpp`; the window
   wires permissions, manager settings, personal settings, and leave/dissolve
   actions separately in `src/mainwindow_group_panel.cpp`.
@@ -48,6 +53,9 @@ does not translate WebSocket frames into the server protocol.
   notices, and route logging without copying the implementations.
   These units keep the same `Server` state and private methods; ownership is
   separated by compilation unit, not by introducing another server object.
+  A disconnect removes account presence, heartbeat and socket routing only
+  when that socket still owns the current route. An older login still cleans
+  up its own session/transfer references without deleting a newer login's route.
 - `QQNTRedisService` is a startup requirement: without Redis, cross-instance
   presence and delivery cannot be guaranteed, so startup fails closed.
 - PostgreSQL holds production account/chat state; Redis handles presence,
@@ -73,6 +81,9 @@ review handoff and acceptance/rollout reports have distinct compilation units.
 Their internal declarations are in `e2e_backend_status_p.h`; public API and
 report schemas stay compatible. The reporting graph remains substantial; this
 extraction separates its responsibilities without deleting evidence fields.
+Shared report helpers in `e2e_backend_status_p.h` now write exact common
+provider identities and no-secret-export fields; computed report fields remain
+explicit. Repeated production compile guards use `productionOperationCompiled`.
 
 The internal `E2EProductionSuite` names the production provider's wire suite.
 It is not the default suite for draft encryption. `e2eDefaultSuite()` and

@@ -26,7 +26,8 @@
 
 本轮负载下曾复现一次发送端阶段失败，而 Bob 日志已有 friend_request，说明
 “Bob 未收到”和“事件泵错过窗口”不是已经确定的根因。加诊断后的生产构建连续
-20 次和 40 次通过；默认构建此前 12 次通过。复跑结果不等于已经证明所有环境
+20 次和 40 次通过；增加两个限时 OpenSSL CPU 负载进程后 15 次通过；默认构建
+此前 12 次通过。复跑结果不等于已经证明所有环境
 下不再偶发，也不能把延长超时当成根因修复。
 
 ## GUI 和原生选择器
@@ -45,7 +46,20 @@ GroupMemberSidebar 所有菜单/禁言时长/管理子菜单的参数分发。�
 核对接收字节、上传头像、修改目录和导出历史。OS 输入只操作本测试进程的
 原生窗口，轮询线程在派生对象字段销毁前停止并 join。Linux 用 GTK/X11/Xvfb；
 Windows 使用 Win32 文件对话框。原生 modal loop 可能暂停 Qt 定时器，因此
-OS 输入轮询使用独立线程。Linux 五项已通过，Windows 结果等对应 Actions。
+OS 输入轮询使用独立线程。Windows 驱动通过 UI Automation 的 Value/Invoke
+pattern 操作当前测试进程的文件名/目录输入和确认/取消按钮，避免依赖前台
+焦点与全局 SendInput。Linux 五项已通过；Windows 最新 main CI 的五项完整
+原生流程通过（NativeDesktopDialogs 6.61 秒）；同源码标签 CI 也通过，
+原生 9.04 秒、常规 19 项 116.01 秒，exe 已经完成安装启动并公开发布。
+Windows 原生 QtTest 日志写入文件并由 CMake 转发，超时也保留已经执行的步骤。
+
+Windows 续修日志曾明确显示：ValuePattern 设置/读回指定临时路径成功，但 Qt
+从系统选择器获得的结果仍是 Documents 默认文件名，历史确实被写到错误路径。
+驱动现在通知实际 Edit 的 owner `WM_COMMAND/EN_CHANGE` 后调用 Save；没有
+把测试改为接受默认路径。新增独立 `NativeDialogDriverSmoke`，先验证原生 Save
+实际返回请求路径，并通过该结果写文件、从请求路径读回。此检查在完整编译前
+执行；v1.1.5 标签的前置检查 1.90 秒通过，五项完整原生操作 9.04 秒通过，
+具体证据为 [Windows CI 37212688308](https://github.com/ziyue67/QtNetworkChat/actions/runs/37212688308)。
 
 `.bin` 不在普通文件选择器默认的“常用文件”过滤器中，测试需要先选择“所有
 文件”；否则 Open 被禁用。文件模型异步加载也需等待按钮可用，不能排队
@@ -68,6 +82,25 @@ Pub/Sub、群/私聊、普通/对象大文件、回执清理、断线 presence �
 目录，出现收藏数据污染。QPSQL fixture 使用 QTemporaryDir 管理本次文件，
 不递归删除调用方提供的目录。
 
+首次远端续修构建暴露了 fixture 配置遗漏：Ubuntu 安装 QPSQL 插件不会同时
+安装 SQLite 插件；本地原始 TCP 服务又继承了安装版编译默认 WSS。现在 CI
+明确安装 `libqt6sql6-sqlite`，测试包装明确选择 TCP，四个相关 fixture 在
+创建 Client/子进程前设置 TCP/TLS0。TLS/WSS 专项仍逐场景显式选择自己的
+传输，产品安装版默认 `wss://qt.ziyuexc.top/ws` 不受此测试隔离设置影响。
+
+## 同账号交叠重连的实际路由错误
+
+检查重连路径时，用已有账号同时认证第二个连接，再让第一个连接断开，
+独立回归复现了好友请求无法送到仍在线的新连接（整改前用例失败）。
+`onClientDisconnected()` 原来按 userId 无条件删除当前 socket 映射、Redis
+presence 和心跳记录，并广播离线；旧连接的延迟断线可能清掉新连接的状态。
+
+现在先检查断线 socket 是否仍拥有当前路由。任何旧连接都清理自己的会话/
+传输关联和连接记录；只有当前连接可以删除账号路由/presence、注销心跳和
+广播用户离线。覆盖在 `AccountPasswordKdfMigration` 的正常账号登录流程中，
+不通过跳过请求或单纯延长超时来得到通过。这个确定复现的错误与原引擎好友
+偶发报告分开记录，不能凭现象相似认定原偶发根因也已经确定。
+
 ## 复验
 
 ```bash
@@ -76,10 +109,17 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build-production-check --output-on-fa
 QT_QPA_PLATFORM=offscreen ctest --test-dir build-production-check --output-on-failure \
   -R '^QQNTEngineEndToEnd$' --repeat until-fail:20
 xvfb-run -a env GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb QT_QPA_PLATFORMTHEME=gtk3 \
+  GTK_IM_MODULE=xim XMODIFIERS=@im=none \
   QTNETWORKCHAT_NATIVE_DIALOG_TEST=1 QTNETWORKCHAT_NATIVE_DIALOG_AUTOMATE=1 \
   build-production-check/mainwindow_extended_gui_test nativePickers
 ```
 
 完整默认/生产 suite、真实 PostgreSQL CI、两平台原生验证和最新 exe/deb 的最终
-结果必须在完成后填写计划状态。Windows 安装程序仍未签名；没有独立密码学
+结果已写入计划状态，v1.1.5 已公开。Windows 安装程序仍未签名；没有独立密码学
 审计；未验证所有 OS 通知策略和多显示器组合。
+
+本机宿主中文输入法曾把自动键入的 `/tmp` 转成中文，GTK 随后报告路径不存在。
+截图确认这是输入内容变化，隔离为 `GTK_IM_MODULE=xim XMODIFIERS=@im=none`
+后五项原生流程通过（8.151 秒）。此前失败没有计作通过，也没有更改用户桌面
+的全局输入法设置；上述变量只作用于隔离测试进程。
+新增导出诊断后再次执行同一原生流程通过（8.144 秒）。

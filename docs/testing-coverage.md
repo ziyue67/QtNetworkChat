@@ -1,6 +1,9 @@
 # Testing Coverage
 
-The default Linux CMake suite contains 55 CTest entries. Windows registers
+The default Linux CMake suite contains 58 CTest entries; a linked production
+build contains 57 because the unlinked-only envelope case is not registered.
+Two real-service cases skip with exit code 77 unless explicitly enabled.
+Windows registers
 additional platform-specific script checks; the CI focused list is a subset.
 Run the complete suite
 after changes to shared client, server, E2E, or transfer code:
@@ -38,6 +41,23 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
   a real local TCP server and an in-process Redis test service, temporary
   storage, and disposable accounts; it does not connect to production.
 - Headless engine startup, protocol drift, and end-to-end private messaging.
+- `MainWindowExtendedGui` drives create/menu-bar actions, friend and group
+  approvals, screenshot confirmation/cancellation, and a real 2 MiB transfer
+  cancellation followed by reselection/resend with exact-byte verification.
+  Message and member context menus also check arguments and local effects.
+  Member-menu signal dispatch is not proof of every server-side mutation.
+- Native file, avatar, directory and export dialogs run separately on GTK/X11
+  and Win32. The GTK driver uses process-scoped X11 input; the Windows driver
+  uses UI Automation Value/Invoke patterns on the owning process's HWND.
+  Native dialogs remain enabled, and assertions check their actual results.
+  Windows first runs `NativeDialogDriverSmoke`: the OS Save picker must return
+  the requested temporary path instead of the initial Documents filename, and
+  a file written through that result must be readable at the requested path.
+  This small integration test runs before the complete Windows build so driver
+  failures report their returned path without waiting for the desktop build.
+- `TlsLoginFrameOrdering` uses real local TLS and WSS servers for ten scenarios:
+  correct/wrong pin, untrusted/trusted CA and wrong hostname on each transport.
+  Rejected connections must deliver zero login frames; accepted ones exactly one.
 
 The Linux and Windows workflows build the app, run focused checks including
 account KDF migration, offline quota/replay/resume, duplicate acknowledgements,
@@ -61,11 +81,15 @@ assertion failures go directly to stderr so Windows CTest captures the reason.
 only when the adapter is not linked. Linked production builds use
 `E2EProductionAdapterRuntime` for provider behavior instead.
 
-`PostgresQpsqlProtocolSmoke` returns success without contacting PostgreSQL
-unless `QTNETWORKCHAT_RUN_REAL_QPSQL_TEST=1` and the required database settings
-are supplied. The local 55/55 result includes this default bypass. Redis
-integration fixtures use the repository's in-process test service. Neither
-result proves the production PostgreSQL or Redis deployment is healthy.
+`PostgresQpsqlProtocolSmoke` and `RealRedisCrossInstanceRouting` return 77
+(CTest skipped) unless their real-service switches and connection settings are
+supplied. Linux CI enables both against isolated PostgreSQL 16 and Redis 7
+services. The QPSQL case exercises account/group/friend protocols, file
+cancellation/resume, offline integrity/quota/expiry/replay and restart.
+The Redis case uses two actual Server instances for presence/PubSub, chat,
+ordinary/object-store files, receipts, cleanup and offline replay after an
+instance switch. Most other Redis fixtures still use an in-process test service.
+Neither CI isolation nor local test skips prove production services healthy.
 The dated local verification record is in
 [refactoring-closeout.md](refactoring-closeout.md).
 
@@ -77,17 +101,31 @@ publication. The backup was restored into a disposable database. See the
 smoke check with a standard WebSocket client, not the complete QPSQL suite,
 cross-instance Redis regression or manual Qt desktop acceptance.
 
-## Remaining Gaps
+## Results And Limits
 
-The certificate-pin unit test checks correct and incorrect certificate
-fingerprints, but does not currently run a full local TLS server to assert
-login-frame ordering. The network GUI scenario covers login, group profile and
-speaking-rule persistence, file save and reconnect; it does not drive every
-menu, notification, screenshot capture, approval, file-retry/cancel-in-progress,
-or platform-native dialog interaction. Protocol-level transfer cancellation
-and retry tests cover those wire behaviors independently. Offscreen screenshots
-do not replace manual desktop checks on Linux and
-Windows. Public WSS and the pinned
+The dated results and CI links are in [plan-completion-status.md](plan-completion-status.md).
+Both v1.1.5 tag builds passed the 19 focused checks and actual native picker
+flows. Linux additionally passed isolated PostgreSQL/Redis tests and five
+consecutive engine runs. The published installer also passed
+[Windows Release Smoke](https://github.com/ziyue67/QtNetworkChat/actions/runs/37214462329):
+downloaded bytes matched GitHub's SHA-256; Authenticode was NotSigned; a runner
+without a Qt SDK installed, launched for eight seconds and uninstalled it.
+This does not establish SmartScreen reputation.
+Production configuration tests now compare generated flags with actual CMake
+options; rollout evidence checks the linked/unlinked gate separately. The
+production private-delivery case executes real provider text/file/rotation/
+trust-persistence behavior instead of default unlinked-only assertions.
+
+Engine friend-event checks require an acknowledged delivery and a received
+event in separate stages while pumping both peers. On failure they print
+protocol diagnostics. Repeated passes are evidence of the measured runs, not
+proof that the previously observed rare failure has a known root cause.
+
+GUI checks cover the named scenarios, not every theme, DPI, multi-monitor,
+tray/avatar/contact permutation or OS notification policy. Native automation
+does not constitute manual desktop acceptance on every supported machine.
+Protocol cancellation/resume tests independently cover wire behavior; GUI
+reselection/resend is not same-transferId resume. Public WSS and the pinned
 production server must be checked separately from local CTest after deployment
 changes; publishing a new image does not update the pinned server.
 

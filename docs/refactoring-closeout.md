@@ -16,12 +16,18 @@
 | 主文件 | 本轮之前 | 本轮之后 |
 |---|---:|---:|
 | `src/e2eenvelope.cpp` | 11,624 行 | 426 行 |
-| `src/mainwindow.cpp` | 6,442 行 | 2,901 行 |
+| `src/mainwindow.cpp` | 6,442 行 | 2,539 行 |
 | `src/server.cpp` | 2,963 行 | 760 行 |
 
 行数下降来自职责迁移，功能代码仍在仓库中。E2E 报告图保留原有字段和流程，
 总逻辑复杂度没有因分文件消失。窗口和服务端仍共享原来的对象状态；新增文件
 不是第二套窗口/服务端。CMake 和 qmake 均注册了拆出的源文件。
+
+后续收尾把输入框职责和联系人职责分别移到 `mainwindow_composer.cpp`（141 行）
+和 `mainwindow_contacts.cpp`（245 行）。E2E 报告在 6 个单元约 141 处复用精确
+相同的 provider 身份与禁止密钥导出字段；计算字段仍显式填写，8 处生产编译
+分支改用共同判断。修复 E2E 已有会话需轮换时的明文退回，以及窗口销毁时
+Client 回调仍触碰已销毁 UI 的生命周期问题。回归不能只看主文件行数。
 
 ## GUI 流程究竟验证了什么
 
@@ -74,23 +80,22 @@
 
 | 检查 | 结果 | 范围 |
 |---|---|---|
-| 默认完整构建与 CTest | 构建成功；55/55 返回通过，277.28 秒 | 含本次 GUI、E2E、群/好友、Redis 跨实例、文件及引擎回归；真实 QPSQL 按默认条件跳过 |
-| 链接 OpenSSL 的生产配置专项 | 4/4 通过，12.38 秒 | 可执行文件、真实生产 provider、2 倍缩放 GUI 主流程、引擎烟测 |
+| 默认完整构建与 CTest | 构建成功；最终全量 58 项：56 实际通过、2 跳过、0 失败（280.88 秒） | 包含旧连接路由修复后完整重跑，不将跳过算作执行通过 |
+| 链接 OpenSSL 的生产配置 | 完整构建成功；最终全量 57 项：55 实际通过、2 跳过、0 失败（302.81 秒） | 包含原三个生产配置失败项和引擎；两个真实服务另有 CI 专项 |
+| 引擎重复与 CPU 负载 | 默认 12 次；生产诊断版 20 次、40 次；CPU 负载下 15 次均通过 | 负载复跑 94.91 秒；此前曾复现一次发送端断言失败，原始根因未最终确定 |
+| 实际 TLS/WSS 登录时序 | 十个成功/拒绝场景通过 | 错误信任收到零登录帧，正确信任恰好一个 |
+| 实际 Redis 8.0.5 | 跨实例专项通过（3.30 秒） | 两个 Server、Pub/Sub、普通/对象文件、离线换实例重放 |
+| Linux GTK 原生弹窗 | 最新五项选择器及结果断言通过（8.144 秒） | Xvfb/X11，隔离宿主输入法；不是关闭原生弹窗后测试替代控件 |
+| v1.1.5 Windows tag CI | 构建、19 项回归（116.01 秒）、原生五流程（9.04 秒）、exe 安装启动通过 | [37212688308](https://github.com/ziyue67/QtNetworkChat/actions/runs/37212688308)，源码 290c494 |
+| v1.1.5 Linux tag CI | 构建、19 项回归、引擎五轮、真实 PG16/Redis7、GTK 原生和 deb 安装启动通过 | [37212688307](https://github.com/ziyue67/QtNetworkChat/actions/runs/37212688307)，源码 290c494 |
+| 公开 exe 独立验收 | 下载/哈希/NotSigned、无 Qt SDK 安装、启动 8 秒和卸载通过 | [37214462329](https://github.com/ziyue67/QtNetworkChat/actions/runs/37214462329)，不等于 SmartScreen 信任验证 |
 | PowerShell 7 脚本维护 | 69 个文件解析与路径/哈希/真实调用方/README 回归通过 | 本地临时证据，不注册计划任务、不对外发布 |
 | qmake6 | 配置成功，生成 Makefile，新增源码已注册 | 本轮未完整编译 qmake 目标；完整编译使用 CMake |
 | 工作流 YAML | 4 个文件语法解析通过 | 远端运行结果须按提交 SHA 查看 Actions |
 
-对话框限时、真实文件名输入/打开按钮和设置隔离的续修后，同时运行的本机
-默认 GUI `1/1`（4.06 秒）与生产 GUI `1/1`（5.16 秒）均通过。全量 55 项
-结果对应四项拆分后的代码；续修还调整了存储设置格式的选择，相关存储回归
-`LocalFileManagerValidation` / `ClientStoragePersistence` 已 `2/2` 复验通过，
-生产配置 Noto 字体 / 2 倍缩放 GUI 也 `1/1` 通过（5.90 秒）。远端 Qt 版本
-的结果以最新提交的 Actions 为准。
-
-`PostgresQpsqlProtocolSmoke` 只有设置 `QTNETWORKCHAT_RUN_REAL_QPSQL_TEST=1`
-并提供 PostgreSQL 测试连接参数才执行真实数据库检查；默认 CTest 的“通过”
-不能用于证明这一外部服务已经验证。Redis 网络测试使用仓库内测试替身，
-也不能代替生产 Redis 的运维检查。
+真实 PostgreSQL 和 Redis 两项默认返回 77，CTest 标记跳过，不能算作实际执行。
+Linux CI 提供独立 PG16/Redis7 服务并启用完整专项且通过；Windows CI 另外运行原生
+选择器。最终远端结果、安装包和上线版本见 [计划状态](plan-completion-status.md)。
 
 默认完整构建和测试：
 
@@ -138,14 +143,12 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure \
 
 ## 验证范围之外
 
-主流程场景已经覆盖上述完整交互链路，但不是所有桌面行为的自动化认证。
-审批、通知、截图工具、发送中取消/重试以及系统原生弹窗仍需要对应 GUI 场景
-或人工验收；文件取消/重试协议已有独立回归测试。详见测试文档中的剩余缺口。
+主流程与扩展 GUI 场景覆盖当前菜单接线、好友/群审批、截图和上传取消/重发。
+这些是列明场景的自动验收，不是所有系统通知策略、主题/DPI、多显示器或每个
+托盘/头像组合的人工认证；群成员菜单的信号检查也不是每项服务器变更。
+详细证据见 [续修记录](desktop-storage-closeout.md)。
 
-2026-10-04 后续已实际升级生产容器到 `sha-3eeb955b25a0`，运行 revision 为
-`3eeb955b25a0a18d174102c4bd2c31195ebcea5e`。严格公网 TLS/HTTP 101、注册/登录、
-私聊与离线重放、真实 PostgreSQL 持久化和 Redis presence/Pub/Sub 验证通过；
-关联 6 个容器未重建。详细备份、回滚和验证边界见
-[上线实测](production-deployment-2026-10-04.md)。桌面 Release 仍为 `v1.1.4`，
-安装包没有因此更新；全部剩余范围见 [计划当前状态](plan-completion-status.md)。
+运行容器的最终版本、备份、回滚和验证边界见
+[上线实测](production-deployment-2026-10-04.md)；桌面版本和全部收尾范围见
+[计划当前状态](plan-completion-status.md)。
 真实 Qt 基础、项目讲解和 AI 辅助范围说明仍需项目所有者亲自准备。
