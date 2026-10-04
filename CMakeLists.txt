@@ -128,6 +128,18 @@ configure_file(
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql Multimedia WebSockets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Multimedia WebSockets Test)
 
+set(QTNETWORKCHAT_SERVER_SOURCES
+    src/server.cpp
+    src/server_transport.cpp
+    src/server_database.cpp
+    src/server_account.cpp
+    src/server_offline_delivery.cpp
+    src/server_file_transfer.cpp
+    src/server_delivery_support.cpp
+    src/server_friend.cpp
+    src/server_group.cpp
+)
+
 set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
@@ -195,11 +207,7 @@ add_executable(QtNetworkChat
     src/clientstorage.cpp
     src/historyservice.cpp
     src/historymetadata.cpp
-    src/server.cpp
-    src/server_transport.cpp
-    src/server_database.cpp
-    src/server_friend.cpp
-    src/server_group.cpp
+    ${QTNETWORKCHAT_SERVER_SOURCES}
     src/client.cpp
     src/redisclient.cpp
     src/message.cpp
@@ -345,11 +353,7 @@ add_executable(qqnt_server
     tools/qqnt_server.cpp
     src/redisclient.cpp
     src/qqnt_redis_service.cpp
-    src/server.cpp
-    src/server_transport.cpp
-    src/server_database.cpp
-    src/server_friend.cpp
-    src/server_group.cpp
+    ${QTNETWORKCHAT_SERVER_SOURCES}
     src/message.cpp
     src/e2eenvelope.cpp
     src/e2e_crypto_primitives.cpp
@@ -380,11 +384,7 @@ add_executable(qqnt_engine
     src/qqnt_backend_service.cpp
     src/client.cpp
     src/redisclient.cpp
-    src/server.cpp
-    src/server_transport.cpp
-    src/server_database.cpp
-    src/server_friend.cpp
-    src/server_group.cpp
+    ${QTNETWORKCHAT_SERVER_SOURCES}
     src/message.cpp
     src/e2eenvelope.cpp
     src/e2e_crypto_primitives.cpp
@@ -502,11 +502,7 @@ if(BUILD_TESTING)
     add_executable(e2e_private_message_delivery_test
         tests/e2e_private_message_delivery_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -556,11 +552,7 @@ if(BUILD_TESTING)
     add_executable(server_group_member_update_test
         tests/server_group_member_update_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -582,11 +574,7 @@ if(BUILD_TESTING)
     add_executable(server_friend_persistence_test
         tests/server_friend_persistence_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -608,11 +596,7 @@ if(BUILD_TESTING)
     add_executable(account_password_kdf_test
         tests/account_password_kdf_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -821,11 +805,7 @@ if(BUILD_TESTING)
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -847,11 +827,7 @@ if(BUILD_TESTING)
     add_executable(public_image_transfer_test
         tests/public_image_transfer_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -873,11 +849,7 @@ if(BUILD_TESTING)
     add_executable(file_chunk_duplicate_ack_test
         tests/file_chunk_duplicate_ack_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -914,11 +886,7 @@ if(BUILD_TESTING)
     add_executable(offline_attachment_quota_test
         tests/offline_attachment_quota_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -956,11 +924,7 @@ if(BUILD_TESTING)
     add_executable(redis_startup_requirement_test
         tests/redis_startup_requirement_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -982,11 +946,7 @@ if(BUILD_TESTING)
     add_executable(database_health_test
         tests/database_health_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -1008,11 +968,7 @@ if(BUILD_TESTING)
     add_executable(postgres_qpsql_protocol_smoke_test
         tests/postgres_qpsql_protocol_smoke_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -1042,11 +998,7 @@ if(BUILD_TESTING)
     add_executable(redis_server_readiness_test
         tests/redis_server_readiness_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
@@ -1069,11 +1021,7 @@ if(BUILD_TESTING)
     add_executable(redis_cross_instance_chat_test
         tests/redis_cross_instance_chat_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
             src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
@@ -1803,11 +1751,7 @@ if(BUILD_TESTING)
     add_executable(qqnt_engine_end_to_end_test
         tests/qqnt_engine_end_to_end_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
         src/qqnt_redis_service.cpp
         src/client.cpp
         src/redisclient.cpp
@@ -1838,11 +1782,7 @@ if(BUILD_TESTING)
     add_executable(qqnt_server_redis_test
         tests/qqnt_server_redis_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
-        src/server.cpp
-        src/server_transport.cpp
-        src/server_database.cpp
-        src/server_friend.cpp
-        src/server_group.cpp
+        ${QTNETWORKCHAT_SERVER_SOURCES}
         src/qqnt_redis_service.cpp
         src/client.cpp
         src/redisclient.cpp

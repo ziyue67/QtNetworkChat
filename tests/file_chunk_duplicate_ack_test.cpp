@@ -128,6 +128,7 @@ QJsonObject makeChunk(qint64 chunkIndex,
 }
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("file_chunk_duplicate_ack_test");

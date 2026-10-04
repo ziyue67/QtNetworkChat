@@ -206,7 +206,7 @@ ProviderDispatchResult dispatchProductionProviderOperation(const qnc_e2e_provide
 
     qnc_e2e_operation_input_v1 input = {};
     input.operation = providerOperationEnum(operation);
-    input.suite_id = E2EAdvertisedSuite;
+    input.suite_id = E2EProductionSuite;
     input.primary.data = primary.isEmpty()
         ? nullptr
         : reinterpret_cast<const uint8_t*>(primary.constData());

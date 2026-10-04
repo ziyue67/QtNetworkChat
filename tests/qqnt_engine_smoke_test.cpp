@@ -1239,5 +1239,11 @@ int main(int argc, char* argv[]) {
     ok = expect(sawBlankReqIdAck, "QQNTEngine should ack blank reqId commands with missing_req_id") && ok;
     ok = expect(sawSettingsSyncedEvent, "QQNTEngine should emit settings_synced event") && ok;
     ok = expect(missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty(), "QQNTEngine should ack every smoke command") && ok;
+    if (ok) {
+        std::fprintf(stdout, "QQNTEngineSmoke: %lld/%lld expected ACKs verified, including %lld fixture commands.\n",
+                     static_cast<long long>(expectedAckReqIds.size() - missingAckReqIds(expectedAckReqIds, seenAckReqIds).size()),
+                     static_cast<long long>(expectedAckReqIds.size()),
+                     static_cast<long long>(contractCommands.size()));
+    }
     return ok ? 0 : 1;
 }

@@ -54,6 +54,10 @@ SOURCES += \
     src/server.cpp \
     src/server_transport.cpp \
     src/server_database.cpp \
+    src/server_account.cpp \
+    src/server_offline_delivery.cpp \
+    src/server_file_transfer.cpp \
+    src/server_delivery_support.cpp \
     src/server_friend.cpp \
     src/server_group.cpp \
     src/client.cpp \
@@ -100,6 +104,7 @@ HEADERS += \
     src/group_info_panel_ui.h \
     src/e2e_provider_runtime.h \
     src/server_database.h \
+    src/server_delivery_support.h \
     include/chatbubbledelegate.h \
     include/qqnt_log.h \
     include/iconhelper.h \
