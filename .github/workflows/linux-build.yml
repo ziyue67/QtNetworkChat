@@ -67,6 +67,7 @@ jobs:
             websocket_transport_test \
             login_window_gui_test \
             group_info_panel_ui_test \
+            mainwindow_workflow_test \
             account_password_kdf_test \
             offline_attachment_quota_test \
             file_chunk_duplicate_ack_test \
@@ -78,7 +79,11 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           ctest --test-dir build --output-on-failure \
-            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$'
+            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|MainWindowNetworkWorkflow|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$'
+
+      - name: Validate script helpers and consumers
+        shell: pwsh
+        run: ./scripts/test-script-maintenance.ps1
 
       - name: Upload GUI smoke screenshots
         if: always()
@@ -88,6 +93,7 @@ jobs:
           path: |
             build/login_window_*.png
             build/group_info_panel_*.png
+            build/mainwindow_workflow_*.png
           if-no-files-found: ignore
 
       - name: Package Linux client

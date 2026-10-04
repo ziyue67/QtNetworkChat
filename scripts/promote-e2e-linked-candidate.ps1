@@ -11,13 +11,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Ensure-File([string]$PathValue, [string]$Label) {
     if (-not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
@@ -85,7 +80,7 @@ function Get-AutomationPolicyReadback([string]$PathValue) {
         return ""
     }
     try {
-        $resolved = Resolve-RepoPath $PathValue
+        $resolved = Resolve-RequiredRepoPath $PathValue
         if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
             return ""
         }
@@ -99,14 +94,14 @@ function Get-AutomationPolicyReadback([string]$PathValue) {
     }
 }
 
-$resolvedSourceCandidateDir = Resolve-RepoPath $SourceCandidateDir
-$resolvedOutputDir = Resolve-RepoPath $OutputDir
-$resolvedCiPath = Resolve-RepoPath $GitHubWindowsBuildStatusPath
-$resolvedLocalPath = Resolve-RepoPath $LocalVerificationStatusPath
-$resolvedAutomationStatusPath = Resolve-RepoPath $AutomationStatusPath
+$resolvedSourceCandidateDir = Resolve-RequiredRepoPath $SourceCandidateDir
+$resolvedOutputDir = Resolve-RequiredRepoPath $OutputDir
+$resolvedCiPath = Resolve-RequiredRepoPath $GitHubWindowsBuildStatusPath
+$resolvedLocalPath = Resolve-RequiredRepoPath $LocalVerificationStatusPath
+$resolvedAutomationStatusPath = Resolve-RequiredRepoPath $AutomationStatusPath
 if ([string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
     $defaultAutomationPolicyPath = "docs\automation-policy.json"
-    $resolvedDefaultAutomationPolicyPath = Resolve-RepoPath $defaultAutomationPolicyPath
+    $resolvedDefaultAutomationPolicyPath = Resolve-RequiredRepoPath $defaultAutomationPolicyPath
     if (Test-Path -LiteralPath $resolvedDefaultAutomationPolicyPath -PathType Leaf) {
         $AutomationPolicyPath = $defaultAutomationPolicyPath
     }
@@ -170,7 +165,7 @@ try {
         $packagerArgs += @("-AutomationStatusPath", $resolvedAutomationStatusPath)
     }
     if (-not [string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
-        $packagerArgs += @("-AutomationPolicyPath", (Resolve-RepoPath $AutomationPolicyPath))
+        $packagerArgs += @("-AutomationPolicyPath", (Resolve-RequiredRepoPath $AutomationPolicyPath))
     }
     if ($FailOnSensitive.IsPresent) {
         $packagerArgs += "-FailOnSensitive"

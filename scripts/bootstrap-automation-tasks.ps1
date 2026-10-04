@@ -23,6 +23,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $sensitivePatterns = @(
     'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
@@ -37,12 +38,6 @@ $sensitivePatterns = @(
     'Signature\s*='
 )
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Convert-ToRepoRelativePath([string]$PathValue) {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -249,25 +244,25 @@ function Write-RegistrationAttempt([string]$PathValue, [object[]]$RegistrationRe
 
 Assert-NoSensitiveText "OutputDir" @($OutputDir)
 Assert-NoSensitiveText "User" @($User)
-$resolvedOutputDir = Resolve-RepoPath $OutputDir
+$resolvedOutputDir = Resolve-RequiredRepoPath $OutputDir
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
 if ([string]::IsNullOrWhiteSpace($ScheduledTaskReadbackPath)) {
     $ScheduledTaskReadbackPath = Join-Path $resolvedOutputDir "scheduled-task-readback.json"
 } else {
     Assert-NoSensitiveText "ScheduledTaskReadbackPath" @($ScheduledTaskReadbackPath)
-    $ScheduledTaskReadbackPath = Resolve-RepoPath $ScheduledTaskReadbackPath
+    $ScheduledTaskReadbackPath = Resolve-RequiredRepoPath $ScheduledTaskReadbackPath
 }
 if ([string]::IsNullOrWhiteSpace($RegistrationAttemptPath)) {
     $RegistrationAttemptPath = Join-Path $resolvedOutputDir "scheduled-task-registration-attempt.json"
 } else {
     Assert-NoSensitiveText "RegistrationAttemptPath" @($RegistrationAttemptPath)
-    $RegistrationAttemptPath = Resolve-RepoPath $RegistrationAttemptPath
+    $RegistrationAttemptPath = Resolve-RequiredRepoPath $RegistrationAttemptPath
 }
 if ([string]::IsNullOrWhiteSpace($RegistrationAckPath)) {
     $RegistrationAckPath = Join-Path $resolvedOutputDir "scheduled-task-registration-ack.json"
 } else {
     Assert-NoSensitiveText "RegistrationAckPath" @($RegistrationAckPath)
-    $RegistrationAckPath = Resolve-RepoPath $RegistrationAckPath
+    $RegistrationAckPath = Resolve-RequiredRepoPath $RegistrationAckPath
 }
 $registerDatabaseHealthScript = Join-Path $PSScriptRoot "register-database-health-task.ps1"
 $registerLargeFileGovernanceScript = Join-Path $PSScriptRoot "register-large-file-governance-task.ps1"

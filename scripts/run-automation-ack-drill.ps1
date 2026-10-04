@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $sensitivePatterns = @(
     'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
@@ -25,18 +26,12 @@ $sensitivePatterns = @(
     'Signature\s*='
 )
 
-function Resolve-RepoPath([string]$PathValue) {
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return $PathValue
-    }
-    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
-}
 
 function Resolve-OptionalPath([string]$PathValue, [string]$DefaultPath) {
     if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return (Resolve-RepoPath $DefaultPath)
+        return (Resolve-RequiredRepoPath $DefaultPath)
     }
-    Resolve-RepoPath $PathValue
+    Resolve-RequiredRepoPath $PathValue
 }
 
 function Assert-NoSensitiveValue([string]$Label, [string[]]$Values) {
@@ -107,7 +102,7 @@ Assert-NoSensitiveValue "Reason" @($Reason)
 Assert-NoSensitiveValue "FailedAt" @($FailedAt)
 Assert-NoSensitiveValue "AcknowledgedAt" @($AcknowledgedAt)
 
-$resolvedOutputDir = Resolve-RepoPath $OutputDir
+$resolvedOutputDir = Resolve-RequiredRepoPath $OutputDir
 $resolvedAckScriptPath = Resolve-OptionalPath $AckScriptPath "scripts\write-automation-task-ack.ps1"
 $resolvedHistoryScriptPath = Resolve-OptionalPath $HistoryScriptPath "scripts\write-automation-task-history.ps1"
 if (-not (Test-Path -LiteralPath $resolvedAckScriptPath -PathType Leaf)) {

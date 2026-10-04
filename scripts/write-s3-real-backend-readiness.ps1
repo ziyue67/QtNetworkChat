@@ -10,6 +10,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $sensitivePatterns = @(
     "endpoint\s*[:=]",
@@ -25,12 +26,6 @@ $sensitivePatterns = @(
     "Signature\s*="
 )
 
-function Resolve-OptionalPath([string]$PathValue) {
-    if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return ""
-    }
-    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathValue)
-}
 
 function Read-OptionalJson([string]$PathValue) {
     $resolvedPath = Resolve-OptionalPath $PathValue

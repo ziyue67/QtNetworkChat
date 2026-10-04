@@ -1,5 +1,9 @@
 # QtNetworkChat
 
+中文阅读：[本轮四项整改与复验方法](docs/refactoring-closeout.md) ·
+[E2E 实现和状态层](docs/e2e-hardening-status.md) ·
+[脚本入口](scripts/README.md)。
+
 [![Linux Build](https://github.com/ziyue67/QtNetworkChat/actions/workflows/linux-build.yml/badge.svg)](https://github.com/ziyue67/QtNetworkChat/actions/workflows/linux-build.yml)
 [![Windows Build](https://github.com/ziyue67/QtNetworkChat/actions/workflows/windows-build.yml/badge.svg)](https://github.com/ziyue67/QtNetworkChat/actions/workflows/windows-build.yml)
 [![Container Image](https://github.com/ziyue67/QtNetworkChat/actions/workflows/container.yml/badge.svg)](https://github.com/ziyue67/QtNetworkChat/actions/workflows/container.yml)

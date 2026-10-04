@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "qt-script-common.ps1")
 
 $sensitivePatterns = @(
     'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
@@ -30,12 +31,6 @@ $sensitivePatterns = @(
     'Signature\s*='
 )
 
-function Resolve-OptionalPath([string]$PathValue) {
-    if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return ""
-    }
-    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathValue)
-}
 
 function Assert-NoSensitiveValue([string]$Label, [string[]]$Values) {
     foreach ($value in $Values) {

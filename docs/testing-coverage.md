@@ -1,6 +1,8 @@
 # Testing Coverage
 
-The default CMake suite contains 54 CTest entries. Run the complete suite
+The default Linux CMake suite contains 55 CTest entries. Windows registers
+additional platform-specific script checks; the CI focused list is a subset.
+Run the complete suite
 after changes to shared client, server, E2E, or transfer code:
 
 ```bash
@@ -26,12 +28,25 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
   announcement, action-button clicks, notification toggling, member editing
   restrictions, and nonblank light/dark screenshots. It does not exercise
   MainWindow's network callbacks or persist changes to a live group.
+- `MainWindowNetworkWorkflow` links the same `qtnetworkchat_desktop` library as
+  the executable. It drives the login form, the real group-profile save/cancel
+  and speaking-rule chooser, checks member editing restrictions, asserts the
+  persisted SQLite values and the other client's snapshot, sends chat text,
+  cancels a file picker, sends/receives/saves a 600 KiB multi-chunk file, checks
+  exact bytes and the receiver's card, renders light/dark screenshots, and
+  verifies draft preservation and delivery after reconnect. The fixture uses
+  a real local TCP server and an in-process Redis test service, temporary
+  storage, and disposable accounts; it does not connect to production.
 - Headless engine startup, protocol drift, and end-to-end private messaging.
 
 The Linux and Windows workflows build the app, run focused checks including
 account KDF migration, offline quota/replay/resume, duplicate acknowledgements,
 upload cancellation, and engine startup/command acknowledgements. They upload
-login/group-info smoke screenshots as Actions artifacts. Tagged desktop
+login/group-info/main-window screenshots as Actions artifacts. They also run
+`scripts/test-script-maintenance.ps1` to parse all maintained PowerShell scripts
+and exercise shared path/hash helpers, two actual evidence consumers and README
+documentation checks.
+Tagged desktop
 releases also run installer smoke checks; the container workflow builds
 and publishes the server image. A successful installer smoke check is not a
 code-signing certificate: the Windows installer is currently unsigned.
@@ -46,13 +61,24 @@ assertion failures go directly to stderr so Windows CTest captures the reason.
 only when the adapter is not linked. Linked production builds use
 `E2EProductionAdapterRuntime` for provider behavior instead.
 
+`PostgresQpsqlProtocolSmoke` returns success without contacting PostgreSQL
+unless `QTNETWORKCHAT_RUN_REAL_QPSQL_TEST=1` and the required database settings
+are supplied. The local 55/55 result includes this default bypass. Redis
+integration fixtures use the repository's in-process test service. Neither
+result proves the production PostgreSQL or Redis deployment is healthy.
+The dated local verification record is in
+[refactoring-closeout.md](refactoring-closeout.md).
+
 ## Remaining Gaps
 
 The certificate-pin unit test checks correct and incorrect certificate
 fingerprints, but does not currently run a full local TLS server to assert
-login-frame ordering. Window menu, notification dialogs, complete group-settings
-save flows, and file transfer workflow are compiled but not driven by an
-automated GUI interaction test. Offscreen screenshots do not replace manual desktop checks on Linux and
+login-frame ordering. The network GUI scenario covers login, group profile and
+speaking-rule persistence, file save and reconnect; it does not drive every
+menu, notification, screenshot capture, approval, file-retry/cancel-in-progress,
+or platform-native dialog interaction. Protocol-level transfer cancellation
+and retry tests cover those wire behaviors independently. Offscreen screenshots
+do not replace manual desktop checks on Linux and
 Windows. Public WSS and the pinned
 production server must be checked separately from local CTest after deployment
 changes; publishing a new image does not update the pinned server.

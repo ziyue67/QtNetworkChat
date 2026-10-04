@@ -32,4 +32,29 @@ helpers; running Redis and capturing the desktop require a Windows session.
 [s3-failure-drill.ps1](../scripts/s3-failure-drill.ps1) remains a manual
 operations helper: it prints failure scenarios and optionally analyzes supplied
 logs. It does not inject failures automatically. The remaining packaging and
-evidence scripts need further consolidation after their consumers are updated.
+evidence scripts retain their supported command interfaces.
+
+The current consolidation removes 43 duplicated path/hash implementations
+from 25 evidence/operations scripts. They dot-source
+[qt-script-common.ps1](../scripts/qt-script-common.ps1). Repo-relative paths,
+optional paths relative to the caller's working directory, empty-input behavior,
+SHA-256 formatting and stream disposal are preserved. S3-specific sensitive-field
+policies stay in `qt-governance-common.ps1`; they are not interchangeable with
+release/evidence policies.
+
+Run [test-script-maintenance.ps1](../scripts/test-script-maintenance.ps1) with
+PowerShell 7 or Windows PowerShell:
+
+```powershell
+./scripts/test-script-maintenance.ps1
+```
+
+It parses 69 maintained scripts (including the root screenshot helper), checks
+path resolution from another working directory, a known SHA-256 result and
+missing-file behavior, confirms the hash stream closes, and actually runs
+local verification/publication-record helpers against disposable fixtures.
+Both Linux and Windows CI run it. The publication fixture writes local evidence
+only; it does not publish a release. The maintained README checker also runs,
+using current build commands and documentation links rather than obsolete
+personal build-directory names. See [scripts/README.md](../scripts/README.md)
+for supported entry points and responsibilities.

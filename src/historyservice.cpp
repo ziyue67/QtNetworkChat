@@ -313,12 +313,15 @@ void HistoryService::clear(const QString& peerId) const {
 }
 
 QString HistoryService::appDataDirectory() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString dir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (dir.isEmpty()) {
+        dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    }
     if (dir.isEmpty()) {
         dir = QStringLiteral(".");
     }
     QDir().mkpath(dir);
-    return dir;
+    return QDir::cleanPath(dir);
 }
 
 QString HistoryService::sanitizedId(const QString& value, const QString& fallback) const {

@@ -19,16 +19,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Validate desktop helper syntax
+      - name: Validate maintained scripts and helpers
         shell: pwsh
         run: |
-          foreach ($path in @("capture-screenshot.ps1", "scripts/start-with-redis.ps1")) {
-            $tokens = $null
-            $parseErrors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile(
-              (Join-Path $PWD $path), [ref]$tokens, [ref]$parseErrors) | Out-Null
-            if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }
-          }
+          ./scripts/test-script-maintenance.ps1
 
       - name: Install Qt
         uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
@@ -80,7 +74,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/build-release.log"
           $err = "build/ci-logs/build-release.err.log"
-          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "qqnt_engine", "qqnt_engine_smoke_test", "message_serialization_test", "tls_security_test", "websocket_transport_test", "login_window_gui_test", "group_info_panel_ui_test", "account_password_kdf_test", "offline_attachment_quota_test", "file_chunk_duplicate_ack_test", "file_transfer_cancel_test", "e2e_production_adapter_runtime_test") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "qqnt_engine", "qqnt_engine_smoke_test", "message_serialization_test", "tls_security_test", "websocket_transport_test", "login_window_gui_test", "group_info_panel_ui_test", "mainwindow_workflow_test", "account_password_kdf_test", "offline_attachment_quota_test", "file_chunk_duplicate_ack_test", "file_transfer_cancel_test", "e2e_production_adapter_runtime_test") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {
@@ -97,7 +91,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/ctest-release.log"
           $err = "build/ci-logs/ctest-release.err.log"
-          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure", "-R", "^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure", "-R", "^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|MainWindowNetworkWorkflow|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {
@@ -112,6 +106,7 @@ jobs:
           path: |
             build/Release/login_window_*.png
             build/Release/group_info_panel_*.png
+            build/Release/mainwindow_workflow_*.png
           if-no-files-found: ignore
 
       - name: Install Inno Setup

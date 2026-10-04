@@ -12,6 +12,7 @@ namespace ServerDeliverySupport {
 constexpr qint64 kForwardChunkBytes = 256LL * 1024;
 constexpr int kChunkSendMaxAttempts = 3;
 constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
+constexpr qint64 kRedisPubSubEventMaxBytes = 1LL * 1024 * 1024;
 
 bool looksLikeSha256Hex(const QString& value);
 void appendE2EFields(QJsonObject* obj, const Message& msg);

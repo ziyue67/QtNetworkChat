@@ -35,8 +35,14 @@ if(NOT DEFINED ENV{QTNETWORKCHAT_DB_DRIVER})
     set(ENV{QTNETWORKCHAT_DB_DRIVER} "QSQLITE")
 endif()
 
+set(test_timeout_args)
+if(DEFINED TEST_TIMEOUT)
+    list(APPEND test_timeout_args TIMEOUT "${TEST_TIMEOUT}")
+endif()
+
 execute_process(
     COMMAND "${TEST_EXE}" ${TEST_ARGS}
+    ${test_timeout_args}
     RESULT_VARIABLE test_result
     OUTPUT_VARIABLE test_output
     ERROR_VARIABLE test_error
@@ -48,6 +54,6 @@ endif()
 if(NOT test_error STREQUAL "")
     message(STATUS "${test_error}")
 endif()
-if(NOT test_result EQUAL 0)
+if(NOT test_result STREQUAL "0")
     message(FATAL_ERROR "Qt test failed with exit code ${test_result}")
 endif()
