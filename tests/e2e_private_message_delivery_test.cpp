@@ -2,6 +2,7 @@
 #include "e2eenvelope.h"
 #include "server.h"
 #include "test_redis_support.h"
+#include "qtnetworkchat_e2e_crypto_config.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -1092,7 +1093,11 @@ int main(int argc, char** argv) {
         QDir().mkpath(appDataDir);
     }
 
-    if (qgetenv("QTNETWORKCHAT_E2E_TEST_PRODUCTION_ROTATION_REBIND").trimmed() == "1") {
+    // The draft scenario below explicitly tests an unlinked provider and its
+    // blocked report graph. A linked build exercises real multi-peer rotation,
+    // text/files, trust persistence and restart instead of asserting "not linked".
+    if (QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE != 0
+        || qgetenv("QTNETWORKCHAT_E2E_TEST_PRODUCTION_ROTATION_REBIND").trimmed() == "1") {
         return runProductionRotationLocalRebindScenario() ? 0 : 1;
     }
 

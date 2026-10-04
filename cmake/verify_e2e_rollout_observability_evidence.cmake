@@ -66,14 +66,27 @@ string(JSON evidence_bundle0 GET "${evidence_content}" "auditSummary" "evidenceB
 if(NOT evidence_format STREQUAL "qtnetworkchat-e2e-production-rollout-observability-evidence-v1")
     message(FATAL_ERROR "Unexpected rollout observability evidence format: ${evidence_format}")
 endif()
-if(evidence_ok OR NOT evidence_status STREQUAL "blocked")
-    message(FATAL_ERROR "Default rollout observability evidence should fail closed")
+if(EXPECT_REVIEWED_PROVIDER)
+    set(expected_status "ready")
+    set(expected_gate "production-rollout-observability-ready")
+    set(expected_proof "true")
+    if(NOT evidence_ok OR NOT acceptance_ok OR NOT rollout_ok OR NOT rollout_no_sensitive)
+        message(FATAL_ERROR "Reviewed linked provider must provide accepted, sanitized rollout evidence")
+    endif()
+else()
+    set(expected_status "blocked")
+    set(expected_proof "false")
+    if(EXPECT_ADAPTER_LINKED)
+        set(expected_gate "production-rollout-observability-blocked-not-ready")
+    else()
+        set(expected_gate "production-rollout-observability-blocked-not-linked")
+    endif()
+    if(evidence_ok OR acceptance_ok OR rollout_ok OR rollout_no_sensitive)
+        message(FATAL_ERROR "Unavailable provider must not claim acceptance or sensitive-export proof")
+    endif()
 endif()
-if(NOT evidence_gate STREQUAL "production-rollout-observability-blocked-not-linked")
-    message(FATAL_ERROR "Default rollout observability gate should be blocked-not-linked, got ${evidence_gate}")
-endif()
-if(acceptance_ok OR rollout_ok OR rollout_no_sensitive)
-    message(FATAL_ERROR "Default rollout evidence should not claim acceptance or no-sensitive proof")
+if(NOT evidence_status STREQUAL expected_status OR NOT evidence_gate STREQUAL expected_gate)
+    message(FATAL_ERROR "Unexpected rollout status/gate: ${evidence_status}/${evidence_gate}; expected ${expected_status}/${expected_gate}")
 endif()
 if(rollout_raw_key OR rollout_private_material OR rollout_session_secret OR rollout_plaintext OR rollout_ciphertext)
     message(FATAL_ERROR "Rollout evidence must not export sensitive material flags as true")
@@ -101,9 +114,9 @@ endif()
 
 foreach(expected_text IN ITEMS
     "QtNetworkChat E2E Production Rollout Observability Evidence"
-    "Status: `blocked`"
-    "Release gate: `production-rollout-observability-blocked-not-linked`"
-    "Sensitive export proof: noSensitiveExport=`false`, rawKey=`false`, privateMaterial=`false`, sessionSecret=`false`, plaintext=`false`, ciphertext=`false`"
+    "Status: `${expected_status}`"
+    "Release gate: `${expected_gate}`"
+    "Sensitive export proof: noSensitiveExport=`${expected_proof}`, rawKey=`false`, privateMaterial=`false`, sessionSecret=`false`, plaintext=`false`, ciphertext=`false`"
     "Filesystem object recovery ready: `true`"
     "Filesystem object recovery gate: `e2e-filesystem-object-ciphertext-readback-ready`"
     "Offline/object recovery ready: `true`"

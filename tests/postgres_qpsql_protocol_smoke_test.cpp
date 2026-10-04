@@ -610,7 +610,8 @@ int main(int argc, char** argv) {
 
     QTemporaryDir runtime;
     if (!runtime.isValid()) return 1;
-    qputenv("QTNETWORKCHAT_APPDATA_DIR", runtime.path().toUtf8());
+    const QString appDataDir = runtime.path();
+    qputenv("QTNETWORKCHAT_APPDATA_DIR", appDataDir.toUtf8());
     qputenv("QTNETWORKCHAT_TLS", "0");
 
     const QString suffix = QString::number(QDateTime::currentMSecsSinceEpoch() % 100000000LL).rightJustified(8, '0');
@@ -1569,8 +1570,6 @@ int main(int argc, char** argv) {
     setSmokeStep(QStringLiteral("cleanup current smoke rows"));
     ok = restorePublicGroupState(publicGroupState) && ok;
     ok = cleanupSmokeRows(ownerId, peerId) && ok;
-    if (!appDataDir.isEmpty()) {
-        QDir(appDataDir).removeRecursively();
-    }
+    // QTemporaryDir owns and removes only this invocation's filesystem data.
     return ok ? 0 : 1;
 }

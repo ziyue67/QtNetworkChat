@@ -52,6 +52,8 @@ jobs:
             qt6-base-dev \
             qt6-multimedia-dev \
             qt6-websockets-dev \
+            qt6-gtk-platformtheme \
+            xdotool \
             xvfb
 
       - name: Validate Linux packaging metadata
@@ -80,6 +82,7 @@ jobs:
             qqnt_server \
             qqnt_engine \
             qqnt_engine_smoke_test \
+            qqnt_engine_end_to_end_test \
             message_serialization_test \
             tls_security_test \
             tls_login_order_test \
@@ -94,14 +97,17 @@ jobs:
             offline_attachment_quota_test \
             file_chunk_duplicate_ack_test \
             file_transfer_cancel_test \
-            e2e_production_adapter_runtime_test
+            e2e_production_adapter_runtime_test \
+            e2e_private_message_delivery_test \
+            e2e_rollout_observability_exporter
 
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           ctest --test-dir build --output-on-failure \
-            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|TlsLoginFrameOrdering|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|MainWindowNetworkWorkflow|MainWindowExtendedGui|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|QQNTEngineSmoke)$'
+            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|TlsLoginFrameOrdering|WebSocketTransport|LoginWindowGuiInteraction|GroupInfoPanelUiInteraction|MainWindowNetworkWorkflow|MainWindowExtendedGui|AccountPasswordKdfMigration|OfflineAttachmentQuota|FileChunkDuplicateAckProtocol|FileTransferCancelProtocol|E2EProductionAdapterRuntime|E2ECryptoBackendConfig|E2ERolloutObservabilityEvidence|E2EPrivateMessageDelivery|QQNTEngineSmoke|QQNTEngineEndToEnd)$'
+          ctest --test-dir build --output-on-failure -R '^QQNTEngineEndToEnd$' --repeat until-fail:5
 
       - name: Test real PostgreSQL and Redis
         env:
@@ -120,6 +126,13 @@ jobs:
         run: |
           ctest --test-dir build --output-on-failure \
             -R '^(PostgresQpsqlProtocolSmoke|RealRedisCrossInstanceRouting)$'
+
+      - name: Test Linux native GTK desktop dialogs
+        run: |
+          timeout 100s xvfb-run -a env GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb \
+            QT_QPA_PLATFORMTHEME=gtk3 QTNETWORKCHAT_NATIVE_DIALOG_TEST=1 \
+            QTNETWORKCHAT_NATIVE_DIALOG_AUTOMATE=1 \
+            build/mainwindow_extended_gui_test nativePickers
 
       - name: Validate script helpers and consumers
         shell: pwsh

@@ -7,11 +7,16 @@
 #include "gui_test_support.h"
 #include "native_dialog_input.h"
 #include "widgets/composerwidget.h"
+#include "widgets/groupmembersidebar.h"
+#include "views/messagesview.h"
+#include "chatbubbledelegate.h"
 #include "windows/screenshotcapturewindow.h"
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QDialog>
+#include <QDialogButtonBox>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFile>
 #include <QLabel>
@@ -65,6 +70,44 @@ bool chooseMenu(MainWindow& window, const QString& command) {
     return chosen;
 }
 
+// Open a real context menu and select by its visible label, including submenus.
+bool chooseContextMenu(QWidget& parent, QListView& list, const QPoint& position,
+                       const QStringList& labels) {
+    bool chosen = false;
+    int depth = 0;
+    QTimer input;
+    QObject::connect(&input, &QTimer::timeout, &parent, [&] {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || depth >= labels.size()) return;
+        for (auto* action : menu->actions()) {
+            if (action->text() != labels.at(depth) || !action->isEnabled()) continue;
+            menu->setActiveAction(action);
+            if (action->menu()) {
+                ++depth;
+                QTest::keyClick(menu, Qt::Key_Right);
+            } else {
+                chosen = true;
+                input.stop();
+                QTest::keyClick(menu, Qt::Key_Return);
+            }
+            return;
+        }
+    });
+    input.start(20);
+    QTimer::singleShot(3000, &input, [&] {
+        if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+            while (menu) {
+                auto* parentMenu = qobject_cast<QMenu*>(menu->parentWidget());
+                menu->close();
+                menu = parentMenu;
+            }
+        }
+    });
+    QMetaObject::invokeMethod(&list, "customContextMenuRequested", Qt::DirectConnection,
+                              Q_ARG(QPoint, position));
+    return chosen;
+}
+
 struct Fixture {
     QTemporaryDir root;
     TestRedisServerEnvironment redis{QStringLiteral("extended-gui")};
@@ -109,6 +152,92 @@ struct Fixture {
 class ExtendedGuiTest : public QObject {
     Q_OBJECT
 private slots:
+    void visibleMessageAndMemberMenus() {
+        Fixture fixture;
+        QVERIFY(fixture.start());
+        auto* view = fixture.window->findChild<MessagesView*>();
+        QVERIFY(view);
+        QVERIFY(QMetaObject::invokeMethod(fixture.window.get(), "onBackToGroupChat"));
+        const QString content = "可见消息右键菜单验收";
+        QVERIFY(fixture.member.sendMessage(content));
+        auto* list = view->chatListView();
+        QModelIndex message;
+        auto findMessage = [&] {
+            for (int row = 0; row < list->model()->rowCount(); ++row) {
+                const auto index = list->model()->index(row, 0);
+                if (index.data().toString().contains(content)
+                    && !index.data(ChatBubbleSystemRole).toBool()) { message = index; return true; }
+            }
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(findMessage(), 3000);
+        QTimer modalGuard;
+        bool confirmDeletion = false;
+        connect(&modalGuard, &QTimer::timeout, this, [&] {
+            if (auto* question = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                question && confirmDeletion && question->button(QMessageBox::Yes)) {
+                QTest::mouseClick(question->button(QMessageBox::Yes), Qt::LeftButton);
+            } else if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
+        });
+        modalGuard.start(20);
+        QSignalSpy dispatched(view, &MessagesView::messageActionRequested);
+        const QList<QPair<QString, QString>> actions{
+            {"复制", "copy"}, {"转发", "forward"}, {"收藏", "favorite"},
+            {"多选", "multiSelect"}, {"引用", "quote"}, {"精华", "essence"}, {"撤回", "recall"}};
+        for (const auto& action : actions) {
+            list->scrollTo(message); QTest::qWait(30);
+            const QRect rect = list->visualRect(message);
+            QVERIFY(rect.isValid());
+            QVERIFY2(chooseContextMenu(*fixture.window, *list,
+                QPoint(list->viewport()->width() / 2, rect.center().y()), {action.first}), qPrintable(action.first));
+            QCOMPARE(dispatched.last().at(1).toString(), action.second);
+            if (action.second == "copy") QVERIFY(QApplication::clipboard()->text().contains(content));
+            if (action.second == "quote") QVERIFY(view->composer()->text().contains(content));
+            view->setMultiSelectMode(false);
+        }
+        list->scrollTo(message); QTest::qWait(30);
+        confirmDeletion = true;
+        QVERIFY(chooseContextMenu(*fixture.window, *list,
+            QPoint(list->viewport()->width() / 2, list->visualRect(message).center().y()), {"删除"}));
+        QCOMPARE(dispatched.last().at(1).toString(), QString("delete"));
+        QVERIFY(!findMessage());
+        modalGuard.stop();
+
+        // Exercise every sidebar menu action on the shipping widget. The full
+        // network approval/profile paths are verified by the fixture scenarios;
+        // here each choice must dispatch the correct member and duration/role.
+        GroupMemberSidebar sidebar;
+        sidebar.setGroupId("menu-fixture");
+        GroupMemberDisplayData member;
+        member.id = "menu-peer"; member.nickname = "菜单成员"; member.role = "member";
+        sidebar.setMembers({member}); sidebar.setManagementEnabled(true);
+        sidebar.resize(280, 600); sidebar.show(); QTest::qWait(50);
+        auto* members = sidebar.findChild<QListView*>(); QVERIFY(members);
+        const auto memberPosition = members->visualRect(members->model()->index(0, 0)).center();
+        auto verify = [&](const QStringList& labels, auto signal) {
+            QSignalSpy spy(&sidebar, signal);
+            if (!chooseContextMenu(sidebar, *members, memberPosition, labels) || spy.count() != 1) return false;
+            return spy.first().first().toString() == member.id;
+        };
+        QVERIFY(verify({"发送消息"}, &GroupMemberSidebar::chatWithMember));
+        QVERIFY(verify({"@TA"}, &GroupMemberSidebar::atMember));
+        QVERIFY(verify({"查看资料"}, &GroupMemberSidebar::viewProfile));
+        QVERIFY(verify({"添加好友"}, &GroupMemberSidebar::addFriend));
+        QVERIFY(verify({"修改群昵称"}, &GroupMemberSidebar::renameMember));
+        for (const auto& duration : QList<QPair<QString, int>>{{"10分钟", 10}, {"1小时", 60},
+                {"12小时", 720}, {"1天", 1440}, {"自定义", -1}}) {
+            QSignalSpy spy(&sidebar, &GroupMemberSidebar::muteMember);
+            QVERIFY(chooseContextMenu(sidebar, *members, memberPosition, {"设置禁言", duration.first}));
+            QCOMPARE(spy.count(), 1); QCOMPARE(spy.first().at(1).toInt(), duration.second);
+        }
+        QVERIFY(verify({"解除禁言"}, &GroupMemberSidebar::unmuteMember));
+        QVERIFY(verify({"群管理", "设为管理员"}, &GroupMemberSidebar::promoteAdmin));
+        QVERIFY(verify({"群管理", "取消管理员"}, &GroupMemberSidebar::demoteAdmin));
+        QVERIFY(verify({"群管理", "移出本群"}, &GroupMemberSidebar::kickMember));
+        QVERIFY(verify({"举报"}, &GroupMemberSidebar::reportMember));
+        QVERIFY(verify({"屏蔽"}, &GroupMemberSidebar::blockMember));
+        qInfo() << "VISIBLE_CONTEXT_MENU PASS: message actions and all member/sidebar submenu choices";
+    }
     void nativePickers() {
         if (qgetenv("QTNETWORKCHAT_NATIVE_DIALOG_TEST") != "1")
             QSKIP("Native acceptance is run separately on a visible desktop");
@@ -131,9 +260,10 @@ private slots:
         QVERIFY(QDir().mkpath(downloadPath));
         qInfo().noquote() << "NATIVE_PATHS file=" << filePath << "avatar=" << avatarPath
                          << "directory=" << downloadPath << "export=" << exportPath;
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         NativeDialogInput input(this);
         input.choices = {{}, {filePath}, {avatarPath}, {downloadPath, true}, {exportPath}};
+        input.start();
 #endif
         QSignalSpy received(&fixture.member, &Client::newMessage);
         qInfo() << "NATIVE_STEP 1: cancel file picker";
@@ -174,7 +304,9 @@ private slots:
         QFile history(exportPath); QVERIFY(history.open(QIODevice::ReadOnly));
         QVERIFY(QString::fromUtf8(history.readAll()).contains("原生导出验收消息"));
 #ifdef Q_OS_WIN
-        QCOMPARE(input.observed, 5);
+        QCOMPARE(input.observed.load(), 5);
+#elif defined(Q_OS_LINUX)
+        if (qgetenv("QTNETWORKCHAT_NATIVE_DIALOG_AUTOMATE") == "1") QCOMPARE(input.observed.load(), 5);
 #endif
         QVERIFY(GuiTestSupport::captureScreenshot(window,
             QDir(QCoreApplication::applicationDirPath()).filePath("mainwindow_native_gui.png")));
@@ -340,9 +472,28 @@ private slots:
                 auto* picker = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
                 if (!picker) return;
                 timer->stop();
-                picker->selectFile(path);
-                QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
-                selected = true;
+                picker->setDirectory(QFileInfo(path).absolutePath());
+                // The test payload is .bin, outside the default common-file
+                // filter. Select the shipping picker's All files option.
+                picker->selectNameFilter(picker->nameFilters().last());
+                // QFileSystemModel loads directories asynchronously. A reopened
+                // picker can still disable Open while its model is settling.
+                QTest::qWait(100);
+                auto* name = picker->findChild<QLineEdit*>("fileNameEdit");
+                auto* buttons = picker->findChild<QDialogButtonBox*>();
+                auto* open = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
+                if (name && open) {
+                    name->setFocus();
+                    name->selectAll();
+                    QTest::keyClicks(name, QFileInfo(path).fileName());
+                    QElapsedTimer ready; ready.start();
+                    while (!open->isEnabled() && ready.elapsed() < 3000) QTest::qWait(20);
+                    if (open->isEnabled()) QTest::mouseClick(open, Qt::LeftButton);
+                    selected = picker->result() == QDialog::Accepted;
+                    qInfo() << "GUI_FILE_PICK" << name->text() << picker->directory().absolutePath()
+                            << "enabled=" << open->isEnabled() << "result=" << picker->result();
+                }
+                if (!selected) picker->reject();
                 timer->deleteLater();
             });
             timer->start(20);
