@@ -22,7 +22,7 @@ void ClientStorage::setUserName(const QString& userName) {
 }
 
 QString ClientStorage::appDataRootDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     QString dir = settings.value("storage/appDataRoot").toString().trimmed();
     if (dir.isEmpty()) {
         dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -40,12 +40,12 @@ void ClientStorage::setAppDataRootDirectory(const QString& directoryPath) {
         return;
     }
     QDir().mkpath(cleaned);
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     settings.setValue("storage/appDataRoot", cleaned);
 }
 
 void ClientStorage::resetAppDataRootDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     settings.remove("storage/appDataRoot");
 }
 

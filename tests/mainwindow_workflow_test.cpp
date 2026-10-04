@@ -12,6 +12,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
@@ -127,8 +128,15 @@ private slots:
         qunsetenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary.filePath("settings"));
+        QSettings storageSettings(QSettings::IniFormat, QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
+        QVERIFY(QDir::fromNativeSeparators(storageSettings.fileName()).startsWith(temporary.path() + QLatin1Char('/')));
         ClientStorage::setAppDataRootDirectory(temporary.filePath("client"));
         LocalFileManager::setReceivedDownloadRootDirectory(temporary.filePath("downloads"));
+        QCOMPARE(ClientStorage::appDataRootDirectory(), temporary.filePath("client"));
+        QCOMPARE(LocalFileManager::receivedDownloadRootDirectory(), temporary.filePath("downloads"));
+        storageSettings.sync();
+        QCOMPARE(storageSettings.value("storage/appDataRoot").toString(), temporary.filePath("client"));
+        QCOMPARE(storageSettings.value("storage/receivedDownloadRoot").toString(), temporary.filePath("downloads"));
         QVERIFY(GuiTestSupport::prepareFont());
 #if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
         QTest::failOnWarning(QRegularExpression(QStringLiteral("QString::arg:.*")));
@@ -300,8 +308,16 @@ private slots:
             auto* picker = qobject_cast<QFileDialog*>(&dialog);
             if (!picker) return false;
             picker->setDirectory(QFileInfo(filePath).absolutePath());
-            picker->selectFile(QFileInfo(filePath).fileName());
-            return QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+            auto* nameInput = picker->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+            auto* buttons = picker->findChild<QDialogButtonBox*>();
+            auto* open = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
+            if (!nameInput || !open) return false;
+            nameInput->setFocus();
+            nameInput->selectAll();
+            QTest::keyClicks(nameInput, QFileInfo(filePath).fileName());
+            if (!open->isEnabled()) return false;
+            QTest::mouseClick(open, Qt::LeftButton);
+            return picker->result() == QDialog::Accepted;
         });
         QTest::mouseClick(fileButton, Qt::LeftButton);
         QVERIFY(dialogsOk);

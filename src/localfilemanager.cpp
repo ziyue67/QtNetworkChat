@@ -7,7 +7,7 @@
 #include <QStandardPaths>
 
 QString LocalFileManager::receivedDownloadRootDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     QString directory = settings.value("storage/receivedDownloadRoot").toString().trimmed();
     if (directory.isEmpty()) {
         const QString downloads = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -25,17 +25,17 @@ void LocalFileManager::setReceivedDownloadRootDirectory(const QString& directory
         return;
     }
     QDir().mkpath(cleaned);
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     settings.setValue("storage/receivedDownloadRoot", cleaned);
 }
 
 void LocalFileManager::resetReceivedDownloadRootDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     settings.remove("storage/receivedDownloadRoot");
 }
 
 QString LocalFileManager::lastTransferDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     QString directory = settings.value("transfer/lastDirectory").toString();
     if (directory.isEmpty()) {
         directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -52,12 +52,12 @@ void LocalFileManager::rememberTransferDirectory(const QString& filePath) {
         return;
     }
 
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     settings.setValue("transfer/lastDirectory", directory);
 }
 
 QString LocalFileManager::lastAvatarDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     QString directory = settings.value("avatar/lastDirectory").toString();
     if (directory.isEmpty()) {
         directory = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
@@ -74,7 +74,7 @@ void LocalFileManager::rememberAvatarDirectory(const QString& filePath) {
         return;
     }
 
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "QtNetworkChat", "QtNetworkChat");
     settings.setValue("avatar/lastDirectory", directory);
 }
 
