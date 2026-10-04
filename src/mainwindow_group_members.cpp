@@ -9,6 +9,7 @@
 #include "widgets/groupmembersidebar.h"
 
 #include <QDateTime>
+#include <QJsonDocument>
 #include <QMessageBox>
 #include <QStandardItem>
 #include <QStatusBar>
