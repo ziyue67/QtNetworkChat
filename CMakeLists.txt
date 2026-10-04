@@ -647,6 +647,18 @@ if(BUILD_TESTING)
     set_tests_properties(MainWindowExtendedGui PROPERTIES TIMEOUT 165)
     if(WIN32)
         target_link_libraries(mainwindow_extended_gui_test PRIVATE ole32 oleaut32 uuid)
+        add_executable(native_dialog_input_test tests/native_dialog_input_test.cpp)
+        target_include_directories(native_dialog_input_test PRIVATE tests)
+        target_link_libraries(native_dialog_input_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets
+            Qt${QT_VERSION_MAJOR}::Test ole32 oleaut32 uuid)
+        add_test(NAME NativeDialogDriverSmoke COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:native_dialog_input_test>
+            "-DTEST_ARGS=-o;-,txt"
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -DTEST_QT_LOG_FILE=ON -DTEST_TIMEOUT=40
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake)
+        set_tests_properties(NativeDialogDriverSmoke PROPERTIES TIMEOUT 50
+            ENVIRONMENT "QT_QPA_PLATFORM=windows")
         add_test(NAME NativeDesktopDialogs COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:mainwindow_extended_gui_test>
             "-DTEST_ARGS=nativePickers;-o;-,txt"

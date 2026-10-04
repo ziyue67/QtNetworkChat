@@ -79,6 +79,15 @@ jobs:
             throw "cmake configure failed with exit code $LASTEXITCODE"
           }
 
+      - name: Verify native save dialog driver
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          cmake --build build --config Release --parallel 2 --target native_dialog_input_test
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog driver build failed" }
+          ctest --test-dir build -C Release --output-on-failure -R '^NativeDialogDriverSmoke$'
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog driver smoke failed" }
+
       - name: Build
         shell: pwsh
         timeout-minutes: 45
