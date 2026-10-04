@@ -646,11 +646,13 @@ if(BUILD_TESTING)
         -DTEST_TIMEOUT=150 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake)
     set_tests_properties(MainWindowExtendedGui PROPERTIES TIMEOUT 165)
     if(WIN32)
+        target_link_libraries(mainwindow_extended_gui_test PRIVATE ole32 oleaut32 uuid)
         add_test(NAME NativeDesktopDialogs COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:mainwindow_extended_gui_test>
             "-DTEST_ARGS=nativePickers;-o;-,txt"
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -DTEST_QT_LOG_FILE=ON
             -DTEST_TIMEOUT=90 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake)
         set_tests_properties(NativeDesktopDialogs PROPERTIES TIMEOUT 105
             ENVIRONMENT "QT_QPA_PLATFORM=windows;QTNETWORKCHAT_NATIVE_DIALOG_TEST=1")

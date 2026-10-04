@@ -44,6 +44,8 @@ private:
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <UIAutomation.h>
+#include <memory>
 
 // Only touches visible Win32 file dialogs belonging to this test process.
 // Real output assertions live in nativePickers(), outside the input driver.
@@ -53,6 +55,7 @@ public:
     QList<Choice> choices;
     std::atomic<int> observed{0};
     HWND lastDialog = nullptr;
+    HWND diagnosedDialog = nullptr;
     ~NativeDialogInput() override { stop(); }
     explicit NativeDialogInput(QObject* parent) : NativeDialogInputWorker(parent) {
         poll = [this] {
@@ -69,47 +72,91 @@ public:
                 }
                 return TRUE;
             }, reinterpret_cast<LPARAM>(&dialog));
-            if (!dialog) { lastDialog = nullptr; return; }
+            if (!dialog) { lastDialog = nullptr; diagnosedDialog = nullptr; return; }
             if (dialog == lastDialog || observed >= choices.size()) return;
-            SetForegroundWindow(dialog);
-            if (GetForegroundWindow() != dialog) return;
+            const Choice choice = choices.at(observed.load());
+            // Hosted runners need not have an input desktop. UI Automation
+            // addresses the native picker controls without foreground focus or
+            // global keystrokes, and remains scoped to this process's HWND.
+            const bool diagnose = dialog != diagnosedDialog;
+            diagnosedDialog = dialog;
+            if (!choose(dialog, choice, diagnose)) return;
             lastDialog = dialog;
-            const Choice choice = choices.at(observed++);
+            ++observed;
             qInfo() << "NATIVE_INPUT" << observed.load() << dialog << choice.path;
-            if (choice.path.isEmpty()) { key(VK_ESCAPE); return; }
-            chord(choice.directory ? VK_CONTROL : VK_MENU, choice.directory ? 'L' : 'N');
-            pause(200);
-            {
-                chord(VK_CONTROL, 'A');
-                const QString path = QDir::toNativeSeparators(choice.path);
-                for (const QChar character : path) {
-                    INPUT input[2]{};
-                    input[0].type = input[1].type = INPUT_KEYBOARD;
-                    input[0].ki.wScan = input[1].ki.wScan = character.unicode();
-                    input[0].ki.dwFlags = KEYEVENTF_UNICODE;
-                    input[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-                    SendInput(2, input, sizeof(INPUT));
-                }
-                key(VK_RETURN);
-            }
-            if (choice.directory) { pause(700); key(VK_RETURN); }
         };
     }
 private:
-    static void key(WORD keyCode) {
-        INPUT input[2]{};
-        input[0].type = input[1].type = INPUT_KEYBOARD;
-        input[0].ki.wVk = input[1].ki.wVk = keyCode;
-        input[1].ki.dwFlags = KEYEVENTF_KEYUP;
-        SendInput(2, input, sizeof(INPUT));
-    }
-    static void chord(WORD modifier, WORD keyCode) {
-        INPUT input[4]{};
-        for (auto& event : input) event.type = INPUT_KEYBOARD;
-        input[0].ki.wVk = input[3].ki.wVk = modifier;
-        input[1].ki.wVk = input[2].ki.wVk = keyCode;
-        input[2].ki.dwFlags = input[3].ki.dwFlags = KEYEVENTF_KEYUP;
-        SendInput(4, input, sizeof(INPUT));
+    struct ReleaseCom {
+        template<class T> void operator()(T* value) const { if (value) value->Release(); }
+    };
+    template<class T> using ComOwner = std::unique_ptr<T, ReleaseCom>;
+    static bool choose(HWND dialog, const Choice& choice, bool diagnose) {
+        const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(initialized)) {
+            if (diagnose) qWarning() << "NATIVE_UIA COM initialization failed" << initialized;
+            return false;
+        }
+        struct Uninitialize { ~Uninitialize() { CoUninitialize(); } } uninitialize;
+        IUIAutomation* rawAutomation = nullptr;
+        const HRESULT created = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER,
+                                                 __uuidof(IUIAutomation), reinterpret_cast<void**>(&rawAutomation));
+        if (FAILED(created)) {
+            if (diagnose) qWarning() << "NATIVE_UIA creation failed" << created;
+            return false;
+        }
+        ComOwner<IUIAutomation> automation(rawAutomation);
+        IUIAutomationElement* rawRoot = nullptr;
+        if (FAILED(automation->ElementFromHandle(dialog, &rawRoot))) return false;
+        ComOwner<IUIAutomationElement> root(rawRoot);
+        IUIAutomationCondition* rawCondition = nullptr;
+        if (FAILED(automation->CreateTrueCondition(&rawCondition))) return false;
+        ComOwner<IUIAutomationCondition> condition(rawCondition);
+        IUIAutomationElementArray* rawElements = nullptr;
+        if (FAILED(root->FindAll(TreeScope_Descendants, condition.get(), &rawElements))) return false;
+        ComOwner<IUIAutomationElementArray> elements(rawElements);
+        int length = 0;
+        elements->get_Length(&length);
+        ComOwner<IUIAutomationElement> input, button;
+        for (int index = 0; index < length; ++index) {
+            IUIAutomationElement* rawElement = nullptr;
+            if (FAILED(elements->GetElement(index, &rawElement))) continue;
+            ComOwner<IUIAutomationElement> element(rawElement);
+            CONTROLTYPEID type = 0;
+            BSTR rawName = nullptr;
+            element->get_CurrentControlType(&type);
+            element->get_CurrentName(&rawName);
+            const QString name = QString::fromWCharArray(rawName ? rawName : L"");
+            SysFreeString(rawName);
+            if (diagnose && (type == UIA_EditControlTypeId || type == UIA_ButtonControlTypeId))
+                qInfo() << "NATIVE_UIA control" << type << name;
+            // The CI image is English. Match the path field, excluding the
+            // Explorer address/search fields, and invoke the actual OS action.
+            if (type == UIA_EditControlTypeId
+                && (name.startsWith(QStringLiteral("File name"), Qt::CaseInsensitive)
+                    || name.startsWith(QStringLiteral("Folder"), Qt::CaseInsensitive))) {
+                input = std::move(element);
+            } else if (type == UIA_ButtonControlTypeId
+                       && (choice.path.isEmpty() ? name == QLatin1String("Cancel")
+                           : choice.directory ? name == QLatin1String("Select Folder")
+                           : name == QLatin1String("Open") || name == QLatin1String("Save"))) {
+                button = std::move(element);
+            }
+        }
+        if (!button || (!choice.path.isEmpty() && !input)) return false;
+        if (!choice.path.isEmpty()) {
+            IUIAutomationValuePattern* rawValue = nullptr;
+            if (FAILED(input->GetCurrentPatternAs(UIA_ValuePatternId, __uuidof(IUIAutomationValuePattern),
+                                                  reinterpret_cast<void**>(&rawValue)))) return false;
+            ComOwner<IUIAutomationValuePattern> value(rawValue);
+            const QString path = QDir::toNativeSeparators(choice.path);
+            if (FAILED(value->SetValue(reinterpret_cast<LPCWSTR>(path.utf16())))) return false;
+        }
+        IUIAutomationInvokePattern* rawInvoke = nullptr;
+        if (FAILED(button->GetCurrentPatternAs(UIA_InvokePatternId, __uuidof(IUIAutomationInvokePattern),
+                                              reinterpret_cast<void**>(&rawInvoke)))) return false;
+        ComOwner<IUIAutomationInvokePattern> invoke(rawInvoke);
+        return SUCCEEDED(invoke->Invoke());
     }
 };
 #elif defined(Q_OS_LINUX)

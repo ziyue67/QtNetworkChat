@@ -198,6 +198,7 @@ jobs:
           path: |
             build/ci-logs/
             build/Testing/
+            build/Release/qt_test_runtime/*/qtest-output.txt
             build/CMakeFiles/CMakeOutput.log
             build/CMakeFiles/CMakeError.log
           if-no-files-found: ignore
@@ -215,7 +216,7 @@ jobs:
           $summary += "| Event | `$env:GITHUB_EVENT_NAME` |"
           $summary += "| Ref | `$env:GITHUB_REF` |"
           $summary += "| Qt | `6.8.3 MSVC 2022 x64` |"
-          $summary += "| Build step timeout | `30m` |"
+          $summary += "| Build step timeout | `45m` |"
           $summary += "| CTest step timeout | `20m` |"
           $summary += ""
           $summary += "Diagnostics are uploaded as `windows-build-diagnostics` when the job fails or is cancelled."
