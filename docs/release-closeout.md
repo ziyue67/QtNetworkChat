@@ -27,6 +27,10 @@ SmartScreen 信任或签名证书。
 [整改记录](refactoring-closeout.md)；本机全量与 CI 专项的覆盖边界见
 [测试文档](testing-coverage.md)。不能把旧的 97-test 数字当成当前验证结果。
 
-生产计划仍固定 `v1.1.0`，公网域名为 `qt.ziyuexc.top`。本轮没有执行服务器
-升级或重发桌面安装包；上线状态不能从一次成功的 main 构建推断。
-部署更新时应记录实际镜像 digest、容器健康状态和公网协议结果，保留回滚标签。
+2026-10-04 已将生产服务从 `v1.1.0` 升级并固定为 `sha-3eeb955b25a0`，公网
+域名为 `qt.ziyuexc.top`。现场检查了运行镜像 revision/digest、容器健康、严格
+TLS/HTTP 101、注册/登录、私聊/离线重放与真实 PostgreSQL/Redis；旧服务保持
+原容器和启动时间。配置、数据与旧镜像已备份，数据库在临时库恢复验证通过。
+具体证据与回滚命令见 [上线记录](production-deployment-2026-10-04.md)。
+桌面安装包仍为 `v1.1.4`；发布最新 exe/deb 属于
+[剩余收尾](plan-completion-status.md)，没有由本次服务器升级自动完成。

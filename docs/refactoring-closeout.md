@@ -142,6 +142,10 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure \
 审批、通知、截图工具、发送中取消/重试以及系统原生弹窗仍需要对应 GUI 场景
 或人工验收；文件取消/重试协议已有独立回归测试。详见测试文档中的剩余缺口。
 
-本轮更新仓库与 CI；桌面 Release 版本仍为 `v1.1.4`，公网服务仍固定
-`v1.1.0`。新镜像发布和服务器升级是不同事件，不能写成已经上线。
+2026-10-04 后续已实际升级生产容器到 `sha-3eeb955b25a0`，运行 revision 为
+`3eeb955b25a0a18d174102c4bd2c31195ebcea5e`。严格公网 TLS/HTTP 101、注册/登录、
+私聊与离线重放、真实 PostgreSQL 持久化和 Redis presence/Pub/Sub 验证通过；
+关联 6 个容器未重建。详细备份、回滚和验证边界见
+[上线实测](production-deployment-2026-10-04.md)。桌面 Release 仍为 `v1.1.4`，
+安装包没有因此更新；全部剩余范围见 [计划当前状态](plan-completion-status.md)。
 真实 Qt 基础、项目讲解和 AI 辅助范围说明仍需项目所有者亲自准备。
