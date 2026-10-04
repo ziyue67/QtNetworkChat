@@ -1,38 +1,25 @@
 #include "group_info_panel_ui.h"
+#include "gui_test_support.h"
 #include "theme/thememanager.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QDialog>
 #include <QDir>
-#include <QImage>
 #include <QLabel>
 #include <QPixmap>
 #include <QPushButton>
-#include <QSet>
 #include <QStandardPaths>
 #include <QTest>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 namespace {
-bool expect(bool condition, const char* message) {
-    if (!condition) qWarning("%s", message);
-    return condition;
-}
+using GuiTestSupport::expect;
 
 bool checkScreenshot(QWidget& window, const QString& name) {
-    QApplication::processEvents();
-    const QImage image = window.grab().toImage();
-    if (!expect(!image.isNull() && image.size() == window.size(),
-                "group info screenshot dimensions should match the dialog")) return false;
-    QSet<QRgb> colors;
-    for (int y = 0; y < image.height(); y += 8) {
-        for (int x = 0; x < image.width(); x += 8) colors.insert(image.pixel(x, y));
-    }
-    return expect(colors.size() > 12, "group info screenshot should not be blank")
-        && expect(image.save(QDir(QCoreApplication::applicationDirPath()).filePath(name)),
-                  "group info screenshot should be saved");
+    return GuiTestSupport::captureScreenshot(
+        window, QDir(QCoreApplication::applicationDirPath()).filePath(name));
 }
 }
 
@@ -41,6 +28,7 @@ int main(int argc, char** argv) {
     QApplication::setOrganizationName(QStringLiteral("QtNetworkChatTests"));
     QApplication::setApplicationName(QStringLiteral("group_info_panel_ui_test"));
     QStandardPaths::setTestModeEnabled(true);
+    if (!GuiTestSupport::prepareFont()) return 1;
 
     QDialog panel;
     panel.setObjectName(QStringLiteral("groupInfoDialog"));
@@ -77,8 +65,9 @@ int main(int argc, char** argv) {
     QTest::mouseClick(edit, Qt::LeftButton);
     QTest::mouseClick(receive, Qt::LeftButton);
     QTest::mouseClick(mute, Qt::LeftButton);
-    ok = expect(editClicks == 1 && receiveClicks == 1 && mute->isChecked(),
-                "announcement, settings, and toggle controls should respond to clicks") && ok;
+    ok = expect(editClicks == 1, "announcement button should respond to clicks") && ok;
+    ok = expect(receiveClicks == 1, "settings button should respond to clicks") && ok;
+    ok = expect(mute->isChecked(), "notification toggle should respond to clicks") && ok;
     ok = checkScreenshot(panel, QStringLiteral("group_info_panel_light.png")) && ok;
 
     ThemeManager::instance()->setTheme(ThemeManager::Theme::Dark);

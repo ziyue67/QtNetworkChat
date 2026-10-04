@@ -43,6 +43,12 @@ jobs:
           aqtversion: "==3.3.*"
           py7zrversion: "==1.1.*"
 
+      - name: Prepare Chinese font for GUI tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/ci-fonts | Out-Null
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf" -OutFile build/ci-fonts/NotoSansCJKsc-Regular.otf
+
       - name: Configure
         shell: pwsh
         run: |
@@ -84,6 +90,8 @@ jobs:
       - name: Test
         shell: pwsh
         timeout-minutes: 20
+        env:
+          QTNETWORKCHAT_TEST_FONT: ${{ github.workspace }}/build/ci-fonts/NotoSansCJKsc-Regular.otf
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null

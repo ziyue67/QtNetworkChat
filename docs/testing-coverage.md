@@ -34,6 +34,12 @@ desktop releases also run installer smoke checks; the container workflow builds
 and publishes the server image. A successful installer smoke check is not a
 code-signing certificate: the Windows installer is currently unsigned.
 
+Windows GUI tests load the Noto Sans CJK SC font from the pinned Noto CJK
+`Sans2.004` commit and check that it contains Chinese glyphs. Linux CI installs
+`fonts-noto-cjk`. This is a test dependency and is not bundled with the app.
+Screenshots check device scale and scan the image for nonblank content;
+assertion failures go directly to stderr so Windows CTest captures the reason.
+
 `E2EEnvelopeProtocol` includes provider-not-linked assertions and is registered
 only when the adapter is not linked. Linked production builds use
 `E2EProductionAdapterRuntime` for provider behavior instead.

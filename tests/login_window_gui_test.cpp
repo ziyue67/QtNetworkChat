@@ -1,23 +1,17 @@
 #include "windows/loginwindow.h"
+#include "gui_test_support.h"
 #include "theme/thememanager.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QDir>
-#include <QImage>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QTest>
-#include <QSet>
 
 namespace {
-bool expect(bool condition, const char* message) {
-    if (!condition) {
-        qWarning("%s", message);
-    }
-    return condition;
-}
+using GuiTestSupport::expect;
 
 template <typename Widget>
 Widget* findByText(QWidget& parent, const QString& text) {
@@ -39,19 +33,7 @@ QLineEdit* findByPlaceholder(QWidget& parent, const QString& text) {
 }
 
 bool checkScreenshot(QWidget& window, const QString& path) {
-    QApplication::processEvents();
-    const QImage image = window.grab().toImage();
-    if (image.isNull() || image.width() != window.width() || image.height() != window.height()) {
-        return expect(false, "login window screenshot has invalid dimensions");
-    }
-    QSet<QRgb> colors;
-    for (int y = 0; y < image.height(); y += 8) {
-        for (int x = 0; x < image.width(); x += 8) {
-            colors.insert(image.pixel(x, y));
-        }
-    }
-    return expect(colors.size() > 12, "login window screenshot is blank")
-        && expect(image.save(path), "login window screenshot could not be saved");
+    return GuiTestSupport::captureScreenshot(window, path);
 }
 }
 
@@ -60,6 +42,7 @@ int main(int argc, char** argv) {
     QApplication::setOrganizationName(QStringLiteral("QtNetworkChatTests"));
     QApplication::setApplicationName(QStringLiteral("login_window_gui_test"));
     QStandardPaths::setTestModeEnabled(true);
+    if (!GuiTestSupport::prepareFont()) return 1;
 
     LoginWindow window;
     window.show();

@@ -27,6 +27,7 @@ jobs:
             appstream \
             cmake \
             desktop-file-utils \
+            fonts-noto-cjk \
             libpq-dev \
             libssl-dev \
             ninja-build \
