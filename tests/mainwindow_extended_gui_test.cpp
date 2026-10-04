@@ -527,6 +527,9 @@ private slots:
 };
 
 int main(int argc, char** argv) {
+    // Configure before Fixture constructs its Client members (not in start()).
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    qputenv("QTNETWORKCHAT_TLS", "0");
     if (qgetenv("QTNETWORKCHAT_NATIVE_DIALOG_TEST") != "1")
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);

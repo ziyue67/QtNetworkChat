@@ -4,8 +4,10 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore: ["**/*.md"]
   pull_request:
     branches: [main]
+    paths-ignore: ["**/*.md"]
   workflow_dispatch:
 
 permissions:
@@ -74,7 +76,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
           $log = "build/ci-logs/build-release.log"
           $err = "build/ci-logs/build-release.err.log"
-          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--target", "QtNetworkChat", "qqnt_engine", "qqnt_engine_smoke_test", "qqnt_engine_end_to_end_test", "message_serialization_test", "tls_security_test", "tls_login_order_test", "websocket_transport_test", "login_window_gui_test", "group_info_panel_ui_test", "mainwindow_workflow_test", "mainwindow_extended_gui_test", "account_password_kdf_test", "offline_attachment_quota_test", "file_chunk_duplicate_ack_test", "file_transfer_cancel_test", "e2e_production_adapter_runtime_test", "e2e_private_message_delivery_test", "e2e_rollout_observability_exporter") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
+          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release", "--parallel", "2", "--target", "QtNetworkChat", "qqnt_engine", "qqnt_engine_smoke_test", "qqnt_engine_end_to_end_test", "message_serialization_test", "tls_security_test", "tls_login_order_test", "websocket_transport_test", "login_window_gui_test", "group_info_panel_ui_test", "mainwindow_workflow_test", "mainwindow_extended_gui_test", "account_password_kdf_test", "offline_attachment_quota_test", "file_chunk_duplicate_ack_test", "file_transfer_cancel_test", "e2e_production_adapter_runtime_test", "e2e_private_message_delivery_test", "e2e_rollout_observability_exporter") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -Wait -PassThru
           Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
           Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) {

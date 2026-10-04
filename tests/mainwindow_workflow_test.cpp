@@ -357,6 +357,8 @@ private slots:
 };
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    qputenv("QTNETWORKCHAT_TLS", "0");
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("QtNetworkChatTests"));

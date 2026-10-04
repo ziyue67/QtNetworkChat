@@ -537,6 +537,8 @@ QJsonObject connectPayload(quint16 port) {
 }
 
 int main(int argc, char* argv[]) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    qputenv("QTNETWORKCHAT_TLS", "0");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QtNetworkChatTests"));
     QCoreApplication::setApplicationName(QStringLiteral("qqnt_engine_end_to_end_test"));

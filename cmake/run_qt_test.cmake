@@ -28,6 +28,10 @@ set(ENV{TEMP} "${TEST_RUNTIME_ROOT}/Temp")
 set(ENV{TMP} "${TEST_RUNTIME_ROOT}/Temp")
 set(ENV{TMPDIR} "${TEST_RUNTIME_ROOT}/Temp")
 set(ENV{QTNETWORKCHAT_APPDATA_DIR} "${TEST_RUNTIME_ROOT}/AppData/QtNetworkChat")
+# Local fixtures use the server's raw TCP listener, irrespective of the
+# installed application's compiled WSS default. Transport/TLS-specific tests
+# explicitly set their own transport before constructing Client.
+set(ENV{QTNETWORKCHAT_TRANSPORT} "tcp")
 set(ENV{QTNETWORKCHAT_TLS} "0")
 if(NOT DEFINED ENV{QT_QPA_PLATFORM})
     set(ENV{QT_QPA_PLATFORM} "offscreen")

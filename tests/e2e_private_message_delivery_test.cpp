@@ -1082,6 +1082,8 @@ bool runProductionRotationLocalRebindScenario() {
 }
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
+    qputenv("QTNETWORKCHAT_TLS", "0");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("e2e_private_message_delivery_test");
