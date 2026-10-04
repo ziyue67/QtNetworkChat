@@ -12,9 +12,11 @@ does not translate WebSocket frames into the server protocol.
   login frames, file transfer, and E2E session use. The desktop window consumes
   its signals and must not write directly to a socket.
 - `src/mainwindow.cpp` owns window lifecycle and remaining chat workflows.
-  Views/settings, group panel, search, menus, and notifications have separate
-  compilation units. The remaining window file is still large and needs
-  incremental extraction with UI regression checks.
+  Views/settings, group panel, group member sidebar, friend manager, search,
+  menus, and notifications have separate compilation units. The quick-add
+  entry point uses the shared add-friend dialog; its unreachable legacy dialog
+  was removed. The remaining window file is still large and needs incremental
+  extraction with UI regression checks.
 - `src/server.cpp` owns connections, dispatch, Redis routing, persistence,
   and transfer handling. Friend and group operations are in
   `src/server_friend.cpp` and `src/server_group.cpp`. The remaining server

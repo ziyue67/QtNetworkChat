@@ -21,6 +21,8 @@ SOURCES += \
     src/mainwindow.cpp \
     src/mainwindow_menu.cpp \
     src/mainwindow_notifications.cpp \
+    src/mainwindow_group_members.cpp \
+    src/mainwindow_friends.cpp \
     src/mainwindow_views.cpp \
     src/mainwindow_group_panel.cpp \
     src/mainwindow_search.cpp \
