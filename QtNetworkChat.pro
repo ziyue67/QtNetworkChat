@@ -47,8 +47,10 @@ SOURCES += \
     src/heartbeatmonitor.cpp \
     src/tlssecurity.cpp \
     src/e2eenvelope.cpp \
+    src/e2e_crypto_primitives.cpp \
     src/e2e_envelope_codec.cpp \
     src/server.cpp \
+    src/server_transport.cpp \
     src/server_friend.cpp \
     src/server_group.cpp \
     src/client.cpp \

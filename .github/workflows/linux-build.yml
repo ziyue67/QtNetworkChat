@@ -62,6 +62,7 @@ jobs:
             message_serialization_test \
             tls_security_test \
             websocket_transport_test \
+            login_window_gui_test \
             e2e_production_adapter_runtime_test
 
       - name: Test
@@ -69,7 +70,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           ctest --test-dir build --output-on-failure \
-            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|E2EProductionAdapterRuntime)$'
+            -R '^(QtNetworkChatExecutableExists|MessageSerializationRoundTrip|TlsSecurityPinning|WebSocketTransport|LoginWindowGuiInteraction|E2EProductionAdapterRuntime)$'
 
       - name: Package Linux client
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')

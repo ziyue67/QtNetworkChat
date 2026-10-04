@@ -17,10 +17,11 @@ does not translate WebSocket frames into the server protocol.
   entry point uses the shared add-friend dialog; its unreachable legacy dialog
   was removed. The remaining window file is still large and needs incremental
   extraction with UI regression checks.
-- `src/server.cpp` owns connections, dispatch, Redis routing, persistence,
-  and transfer handling. Friend and group operations are in
+- `src/server.cpp` owns startup, Redis routing, persistence, and transfer
+  handling. TCP connection lifecycle and frame dispatch are in
+  `src/server_transport.cpp`; friend and group operations are in
   `src/server_friend.cpp` and `src/server_group.cpp`. The remaining server
-  file is still large.
+  file is still large, especially database and offline-transfer paths.
 - `QQNTRedisService` is a startup requirement: without Redis, cross-instance
   presence and delivery cannot be guaranteed, so startup fails closed.
 - PostgreSQL holds production account/chat state; Redis handles presence,
@@ -34,7 +35,9 @@ Production-capable builds link the OpenSSL provider for X25519, HKDF-SHA256,
 AES-256-GCM, and Ed25519; runtime selection still requires
 `QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production`. The provider status code in
 `src/e2eenvelope.cpp` remains a large maintenance hotspot;
-`src/e2e_envelope_codec.cpp` contains JSON encoding and validation.
+`src/e2e_envelope_codec.cpp` contains JSON encoding and validation, while
+`src/e2e_crypto_primitives.cpp` contains draft primitives and session-material
+encoding.
 
 A configured TLS certificate pin is an explicit trust root for self-signed
 installations. Both TLS and WSS compare the peer certificate before sending

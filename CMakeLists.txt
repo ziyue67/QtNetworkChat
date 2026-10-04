@@ -142,6 +142,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/notificationpanelmanager.cpp
     src/groupmanager.cpp
     src/e2eenvelope.cpp
+    src/e2e_crypto_primitives.cpp
     src/e2e_envelope_codec.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
@@ -193,6 +194,7 @@ add_executable(QtNetworkChat
     src/historyservice.cpp
     src/historymetadata.cpp
     src/server.cpp
+    src/server_transport.cpp
     src/server_friend.cpp
     src/server_group.cpp
     src/client.cpp
@@ -341,10 +343,12 @@ add_executable(qqnt_server
     src/redisclient.cpp
     src/qqnt_redis_service.cpp
     src/server.cpp
+    src/server_transport.cpp
     src/server_friend.cpp
     src/server_group.cpp
     src/message.cpp
     src/e2eenvelope.cpp
+    src/e2e_crypto_primitives.cpp
     src/e2e_envelope_codec.cpp
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
@@ -372,10 +376,12 @@ add_executable(qqnt_engine
     src/client.cpp
     src/redisclient.cpp
     src/server.cpp
+    src/server_transport.cpp
     src/server_friend.cpp
     src/server_group.cpp
     src/message.cpp
     src/e2eenvelope.cpp
+    src/e2e_crypto_primitives.cpp
     src/e2e_envelope_codec.cpp
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
@@ -407,6 +413,7 @@ qtnetworkchat_attach_production_adapter(qqnt_engine)
 add_executable(e2e_rollout_observability_exporter
     tools/e2e_rollout_observability_exporter.cpp
     src/e2eenvelope.cpp
+    src/e2e_crypto_primitives.cpp
     src/e2e_envelope_codec.cpp
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/e2eenvelope.h
@@ -438,6 +445,7 @@ if(BUILD_TESTING)
         tests/message_serialization_test.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_crypto_primitives.cpp
         src/e2e_envelope_codec.cpp
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/message.h
@@ -453,6 +461,7 @@ if(BUILD_TESTING)
     add_executable(e2e_envelope_test
         tests/e2e_envelope_test.cpp
         src/e2eenvelope.cpp
+        src/e2e_crypto_primitives.cpp
         src/e2e_envelope_codec.cpp
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
@@ -468,6 +477,7 @@ if(BUILD_TESTING)
     add_executable(e2e_production_adapter_runtime_test
         tests/e2e_production_adapter_runtime_test.cpp
         src/e2eenvelope.cpp
+        src/e2e_crypto_primitives.cpp
         src/e2e_envelope_codec.cpp
         ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
@@ -482,6 +492,7 @@ if(BUILD_TESTING)
         tests/e2e_private_message_delivery_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -534,6 +545,7 @@ if(BUILD_TESTING)
         tests/server_group_member_update_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -558,6 +570,7 @@ if(BUILD_TESTING)
         tests/server_friend_persistence_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -582,6 +595,7 @@ if(BUILD_TESTING)
         tests/account_password_kdf_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -609,6 +623,22 @@ if(BUILD_TESTING)
     )
     target_include_directories(login_credential_store_test PRIVATE include)
     target_link_libraries(login_credential_store_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
+
+    add_executable(login_window_gui_test
+        tests/login_window_gui_test.cpp
+        src/windows/loginwindow.cpp
+        src/theme/thememanager.cpp
+        src/widgets/avatarlabel.cpp
+        src/logincredentialstore.cpp
+        include/windows/loginwindow.h
+        include/theme/thememanager.h
+        include/widgets/avatarlabel.h
+        include/logincredentialstore.h
+    )
+    target_include_directories(login_window_gui_test PRIVATE include)
+    target_link_libraries(login_window_gui_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Test)
 
     add_executable(tls_security_test
         tests/tls_security_test.cpp
@@ -762,6 +792,7 @@ if(BUILD_TESTING)
         tests/file_transfer_cancel_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -786,6 +817,7 @@ if(BUILD_TESTING)
         tests/public_image_transfer_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -810,6 +842,7 @@ if(BUILD_TESTING)
         tests/file_chunk_duplicate_ack_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -849,6 +882,7 @@ if(BUILD_TESTING)
         tests/offline_attachment_quota_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -889,6 +923,7 @@ if(BUILD_TESTING)
         tests/redis_startup_requirement_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -913,6 +948,7 @@ if(BUILD_TESTING)
         tests/database_health_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -937,6 +973,7 @@ if(BUILD_TESTING)
         tests/postgres_qpsql_protocol_smoke_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -969,11 +1006,13 @@ if(BUILD_TESTING)
         tests/redis_server_readiness_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_crypto_primitives.cpp
         src/e2e_envelope_codec.cpp
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
@@ -992,6 +1031,7 @@ if(BUILD_TESTING)
         tests/redis_cross_instance_chat_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
             src/client.cpp
@@ -1214,6 +1254,13 @@ if(BUILD_TESTING)
         NAME LoginCredentialStoreSafety
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:login_credential_store_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME LoginWindowGuiInteraction
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:login_window_gui_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
@@ -1710,6 +1757,7 @@ if(BUILD_TESTING)
         tests/qqnt_engine_end_to_end_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
         src/qqnt_redis_service.cpp
@@ -1717,6 +1765,7 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_crypto_primitives.cpp
         src/e2e_envelope_codec.cpp
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
@@ -1741,6 +1790,7 @@ if(BUILD_TESTING)
         tests/qqnt_server_redis_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
+        src/server_transport.cpp
         src/server_friend.cpp
         src/server_group.cpp
         src/qqnt_redis_service.cpp
@@ -1748,6 +1798,7 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        src/e2e_crypto_primitives.cpp
         src/e2e_envelope_codec.cpp
         src/objectstore.cpp
         src/heartbeatmonitor.cpp
