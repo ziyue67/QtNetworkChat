@@ -45,13 +45,26 @@ if(DEFINED TEST_TIMEOUT)
     list(APPEND test_timeout_args TIMEOUT "${TEST_TIMEOUT}")
 endif()
 
+# Persist GUI QtTest output so Windows stdout-capture limitations cannot hide
+# a failed assertion. Relay the text through CMake without requiring artifacts.
+set(test_arguments "${TEST_ARGS}")
+if(TEST_QT_LOG_FILE)
+    set(qt_log_file "${TEST_RUNTIME_ROOT}/qtest-output.txt")
+    string(REPLACE "-,txt" "${qt_log_file},txt" test_arguments "${test_arguments}")
+endif()
+
 execute_process(
-    COMMAND "${TEST_EXE}" ${TEST_ARGS}
+    COMMAND "${TEST_EXE}" ${test_arguments}
     ${test_timeout_args}
     RESULT_VARIABLE test_result
     OUTPUT_VARIABLE test_output
     ERROR_VARIABLE test_error
 )
+
+if(TEST_QT_LOG_FILE AND EXISTS "${qt_log_file}")
+    file(READ "${qt_log_file}" qt_log_output)
+    message(STATUS "${qt_log_output}")
+endif()
 
 if(NOT test_output STREQUAL "")
     message(STATUS "${test_output}")
