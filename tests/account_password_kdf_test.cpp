@@ -130,6 +130,7 @@ bool loginClient(Client& client,
 }
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("account_password_kdf_test");

@@ -28,9 +28,11 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
   MainWindow's network callbacks or persist changes to a live group.
 - Headless engine startup, protocol drift, and end-to-end private messaging.
 
-The Linux and Windows workflows build the app, run focused checks, and upload
-the login/group-info smoke screenshots as Actions artifacts. Tagged
-desktop releases also run installer smoke checks; the container workflow builds
+The Linux and Windows workflows build the app, run focused checks including
+account KDF migration, offline quota/replay/resume, duplicate acknowledgements,
+upload cancellation, and engine startup/command acknowledgements. They upload
+login/group-info smoke screenshots as Actions artifacts. Tagged desktop
+releases also run installer smoke checks; the container workflow builds
 and publishes the server image. A successful installer smoke check is not a
 code-signing certificate: the Windows installer is currently unsigned.
 

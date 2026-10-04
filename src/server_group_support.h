@@ -7,6 +7,8 @@
 class QTcpSocket;
 
 namespace ServerGroupSupport {
+QString groupType(const QString& groupId);
+QString filePolicy(const QString& groupType);
 struct ActorPermission {
     bool member = false;
     bool manager = false;

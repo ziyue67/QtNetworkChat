@@ -9,7 +9,8 @@
 // Internal provider ABI boundary. Selection and status reporting stay in e2eenvelope.cpp.
 namespace E2EProviderRuntime {
 inline constexpr qsizetype SessionKeyBytes = 32;
-inline constexpr char E2EAdvertisedSuite[] = "x25519-hkdf-sha256-aes-256-gcm";
+// Used only by the OpenSSL production provider; draft payloads use draft-placeholder.
+inline constexpr char E2EProductionSuite[] = "x25519-hkdf-sha256-aes-256-gcm";
 
 enum class E2ECryptoOperation {
     SessionKeyGeneration,

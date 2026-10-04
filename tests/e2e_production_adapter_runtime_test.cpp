@@ -1746,6 +1746,7 @@ int main() {
         QByteArray productionDecrypted;
         ok = expect(productionEnvelope.isValid()
                         && productionEnvelope.suite == aliceAgreement.suite
+                        && productionEnvelope.suite == QStringLiteral("x25519-hkdf-sha256-aes-256-gcm")
                         && productionEnvelope.ciphertext.size() == productionPlaintext.size()
                         && productionEnvelope.tag.size() >= 16
                         && reason.isEmpty()

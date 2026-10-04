@@ -241,6 +241,7 @@ int main() {
                     && backendStatus.value("fallbackBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && registeredBackends.size() == 2
                     && backendStatus.value("suite").toString() == e2eDefaultSuite()
+                    && e2eDefaultSuite() == QStringLiteral("draft-placeholder")
                     && backendStatus.value("signatureSuite").toString() == e2eAgreementSignatureSuite()
                     && !backendStatus.value("productionReady").toBool(true)
                     && !backendStatus.value("productionAdapterRequested").toBool(true)
@@ -2228,6 +2229,7 @@ int main() {
                                                            QStringLiteral("file/private/v1;transfer-1"),
                                                            &reason);
     ok = expect(encryptedPayload.isValid(&reason)
+                    && encryptedPayload.suite == QStringLiteral("draft-placeholder")
                     && encryptedPayload.aad.startsWith(QStringLiteral("file/private/v1"))
                     && encryptedPayload.ciphertext != binaryPayload,
                 "encrypted binary payload should be valid and opaque") && ok;

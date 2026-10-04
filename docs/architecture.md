@@ -20,13 +20,23 @@ does not translate WebSocket frames into the server protocol.
   The group-info view is built by `src/group_info_panel_ui.cpp`; the window
   wires permissions, manager settings, personal settings, and leave/dissolve
   actions separately in `src/mainwindow_group_panel.cpp`.
-- `src/server.cpp` owns startup, Redis routing, persistence, and transfer
-  handling. TCP connection lifecycle and frame dispatch are in
-  `src/server_transport.cpp`; friend and group operations are in
+- `src/server.cpp` owns startup, Redis routing, message routing, and remaining
+  group/friend queries and snapshots. TCP connection lifecycle and frame
+  dispatch are in `src/server_transport.cpp`; friend and group operations are in
   `src/server_friend.cpp` and `src/server_group.cpp`. The remaining server
   database driver differences, connection pool, health checks, and schema
-  initialization are in `src/server_database.cpp`. The remaining server file
-  is still large, especially account queries and offline-transfer paths.
+  initialization are in `src/server_database.cpp`.
+  `src/server_account.cpp` owns login, password KDF/legacy migration, profile
+  persistence, session records, and account deactivation/re-registration.
+  `src/server_file_transfer.cpp` owns incoming file validation, upload state,
+  cancellation/timeout, outgoing chunks, and matching acknowledgements.
+  `src/server_offline_delivery.cpp` owns attachment storage/quota/expiry,
+  queue persistence/fallback, replay validation, and confirmed resume progress.
+  `src/server_delivery_support.cpp` shares E2E wire-field validation, delivery
+  notices, and route logging without copying the implementations.
+  These units keep the same `Server` state and private methods; ownership is
+  separated by compilation unit, not by introducing another server object.
+  Redis large-file routing and group/friend persistence still need extraction.
 - `QQNTRedisService` is a startup requirement: without Redis, cross-instance
   presence and delivery cannot be guaranteed, so startup fails closed.
 - PostgreSQL holds production account/chat state; Redis handles presence,
@@ -47,6 +57,13 @@ encoding.
 and runs positive/negative runtime self-tests against an explicitly supplied
 table. Backend selection, registration, and status reporting remain separate
 from this boundary and still require further simplification.
+
+The internal `E2EProductionSuite` names the production provider's wire suite.
+It is not the default suite for draft encryption. `e2eDefaultSuite()` and
+generated envelopes advertise `draft-placeholder` on the draft path, and
+`x25519-hkdf-sha256-aes-256-gcm` when the selected production provider passes
+runtime checks. Regression checks assert both literal suite names on actual
+encryption output.
 
 A configured TLS certificate pin is an explicit trust root for self-signed
 installations. Both TLS and WSS compare the peer certificate before sending

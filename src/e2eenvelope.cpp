@@ -2094,7 +2094,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
     if (prepareLinkedVerifyFixture) {
         qnc_e2e_operation_input_v1 publicInput = {};
         publicInput.operation = providerOperationEnum(E2ECryptoOperation::PublicKeyDerivation);
-        publicInput.suite_id = E2EAdvertisedSuite;
+        publicInput.suite_id = E2EProductionSuite;
         publicInput.primary.data =
             reinterpret_cast<const uint8_t*>(primaryFixture.constData());
         publicInput.primary.size = static_cast<size_t>(primaryFixture.size());
@@ -2110,7 +2110,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
 
         qnc_e2e_operation_input_v1 signInput = {};
         signInput.operation = providerOperationEnum(E2ECryptoOperation::AgreementSign);
-        signInput.suite_id = E2EAdvertisedSuite;
+        signInput.suite_id = E2EProductionSuite;
         signInput.primary.data =
             reinterpret_cast<const uint8_t*>(primaryFixture.constData());
         signInput.primary.size = static_cast<size_t>(primaryFixture.size());
@@ -2137,7 +2137,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
     if (prepareLinkedDecryptFixture) {
         qnc_e2e_operation_input_v1 encryptInput = {};
         encryptInput.operation = providerOperationEnum(E2ECryptoOperation::PayloadEncrypt);
-        encryptInput.suite_id = E2EAdvertisedSuite;
+        encryptInput.suite_id = E2EProductionSuite;
         encryptInput.primary.data =
             reinterpret_cast<const uint8_t*>(primaryFixture.constData());
         encryptInput.primary.size = static_cast<size_t>(primaryFixture.size());
@@ -2211,7 +2211,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
 
         qnc_e2e_operation_input_v1 input = {};
         input.operation = providerOperationEnum(operation);
-        input.suite_id = E2EAdvertisedSuite;
+        input.suite_id = E2EProductionSuite;
         input.primary.data = reinterpret_cast<const uint8_t*>(primaryFixture.constData());
         input.primary.size = static_cast<size_t>(primaryFixture.size());
         input.secondary.data = reinterpret_cast<const uint8_t*>(secondaryFixture.constData());
@@ -2730,7 +2730,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
 
             qnc_e2e_operation_input_v1 input = {};
             input.operation = providerOperationEnum(operation);
-            input.suite_id = E2EAdvertisedSuite;
+            input.suite_id = E2EProductionSuite;
             input.primary.data = reinterpret_cast<const uint8_t*>(primary.constData());
             input.primary.size = static_cast<size_t>(primary.size());
             input.secondary.data = reinterpret_cast<const uint8_t*>(secondary.constData());
@@ -3534,7 +3534,7 @@ QJsonObject productionProviderCallFrameStatusForDescriptor(const E2ECryptoAdapte
         frame[QStringLiteral("providerAbiSignature")] =
             productionOperationProviderAbiSignature(operation);
         frame[QStringLiteral("fixtureHashSha256")] = productionHarnessFixtureHash(spec);
-        frame[QStringLiteral("suiteId")] = QString::fromLatin1(E2EAdvertisedSuite);
+        frame[QStringLiteral("suiteId")] = QString::fromLatin1(E2EProductionSuite);
         frame[QStringLiteral("primaryInputClass")] = productionCallFramePrimaryClass(operation);
         frame[QStringLiteral("secondaryInputClass")] = productionCallFrameSecondaryClass(operation);
         frame[QStringLiteral("aadInputClass")] = productionCallFrameAadClass(operation);
@@ -8309,7 +8309,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
 
             qnc_e2e_operation_input_v1 input = {};
             input.operation = providerOperationEnum(operation);
-            input.suite_id = E2EAdvertisedSuite;
+            input.suite_id = E2EProductionSuite;
             input.primary.data = reinterpret_cast<const uint8_t*>(primary.constData());
             input.primary.size = static_cast<size_t>(primary.size());
             input.secondary.data = reinterpret_cast<const uint8_t*>(secondary.constData());
@@ -10901,14 +10901,14 @@ bool isSupportedE2EProtocol(const QString& protocol) {
 
 bool isSupportedE2ESuite(const QString& suite) {
     const QString normalized = normalizedE2ESuite(suite);
-    return normalized == QString::fromLatin1(E2EAdvertisedSuite)
+    return normalized == QString::fromLatin1(E2EProductionSuite)
         || normalized == QString::fromLatin1(E2EDraftSuite);
 }
 
 QString e2eDefaultSuite() {
     QString reason;
     if (productionBackendSelected() && productionProviderRuntimeReady(&reason)) {
-        return QString::fromLatin1(E2EAdvertisedSuite);
+        return QString::fromLatin1(E2EProductionSuite);
     }
     return QString::fromLatin1(E2EDraftSuite);
 }
@@ -11065,9 +11065,9 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderPublicPrimitiveExecutionStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = selectedProduction && available
-        ? QString::fromLatin1(E2EAdvertisedSuite)
+        ? QString::fromLatin1(E2EProductionSuite)
         : e2eDefaultSuite();
-    status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
+    status["wireCompatibleSuite"] = QString::fromLatin1(E2EProductionSuite);
     status["signatureSuite"] = e2eAgreementSignatureSuite();
     status["productionReady"] = productionAdapterDescriptor().productionReady;
     status["productionRequired"] = e2eProductionCryptoRequired();

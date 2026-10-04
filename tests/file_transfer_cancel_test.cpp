@@ -110,6 +110,7 @@ bool writeTestFile(const QString& filePath) {
 }
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_TRANSPORT", "tcp");
     qputenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE", "1");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
