@@ -36,6 +36,9 @@ set(ENV{QTNETWORKCHAT_TLS} "0")
 if(NOT DEFINED ENV{QTNETWORKCHAT_DB_DRIVER})
     set(ENV{QTNETWORKCHAT_DB_DRIVER} "QSQLITE")
 endif()
+if(NOT DEFINED ENV{QT_QPA_PLATFORM})
+    set(ENV{QT_QPA_PLATFORM} "offscreen")
+endif()
 
 execute_process(
     COMMAND "${TEST_EXE}" "${ENGINE_EXE}" "${FIXTURE_DIR}/protocol_contract.json"
